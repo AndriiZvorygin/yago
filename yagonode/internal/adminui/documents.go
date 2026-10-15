@@ -3,6 +3,8 @@ package adminui
 import (
 	"context"
 	"io"
+
+	"github.com/D4rk4/yago/yagonode/internal/documentimport"
 )
 
 // DocumentSummary is one indexed document as shown in the Index document browser.
@@ -99,3 +101,10 @@ type IndexExportRequest struct {
 type IndexExporter interface {
 	ExportDocuments(ctx context.Context, req IndexExportRequest, w io.Writer) error
 }
+
+type (
+	IndexImportRecord  = documentimport.Record
+	IndexImportResult  = documentimport.Result
+	IndexImportRequest = documentimport.Request
+	IndexImporter      = documentimport.Importer
+)

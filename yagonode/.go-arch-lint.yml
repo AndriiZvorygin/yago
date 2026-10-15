@@ -86,6 +86,8 @@ components:
     in: internal/landing/**
   adminui:
     in: internal/adminui/**
+  documentimport:
+    in: internal/documentimport/**
   publicportal:
     in: internal/publicportal/**
   portaltheme:
@@ -226,6 +228,8 @@ components:
     in:
       - cmd/yago-peer-hash/**
       - cmd/yago-node/**
+  yacy-migrate:
+    in: cmd/yacy-migrate/**
 
 vendors:
   yagomodel:
@@ -471,6 +475,12 @@ deps:
       - adminui
       - adminauth
       - httproute
+      - documentimport
+    canUse:
+      - yagocrawlcontract
+  documentimport:
+    mayDependOn:
+      - documentimport
     canUse:
       - yagocrawlcontract
   publicportal:
@@ -1074,6 +1084,12 @@ deps:
       - yagonode
     canUse:
       - yagomodel
+  yacy-migrate:
+    mayDependOn:
+      - yacy-migrate
+      - documentimport
+    canUse:
+      - yagocrawlcontract
 
 excludeFiles:
   - "test/e2e"

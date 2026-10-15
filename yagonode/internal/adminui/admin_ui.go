@@ -54,6 +54,7 @@ const (
 	blacklistExportPath = "/admin/index/blacklist/export"
 	blacklistImportPath = "/admin/index/blacklist/import"
 	indexExportPath     = "/admin/index/export"
+	indexImportPath     = "/admin/index/import"
 	networkPath         = "/admin/network"
 	networkSelfTestPath = "/admin/network/public-endpoint/test"
 	networkPeerPath     = "/admin/network/peer"
@@ -131,6 +132,7 @@ type Options struct {
 	ExtractionRecrawl    ExtractionRecrawlSource
 	Blacklist            BlacklistSource
 	IndexExport          IndexExporter
+	IndexImport          IndexImporter
 	Compactor            Compactor
 	Network              NetworkSource
 	NetworkSelfTest      NetworkSelfTester
@@ -466,6 +468,7 @@ type Console struct {
 	extractionRecrawl    ExtractionRecrawlSource
 	blacklist            BlacklistSource
 	indexExport          IndexExporter
+	indexImport          IndexImporter
 	compactor            Compactor
 	network              NetworkSource
 	networkSelfTest      NetworkSelfTester
@@ -528,6 +531,7 @@ func New(opts Options) *Console {
 		extractionRecrawl:    opts.ExtractionRecrawl,
 		blacklist:            opts.Blacklist,
 		indexExport:          opts.IndexExport,
+		indexImport:          opts.IndexImport,
 		compactor:            opts.Compactor,
 		network:              opts.Network,
 		networkSelfTest:      opts.NetworkSelfTest,
