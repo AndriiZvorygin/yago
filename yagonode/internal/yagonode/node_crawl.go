@@ -10,6 +10,7 @@ import (
 
 	"github.com/D4rk4/yago/yagocrawlcontract"
 	"github.com/D4rk4/yago/yagomodel"
+	"github.com/D4rk4/yago/yagonode/internal/adminui"
 	"github.com/D4rk4/yago/yagonode/internal/crawlbroker"
 	"github.com/D4rk4/yago/yagonode/internal/crawldispatch"
 	"github.com/D4rk4/yago/yagonode/internal/crawlformats"
@@ -40,6 +41,7 @@ type crawlRuntime struct {
 	initiator   yagomodel.Hash
 	pageBudget  *crawlRunPageBudget
 	remoteCrawl remoteCrawlOrderObserver
+	indexImport adminui.IndexImporter
 }
 
 const msgCrawlRuntimeStateCloseFailed = "crawl runtime state close failed"
@@ -70,7 +72,7 @@ func buildCrawlRuntime(
 		return nil, coordination.openFailure(err)
 	}
 
-	return &crawlRuntime{
+	runtime := &crawlRuntime{
 		broker:     coordination.broker,
 		state:      coordination.state,
 		ownsState:  coordination.ownsState,
@@ -82,7 +84,26 @@ func buildCrawlRuntime(
 		profiles:   newCrawlProfileDispatchRegistry(ingest.frontier),
 		initiator:  identity.Hash,
 		pageBudget: newCrawlRunPageBudget(config.MaxPagesPerRun),
-	}, nil
+	}
+	importer := newDocumentImportService(
+		storage.documentDirectory,
+		coordination.broker.Ingest,
+		ingest.frontier,
+	)
+	runtime.indexImport = importer
+
+	return runtime, nil
+}
+
+func (r *crawlRuntime) ImportDocuments(
+	ctx context.Context,
+	records []adminui.IndexImportRecord,
+) ([]adminui.IndexImportResult, error) {
+	results, err := r.indexImport.ImportDocuments(ctx, records)
+	if err != nil {
+		return nil, fmt.Errorf("import documents through crawl runtime: %w", err)
+	}
+	return results, nil
 }
 
 func (r *crawlRuntime) dispatchQueue() crawldispatch.CrawlOrderQueue {
