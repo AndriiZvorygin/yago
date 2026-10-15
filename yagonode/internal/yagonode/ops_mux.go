@@ -105,6 +105,9 @@ func buildOpsMux(
 		PublicAddr:        config.PublicAddr,
 		Theme:             newPortalThemeAdmin(assembled.theme),
 	}
+	if importer, ok := assembled.crawl.(adminui.IndexImporter); ok {
+		options.IndexImport = importer
+	}
 	applyOpsPageOptions(&options, config, assembled, sources)
 	applyIndexAdminOptions(&options, assembled)
 	applyExtractionRecrawlOption(&options, assembled)

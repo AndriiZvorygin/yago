@@ -151,10 +151,12 @@ func (c *IngestConsumer) passesGates(ctx context.Context, delivery IngestDeliver
 
 		return false
 	}
-	if rule := c.qualityRejectionRule(batch); rule != "" {
-		c.rejectLowQuality(ctx, delivery, rule)
+	if !delivery.ImportOnly {
+		if rule := c.qualityRejectionRule(batch); rule != "" {
+			c.rejectLowQuality(ctx, delivery, rule)
 
-		return false
+			return false
+		}
 	}
 
 	return true
@@ -364,7 +366,7 @@ func rejectIngestDelivery(
 // (a document with a source URL and a fetch time) are recorded.
 func (c *IngestConsumer) recordFetch(ctx context.Context, delivery IngestDelivery) {
 	batch := delivery.Batch
-	if batch.SourceURL == "" ||
+	if delivery.ImportOnly || batch.SourceURL == "" ||
 		!hasDocument(batch.Document) ||
 		batch.Document.FetchedAt.IsZero() {
 		return

@@ -84,6 +84,98 @@ func TestProfileByHandleMissingReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestScheduleAtIfAbsentKeepsImportedWorkOutOfFrontierUntilDue(t *testing.T) {
+	f := openTestFrontier(t)
+	ctx := context.Background()
+	profile := profileWithRecrawl("migration one-shot", 0)
+	if err := f.RecordProfile(
+		ctx,
+		profile,
+		yagocrawlcontract.CrawlOrderPriorityNormal,
+	); err != nil {
+		t.Fatalf("record import profile: %v", err)
+	}
+	nextVisit := testBase.Add(time.Hour)
+	created, err := f.ScheduleAtIfAbsent(
+		ctx,
+		"https://imported.example/page",
+		profile.Handle,
+		nextVisit,
+		time.Hour,
+	)
+	if err != nil || !created {
+		t.Fatalf("schedule imported URL = %t, %v", created, err)
+	}
+	if due := claim(t, f, testBase, 10); len(due) != 0 {
+		t.Fatalf("future imported URL entered due frontier: %+v", due)
+	}
+	created, err = f.ScheduleAtIfAbsent(
+		ctx,
+		"https://imported.example/page",
+		profile.Handle,
+		testBase.Add(2*time.Hour),
+		time.Hour,
+	)
+	if err != nil || created {
+		t.Fatalf("duplicate schedule changed existing state: created=%t err=%v", created, err)
+	}
+	due := claim(t, f, nextVisit, 10)
+	if len(due) != 1 || due[0].URL != "https://imported.example/page" {
+		t.Fatalf("due imported URLs = %+v", due)
+	}
+}
+
+func TestImportedDueScheduleSurvivesFrontierRestart(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "frontier.db")
+	v, err := boltvault.Open(path, 0)
+	if err != nil {
+		t.Fatalf("open vault: %v", err)
+	}
+	frontier, err := Open(v)
+	if err != nil {
+		t.Fatalf("open frontier: %v", err)
+	}
+	profile := profileWithRecrawl("migration-recovery", 0)
+	if err := frontier.RecordProfile(
+		ctx,
+		profile,
+		yagocrawlcontract.CrawlOrderPriorityNormal,
+	); err != nil {
+		t.Fatalf("record profile: %v", err)
+	}
+	nextVisit := testBase.Add(2 * time.Hour)
+	if _, err := frontier.ScheduleAtIfAbsent(
+		ctx,
+		"https://restart.example/imported",
+		profile.Handle,
+		nextVisit,
+		time.Hour,
+	); err != nil {
+		t.Fatalf("schedule imported URL: %v", err)
+	}
+	if err := v.Close(); err != nil {
+		t.Fatalf("close vault: %v", err)
+	}
+	reopened, err := boltvault.Open(path, 0)
+	if err != nil {
+		t.Fatalf("reopen vault: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := reopened.Close(); err != nil {
+			t.Errorf("close reopened vault: %v", err)
+		}
+	})
+	restored, err := Open(reopened)
+	if err != nil {
+		t.Fatalf("reopen frontier: %v", err)
+	}
+	due, err := restored.ClaimDue(ctx, nextVisit, 10)
+	if err != nil || len(due) != 1 || due[0].URL != "https://restart.example/imported" {
+		t.Fatalf("restored due schedule = %+v, %v", due, err)
+	}
+}
+
 func TestRecordProfileRejectsEmptyHandle(t *testing.T) {
 	f := openTestFrontier(t)
 	if err := f.RecordProfile(
