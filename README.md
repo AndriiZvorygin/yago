@@ -3,7 +3,7 @@
 <p align="center"><b>Your own federated search engine — one Go binary away.</b></p>
 
 <p align="center">
-  <img alt="Go 1.26.6" src="https://img.shields.io/badge/Go-1.26.6-00ADD8?logo=go&logoColor=white">
+  <img alt="Go 1.26.9" src="https://img.shields.io/badge/Go-1.26.9-00ADD8?logo=go&logoColor=white">
   <img alt="License AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
   <img alt="Status alpha" src="https://img.shields.io/badge/status-alpha-orange">
   <img alt="YaCy protocol" src="https://img.shields.io/badge/YaCy%20P2P-wire%20compatible-6f42c1">
@@ -749,7 +749,7 @@ remains the default.
 
 ## 🚀 Quick start
 
-Requirements: Docker (or Podman); for source builds, Go 1.26.6.
+Requirements: Docker (or Podman); for source builds, Go 1.26.9.
 
 ```sh
 export YAGO_SEARCH_API_KEY='replace-with-a-long-random-secret'
