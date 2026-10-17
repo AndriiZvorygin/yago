@@ -71,9 +71,7 @@ func importCorpus(ctx context.Context, opts importOptions, progress io.Writer) (
 		return err
 	}
 	defer func() {
-		if err := session.file.Close(); err != nil {
-			resultErr = errors.Join(resultErr, fmt.Errorf("close interchange input: %w", err))
-		}
+		resultErr = closeImportInput(session.file, "close interchange input", resultErr)
 	}()
 	if opts.DryRun {
 		return validateImportFile(session.reader, session.offset, progress)
@@ -82,28 +80,30 @@ func importCorpus(ctx context.Context, opts importOptions, progress io.Writer) (
 }
 
 func openImportSession(opts importOptions) (session *importSession, resultErr error) {
+	return openImportSessionUsing(opts, os.Open)
+}
+
+func openImportSessionUsing(
+	opts importOptions,
+	openInput func(string) (*os.File, error),
+) (session *importSession, resultErr error) {
 	endpoint, err := validateImportOptions(opts)
 	if err != nil {
 		return nil, err
 	}
-	file, err := os.Open(opts.Input)
+	file, err := openInput(opts.Input)
 	if err != nil {
 		return nil, fmt.Errorf("open interchange file: %w", err)
 	}
 	keepOpen := false
 	defer func() {
 		if !keepOpen {
-			if err := file.Close(); err != nil {
-				resultErr = errors.Join(
-					resultErr,
-					fmt.Errorf("close failed interchange input: %w", err),
-				)
-			}
+			resultErr = closeImportInput(file, "close failed interchange input", resultErr)
 		}
 	}()
-	info, err := file.Stat()
+	info, err := importInputInfo(file)
 	if err != nil {
-		return nil, fmt.Errorf("inspect interchange input: %w", err)
+		return nil, err
 	}
 	statePath := opts.State
 	if statePath == "" {
@@ -131,6 +131,25 @@ func openImportSession(opts importOptions) (session *importSession, resultErr er
 	}
 	keepOpen = true
 	return session, nil
+}
+
+type importInputStat interface {
+	Stat() (os.FileInfo, error)
+}
+
+func importInputInfo(file importInputStat) (os.FileInfo, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("inspect interchange input: %w", err)
+	}
+	return info, nil
+}
+
+func closeImportInput(file *os.File, operation string, resultErr error) error {
+	if err := file.Close(); err != nil {
+		return errors.Join(resultErr, fmt.Errorf("%s: %w", operation, err))
+	}
+	return resultErr
 }
 
 func validateImportOptions(opts importOptions) (*url.URL, error) {
@@ -268,10 +287,16 @@ func (session *importSession) importDocuments(ctx context.Context, progress io.W
 }
 
 func (session *importSession) nextBatch() ([]documentimport.Record, int64, error) {
+	return session.nextBatchUsing(session.nextRecord)
+}
+
+func (session *importSession) nextBatchUsing(
+	readNext func() (*pendingRecord, bool, error),
+) ([]documentimport.Record, int64, error) {
 	batch := make([]documentimport.Record, 0, importMaximumRecords)
 	batchEnd := session.state.Offset
 	for len(batch) < importMaximumRecords {
-		next, eof, err := session.nextRecord()
+		next, eof, err := readNext()
 		if err != nil {
 			return nil, 0, err
 		}
@@ -282,10 +307,7 @@ func (session *importSession) nextBatch() ([]documentimport.Record, int64, error
 			return nil, 0, errors.New("interchange reader returned no record")
 		}
 		batch = append(batch, next.value)
-		encoded, err := json.Marshal(documentimport.Request{Version: 1, Records: batch})
-		if err != nil {
-			return nil, 0, fmt.Errorf("encode import batch: %w", err)
-		}
+		encoded, _ := json.Marshal(documentimport.Request{Version: 1, Records: batch})
 		if len(encoded) > yagocrawlcontract.MaximumIngestBatchBytes {
 			batch = batch[:len(batch)-1]
 			if len(batch) == 0 {
@@ -437,6 +459,9 @@ func validateImportRecord(record documentimport.Record) error {
 	if metadataBytes > yagocrawlcontract.MaximumDocumentMetadataBytes {
 		return errors.New("document metadata exceeds Yago's size limit")
 	}
+	if record.NextVisitAt != nil && record.NextVisitAt.IsZero() {
+		return errors.New("nextVisitAt must be a non-zero timestamp")
+	}
 	return nil
 }
 
@@ -491,10 +516,7 @@ func sendImportBatch(
 	endpoint, apiKey string,
 	records []documentimport.Record,
 ) (results []documentimport.Result, resultErr error) {
-	body, err := json.Marshal(documentimport.Request{Version: 1, Records: records})
-	if err != nil {
-		return nil, fmt.Errorf("encode import batch: %w", err)
-	}
+	body, _ := json.Marshal(documentimport.Request{Version: 1, Records: records})
 	request, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,

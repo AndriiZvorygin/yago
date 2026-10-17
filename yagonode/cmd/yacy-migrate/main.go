@@ -11,15 +11,23 @@ import (
 	"syscall"
 )
 
+var (
+	commandArgs             = func() []string { return os.Args[1:] }
+	commandErrors io.Writer = os.Stderr
+	exitProcess             = os.Exit
+)
+
 func main() {
-	os.Exit(execute())
+	exitProcess(execute())
 }
 
 func execute() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, os.Args[1:], os.Stderr); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	if err := run(ctx, commandArgs(), commandErrors); err != nil {
+		if _, writeErr := fmt.Fprintln(commandErrors, err); writeErr != nil {
+			return 2
+		}
 		return 1
 	}
 	return 0
