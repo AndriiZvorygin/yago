@@ -2,7 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/D4rk4/yago/yagocrawlcontract"
 )
 
 func TestMapSolrDocumentPreservesFieldsAndStableHashes(t *testing.T) {
@@ -71,5 +76,172 @@ func TestMapSolrDocumentRejectsIncompleteAndAmbiguousRows(t *testing.T) {
 		"sku": json.RawMessage(`"https://user:secret@example.test/"`),
 	}, "fixture"); err == nil {
 		t.Fatal("credential-bearing URL was accepted")
+	}
+}
+
+func TestMapSolrDocumentDerivesIDWhenYaCyIDIsAbsent(t *testing.T) {
+	row := map[string]json.RawMessage{
+		"sku":    json.RawMessage(`"https://fixture.example.test/page"`),
+		"text_t": json.RawMessage(`"stable content"`),
+	}
+	first, err := mapSolrDocument(row, "fixture-source")
+	if err != nil {
+		t.Fatalf("map missing-ID row: %v", err)
+	}
+	second, err := mapSolrDocument(row, "fixture-source")
+	if err != nil {
+		t.Fatalf("map repeated missing-ID row: %v", err)
+	}
+	if first.ID == "" || first.ID != second.ID {
+		t.Fatalf("fallback IDs are not stable: %q and %q", first.ID, second.ID)
+	}
+}
+
+func TestMapSolrDocumentRejectsInvalidURLsAndOversizedContent(t *testing.T) {
+	assertSolrDocumentsRejected(t, []solrMappingRejection{
+		{name: "invalid source URL", change: func(row map[string]json.RawMessage) {
+			row["sku"] = json.RawMessage(`"file:///tmp/private"`)
+		}},
+		{name: "invalid canonical URL", change: func(row map[string]json.RawMessage) {
+			row["canonical_s"] = json.RawMessage(`"https://user:secret@example.test/"`)
+		}},
+		{name: "URL identity too long", change: func(row map[string]json.RawMessage) {
+			row["sku"] = json.RawMessage(fmt.Sprintf(
+				`"https://example.test/%s"`,
+				strings.Repeat("x", yagocrawlcontract.MaximumCrawlURLBytes),
+			))
+		}},
+		{name: "text too long", change: func(row map[string]json.RawMessage) {
+			value, _ := json.Marshal(
+				strings.Repeat("x", yagocrawlcontract.MaximumDocumentTextBytes+1),
+			)
+			row["text_t"] = value
+		}},
+		{name: "title too long", change: func(row map[string]json.RawMessage) {
+			title, _ := json.Marshal(
+				strings.Repeat("x", yagocrawlcontract.MaximumDocumentTitleBytes+1),
+			)
+			row["title"] = title
+		}},
+	})
+}
+
+func TestMapSolrDocumentRejectsOversizedHeadingsMetadataAndLinks(t *testing.T) {
+	assertSolrDocumentsRejected(t, []solrMappingRejection{
+		{name: "too many headings", change: func(row map[string]json.RawMessage) {
+			values := make([]string, yagocrawlcontract.MaximumDocumentHeadings+1)
+			for index := range values {
+				values[index] = "heading"
+			}
+			row["h1_txt"], _ = json.Marshal(values)
+		}},
+		{name: "heading too long", change: func(row map[string]json.RawMessage) {
+			row["h1_txt"], _ = json.Marshal([]string{
+				strings.Repeat("x", yagocrawlcontract.MaximumDocumentHeadingBytes+1),
+			})
+		}},
+		{name: "metadata too large", change: func(row map[string]json.RawMessage) {
+			row["description_txt"], _ = json.Marshal(
+				strings.Repeat("x", yagocrawlcontract.MaximumDocumentMetadataBytes),
+			)
+		}},
+		{name: "too many outlinks", change: func(row map[string]json.RawMessage) {
+			protocols := make([]string, yagocrawlcontract.MaximumDocumentOutlinks+1)
+			stubs := make([]string, len(protocols))
+			fillSolrLinkArrays(protocols, stubs)
+			row["outboundlinks_protocol_sxt"], _ = json.Marshal(protocols)
+			row["outboundlinks_urlstub_sxt"], _ = json.Marshal(stubs)
+		}},
+		{name: "too many inlinks", change: func(row map[string]json.RawMessage) {
+			protocols := make([]string, yagocrawlcontract.MaximumDocumentAnchors+1)
+			stubs := make([]string, len(protocols))
+			fillSolrLinkArrays(protocols, stubs)
+			row["inboundlinks_protocol_sxt"], _ = json.Marshal(protocols)
+			row["inboundlinks_urlstub_sxt"], _ = json.Marshal(stubs)
+		}},
+		{name: "outbound link arrays mismatch", change: func(row map[string]json.RawMessage) {
+			row["outboundlinks_protocol_sxt"] = json.RawMessage(`["https"]`)
+			row["outboundlinks_urlstub_sxt"] = json.RawMessage(`[]`)
+		}},
+		{name: "inbound link arrays mismatch", change: func(row map[string]json.RawMessage) {
+			row["inboundlinks_protocol_sxt"] = json.RawMessage(`["https"]`)
+			row["inboundlinks_urlstub_sxt"] = json.RawMessage(`[]`)
+		}},
+	})
+}
+
+type solrMappingRejection struct {
+	name   string
+	change func(map[string]json.RawMessage)
+}
+
+func fillSolrLinkArrays(protocols, stubs []string) {
+	for index := range protocols {
+		protocols[index] = "https"
+		stubs[index] = fmt.Sprintf("example.test/%d", index)
+	}
+}
+
+func assertSolrDocumentsRejected(t *testing.T, tests []solrMappingRejection) {
+	t.Helper()
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			row := map[string]json.RawMessage{"sku": json.RawMessage(`"https://example.test/"`)}
+			test.change(row)
+			if _, err := mapSolrDocument(row, "fixture"); err == nil {
+				t.Fatal("unsupported source document was accepted")
+			}
+		})
+	}
+}
+
+func TestSolrValueAdaptersHandleScalarMalformedAndUnsupportedValues(t *testing.T) {
+	if got := solrString(json.RawMessage(` null `)); got != "" {
+		t.Fatalf("null string = %q, want empty", got)
+	}
+	if got := solrString(json.RawMessage(` 42 `)); got != "42" {
+		t.Fatalf("numeric string fallback = %q, want trimmed raw value", got)
+	}
+	if got := solrStrings(json.RawMessage(`null`)); got != nil {
+		t.Fatalf("null string list = %#v, want nil", got)
+	}
+	if got := solrStrings(
+		json.RawMessage(`" single value "`),
+	); len(got) != 1 ||
+		got[0] != " single value " {
+		t.Fatalf("scalar string list = %#v", got)
+	}
+	if got := solrStrings(
+		json.RawMessage(`["kept","",null,7]`),
+	); len(got) != 2 || got[0] != "kept" ||
+		got[1] != "7" {
+		t.Fatalf("filtered string list = %#v", got)
+	}
+	if got := solrTime(json.RawMessage(`null`)); !got.IsZero() {
+		t.Fatalf("missing time = %v, want zero", got)
+	}
+	if got := solrTime(json.RawMessage(`"not-a-date"`)); !got.IsZero() {
+		t.Fatalf("malformed time = %v, want zero", got)
+	}
+	if got := solrTime(
+		json.RawMessage(`"2026-10-01T10:00:00-04:00"`),
+	); got.Location() != time.UTC ||
+		got.Hour() != 14 {
+		t.Fatalf("parsed time = %v, want equivalent UTC", got)
+	}
+}
+
+func TestSolrLinksIgnoreUnsupportedAndMalformedTargets(t *testing.T) {
+	links, err := solrLinks(
+		json.RawMessage(`["ftp","https:","https","https"]`),
+		json.RawMessage(
+			`["example.test/file","example.test/page","example.test/%zz","user:pass@example.test"]`,
+		),
+	)
+	if err != nil {
+		t.Fatalf("solrLinks: %v", err)
+	}
+	if len(links) != 1 || links[0] != "https://example.test/page" {
+		t.Fatalf("filtered links = %#v", links)
 	}
 }

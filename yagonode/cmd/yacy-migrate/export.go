@@ -50,6 +50,28 @@ type exportOptions struct {
 	DryRun   bool
 }
 
+type exportFile interface {
+	io.Writer
+	Chmod(os.FileMode) error
+	Stat() (os.FileInfo, error)
+	Truncate(int64) error
+	Seek(int64, int) (int64, error)
+	Sync() error
+	Close() error
+}
+
+type checkpointTemporaryFile interface {
+	Chmod(os.FileMode) error
+	Write([]byte) (int, error)
+	Sync() error
+	Close() error
+}
+
+type checkpointDirectory interface {
+	Sync() error
+	Close() error
+}
+
 func exportCorpus(ctx context.Context, opts exportOptions, progress io.Writer) (resultErr error) {
 	endpoint, err := validateExportOptions(opts)
 	if err != nil {
@@ -66,20 +88,35 @@ func exportCorpus(ctx context.Context, opts exportOptions, progress io.Writer) (
 	if complete {
 		return nil
 	}
+	defer func() {
+		resultErr = closeExportOutput(session.output, resultErr)
+	}()
+	return runExportSession(ctx, session, opts, reader, progress)
+}
+
+func runExportSession(
+	ctx context.Context,
+	session *exportSession,
+	opts exportOptions,
+	reader *solrReader,
+	progress io.Writer,
+) error {
 	if session == nil {
 		return errors.New("export session was not initialized")
 	}
-	defer func() {
-		if err := session.output.Close(); err != nil {
-			resultErr = errors.Join(resultErr, fmt.Errorf("close export output: %w", err))
-		}
-	}()
 	if !session.resumed {
 		if err := session.writeHeader(opts.SourceID); err != nil {
 			return err
 		}
 	}
 	return session.exportPages(ctx, opts, reader, progress)
+}
+
+func closeExportOutput(output exportFile, resultErr error) error {
+	if err := output.Close(); err != nil {
+		return errors.Join(resultErr, fmt.Errorf("close export output: %w", err))
+	}
+	return resultErr
 }
 
 func validateExportOptions(opts exportOptions) (*url.URL, error) {
@@ -172,7 +209,7 @@ func validateExportCheckpoint(
 }
 
 type exportSession struct {
-	output            *os.File
+	output            exportFile
 	writer            *bufio.Writer
 	statePath         string
 	state             exportCheckpoint
@@ -349,7 +386,7 @@ func writeJSONLine(writer io.Writer, value any) error {
 	return nil
 }
 
-func openExportFile(path string, hasCheckpoint bool, offset int64) (*os.File, error) {
+func openExportFile(path string, hasCheckpoint bool, offset int64) (exportFile, error) {
 	flags := os.O_CREATE | os.O_RDWR
 	if !hasCheckpoint {
 		if _, err := os.Stat(path); err == nil {
@@ -369,27 +406,30 @@ func openExportFile(path string, hasCheckpoint bool, offset int64) (*os.File, er
 	if err != nil {
 		return nil, fmt.Errorf("open export output: %w", err)
 	}
+	if err := prepareExportFile(file, offset); err != nil {
+		return nil, closeFileAfterError(file, "prepare export output", err)
+	}
+	return file, nil
+}
+
+func prepareExportFile(file exportFile, offset int64) error {
 	if err := file.Chmod(0o600); err != nil {
-		return nil, closeFileAfterError(file, "restrict export output permissions", err)
+		return fmt.Errorf("restrict export output permissions: %w", err)
 	}
 	info, err := file.Stat()
 	if err != nil {
-		return nil, closeFileAfterError(file, "inspect export output", err)
+		return fmt.Errorf("inspect export output: %w", err)
 	}
 	if offset < 0 || offset > info.Size() {
-		return nil, closeFileAfterError(
-			file,
-			"validate export output",
-			errors.New("checkpoint offset is outside the output file"),
-		)
+		return errors.New("checkpoint offset is outside the output file")
 	}
 	if err := file.Truncate(offset); err != nil {
-		return nil, closeFileAfterError(file, "truncate export output", err)
+		return fmt.Errorf("truncate export output: %w", err)
 	}
 	if _, err := file.Seek(offset, io.SeekStart); err != nil {
-		return nil, closeFileAfterError(file, "seek export output", err)
+		return fmt.Errorf("seek export output: %w", err)
 	}
-	return file, nil
+	return nil
 }
 
 func loadExportCheckpoint(path string) (exportCheckpoint, bool, error) {
@@ -409,7 +449,7 @@ func loadExportCheckpoint(path string) (exportCheckpoint, bool, error) {
 	return state, true, nil
 }
 
-func closeFileAfterError(file *os.File, operation string, primary error) error {
+func closeFileAfterError(file exportFile, operation string, primary error) error {
 	if err := file.Close(); err != nil {
 		primary = errors.Join(primary, fmt.Errorf("close file after %s: %w", operation, err))
 	}
@@ -426,30 +466,24 @@ func saveCheckpoint(path string, value any) (resultErr error) {
 	if err != nil {
 		return fmt.Errorf("create checkpoint temporary file: %w", err)
 	}
-	temporary := file.Name()
+	return persistCheckpointTemporary(file, file.Name(), path, directory, data)
+}
+
+func persistCheckpointTemporary(
+	file checkpointTemporaryFile,
+	temporary, path, directory string,
+	data []byte,
+) (resultErr error) {
 	defer func() {
-		if file != nil {
-			if err := file.Close(); err != nil {
-				resultErr = errors.Join(
-					resultErr,
-					fmt.Errorf("close checkpoint temporary file: %w", err),
-				)
-			}
-		}
 		if temporary != "" {
-			if err := os.Remove(temporary); err != nil && !errors.Is(err, os.ErrNotExist) {
-				resultErr = errors.Join(
-					resultErr,
-					fmt.Errorf("remove checkpoint temporary file: %w", err),
-				)
+			if err := removeCheckpointTemporary(temporary); err != nil {
+				resultErr = errors.Join(resultErr, err)
 			}
 		}
 	}()
 	if err := writeCheckpointTemporary(file, data); err != nil {
-		file = nil
 		return err
 	}
-	file = nil
 	if err := os.Rename(temporary, path); err != nil {
 		return fmt.Errorf("replace checkpoint: %w", err)
 	}
@@ -457,7 +491,14 @@ func saveCheckpoint(path string, value any) (resultErr error) {
 	return syncCheckpointDirectory(directory)
 }
 
-func writeCheckpointTemporary(file *os.File, data []byte) (resultErr error) {
+func removeCheckpointTemporary(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove checkpoint temporary file: %w", err)
+	}
+	return nil
+}
+
+func writeCheckpointTemporary(file checkpointTemporaryFile, data []byte) (resultErr error) {
 	defer func() {
 		if err := file.Close(); err != nil {
 			resultErr = errors.Join(
@@ -485,6 +526,10 @@ func syncCheckpointDirectory(directory string) error {
 	if err != nil {
 		return fmt.Errorf("open checkpoint directory for sync: %w", err)
 	}
+	return syncAndCloseCheckpointDirectory(dir)
+}
+
+func syncAndCloseCheckpointDirectory(dir checkpointDirectory) error {
 	syncErr := dir.Sync()
 	closeErr := dir.Close()
 	if syncErr != nil || closeErr != nil {
