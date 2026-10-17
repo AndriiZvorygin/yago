@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.26.6@sha256:0d1d3a794be25f809dd2cb3160d8c73276c4056a9f8242a138e908ddeee7b6b6 AS build
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.26.9@sha256:37cfcca63222ec499bec5e8ad7aad52dbf7529db36d5812b8eae2f0621aa92d6 AS build
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -43,7 +43,7 @@ RUN apk add --no-cache \
     font-liberation=2.1.5-r2 \
     libblkid=2.42.3-r1 \
     libcrypto3=3.5.9-r0 \
-    libexpat=2.8.5-r0 \
+    libexpat=2.9.0-r0 \
     libmount=2.42.3-r1 \
     libssl3=3.5.9-r0 \
     pcre2=10.49-r0
