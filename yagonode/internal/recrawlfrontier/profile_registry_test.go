@@ -125,6 +125,165 @@ func TestScheduleAtIfAbsentKeepsImportedWorkOutOfFrontierUntilDue(t *testing.T) 
 	}
 }
 
+func TestScheduleAtIfAbsentRejectsInvalidAndUnknownSchedules(t *testing.T) {
+	f := openTestFrontier(t)
+	ctx := context.Background()
+	profile := profileWithRecrawl("migration schedule", 0)
+	if err := f.RecordProfile(
+		ctx,
+		profile,
+		yagocrawlcontract.CrawlOrderPriorityNormal,
+	); err != nil {
+		t.Fatalf("record profile: %v", err)
+	}
+	tests := []struct {
+		name          string
+		url           string
+		handle        string
+		nextDueAt     time.Time
+		retryInterval time.Duration
+	}{
+		{
+			name:          "empty URL",
+			handle:        profile.Handle,
+			nextDueAt:     testBase.Add(time.Hour),
+			retryInterval: time.Hour,
+		},
+		{
+			name:          "empty profile",
+			url:           "https://schedule.example/",
+			nextDueAt:     testBase.Add(time.Hour),
+			retryInterval: time.Hour,
+		},
+		{
+			name:          "zero due time",
+			url:           "https://schedule.example/",
+			handle:        profile.Handle,
+			retryInterval: time.Hour,
+		},
+		{
+			name:      "zero retry interval",
+			url:       "https://schedule.example/",
+			handle:    profile.Handle,
+			nextDueAt: testBase.Add(time.Hour),
+		},
+		{
+			name:          "negative retry interval",
+			url:           "https://schedule.example/",
+			handle:        profile.Handle,
+			nextDueAt:     testBase.Add(time.Hour),
+			retryInterval: -time.Second,
+		},
+		{
+			name:          "unknown profile",
+			url:           "https://schedule.example/",
+			handle:        "unknown",
+			nextDueAt:     testBase.Add(time.Hour),
+			retryInterval: time.Hour,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			created, err := f.ScheduleAtIfAbsent(
+				ctx, test.url, test.handle, test.nextDueAt, test.retryInterval,
+			)
+			if err == nil || created {
+				t.Fatalf("ScheduleAtIfAbsent = %t, %v; want rejected schedule", created, err)
+			}
+		})
+	}
+}
+
+func TestScheduleAtIfAbsentSurfacesCorruptProfileAndRecord(t *testing.T) {
+	profile := profileWithRecrawl("migration schedule", 0)
+	url := "https://schedule.example/imported"
+	t.Run("profile read", func(t *testing.T) {
+		frontier, engine := openCtrlFrontier(t)
+		engine.seed(profileBucket, profile.Handle, []byte("{"))
+		assertImportedScheduleFails(t, frontier, url, profile.Handle, context.Background())
+	})
+	t.Run("existing record read", func(t *testing.T) {
+		frontier, engine := openCtrlFrontier(t)
+		recordImportedScheduleProfile(t, frontier, profile)
+		engine.seed(recordBucket, hashKey(t, url), []byte("{"))
+		assertImportedScheduleFails(t, frontier, url, profile.Handle, context.Background())
+	})
+}
+
+func TestScheduleAtIfAbsentSurfacesCanceledProfileRead(t *testing.T) {
+	frontier, _ := openCtrlFrontier(t)
+	profile := profileWithRecrawl("migration schedule", 0)
+	recordImportedScheduleProfile(t, frontier, profile)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	assertImportedScheduleFails(
+		t,
+		frontier,
+		"https://schedule.example/imported",
+		profile.Handle,
+		ctx,
+	)
+}
+
+func TestScheduleAtIfAbsentSurfacesRecordAndDueWriteFailures(t *testing.T) {
+	tests := []struct {
+		name string
+		fail func(*ctrlEngine)
+	}{
+		{name: "record", fail: func(engine *ctrlEngine) { engine.failPut[recordBucket] = true }},
+		{name: "due", fail: func(engine *ctrlEngine) { engine.failPut[dueBucket] = true }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			frontier, engine := openCtrlFrontier(t)
+			profile := profileWithRecrawl("migration schedule", 0)
+			recordImportedScheduleProfile(t, frontier, profile)
+			test.fail(engine)
+			assertImportedScheduleFails(
+				t,
+				frontier,
+				"https://schedule.example/imported",
+				profile.Handle,
+				context.Background(),
+			)
+		})
+	}
+}
+
+func recordImportedScheduleProfile(
+	t *testing.T,
+	frontier *Frontier,
+	profile yagocrawlcontract.CrawlProfile,
+) {
+	t.Helper()
+	if err := frontier.RecordProfile(
+		t.Context(),
+		profile,
+		yagocrawlcontract.CrawlOrderPriorityNormal,
+	); err != nil {
+		t.Fatalf("record profile: %v", err)
+	}
+}
+
+func assertImportedScheduleFails(
+	t *testing.T,
+	frontier *Frontier,
+	url, profileHandle string,
+	ctx context.Context,
+) {
+	t.Helper()
+	created, err := frontier.ScheduleAtIfAbsent(
+		ctx,
+		url,
+		profileHandle,
+		testBase.Add(time.Hour),
+		time.Hour,
+	)
+	if err == nil || created {
+		t.Fatalf("ScheduleAtIfAbsent = %t, %v; want storage failure", created, err)
+	}
+}
+
 func TestImportedDueScheduleSurvivesFrontierRestart(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "frontier.db")
