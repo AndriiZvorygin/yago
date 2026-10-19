@@ -198,6 +198,19 @@ func TestMapSolrDocumentPreservesFieldsAndStableHashes(t *testing.T) {
 	}
 }
 
+func TestMapSolrDocumentSelectsFirstNonemptyMultivalueTitle(t *testing.T) {
+	record, err := mapSolrDocument(map[string]json.RawMessage{
+		"sku":   json.RawMessage(`"https://archive.example.test/item"`),
+		"title": json.RawMessage(`["", "Primary title", "Alternate title"]`),
+	}, "fixture-export")
+	if err != nil {
+		t.Fatalf("map multivalue YaCy title: %v", err)
+	}
+	if record.Document.Title != "Primary title" {
+		t.Fatalf("mapped title = %q, want first nonempty value", record.Document.Title)
+	}
+}
+
 func TestMapSolrDocumentPreservesLongDescriptionMetadata(t *testing.T) {
 	description := strings.Repeat("x", (4<<20)+(256<<10))
 	encoded, err := json.Marshal(description)

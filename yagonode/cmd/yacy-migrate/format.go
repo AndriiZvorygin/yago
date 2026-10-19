@@ -410,7 +410,7 @@ func mapSolrContent(source map[string]json.RawMessage) (solrDocumentContent, err
 			headings = append(headings, heading)
 		}
 	}
-	title := solrString(source["title"])
+	title := solrFirstString(source["title"])
 	if len(title) > yagocrawlcontract.MaximumDocumentTitleBytes {
 		return solrDocumentContent{
 			title:        truncateUTF8(title, yagocrawlcontract.MaximumDocumentTitleBytes),
