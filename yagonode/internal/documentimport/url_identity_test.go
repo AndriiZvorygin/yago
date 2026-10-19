@@ -8,9 +8,7 @@ import (
 
 func TestValidateURLIdentityPreservesOnlyMarkedLegacyYaCyHost(t *testing.T) {
 	legacy := "https://bad%20host.example.test/page"
-	if _, err := url.Parse(legacy); err == nil {
-		t.Fatal("fixture should not be parseable by net/url")
-	}
+	assertURLParseRejects(t, legacy)
 	if !IsPreservableLegacyURL(legacy) {
 		t.Fatal("known percent-encoded whitespace host was not recognized")
 	}
@@ -40,7 +38,9 @@ func TestValidateURLIdentityAllowsMarkedNonCrawlableLongIdentity(t *testing.T) {
 	if err := ValidateURLIdentity(longURL, status); err != nil {
 		t.Fatalf("marked archival URL identity was rejected: %v", err)
 	}
-	if IsPreservableLegacyURL("https://user:secret@archive.example.test/" + strings.Repeat("a", 2200)) {
+	if IsPreservableLegacyURL(
+		"https://user:secret@archive.example.test/" + strings.Repeat("a", 2200),
+	) {
 		t.Fatal("credential-bearing long URL was preservable")
 	}
 	tooLong := "https://archive.example.test/" +
@@ -52,9 +52,7 @@ func TestValidateURLIdentityAllowsMarkedNonCrawlableLongIdentity(t *testing.T) {
 
 func TestValidateURLIdentityPreservesInvalidHostCharacterOnlyWhenMarked(t *testing.T) {
 	legacy := "https://bad host.example.test/page"
-	if _, err := url.Parse(legacy); err == nil {
-		t.Fatal("fixture should not be parseable by net/url")
-	}
+	assertURLParseRejects(t, legacy)
 	if got := PreservableLegacyURLStatus(legacy); got != LegacyURLStatusInvalidHostCharacter {
 		t.Fatalf("legacy status = %q, want invalid host character", got)
 	}
@@ -63,6 +61,29 @@ func TestValidateURLIdentityPreservesInvalidHostCharacterOnlyWhenMarked(t *testi
 	}
 	if err := ValidateURLIdentity(legacy, LegacyURLStatusInvalidHostCharacter); err != nil {
 		t.Fatalf("marked invalid-host identity was rejected: %v", err)
+	}
+}
+
+func TestValidateURLIdentityPreservesControlCharacterOnlyAsOpaque(t *testing.T) {
+	legacy := "https://archive.example.test/path/\nrecord"
+	assertURLParseRejects(t, legacy)
+	status := PreservableLegacyURLStatus(legacy)
+	if status != LegacyURLStatusControlCharacter {
+		t.Fatalf("legacy status = %q, want control-character marker", status)
+	}
+	if err := ValidateURLIdentity(legacy, ""); err == nil {
+		t.Fatal("unmarked control-character URL identity was accepted")
+	}
+	if err := ValidateURLIdentity(legacy, status); err != nil {
+		t.Fatalf("marked opaque URL identity was rejected: %v", err)
+	}
+	if IsPreservableLegacyURL("https://user:secret@archive.example.test/path/\nrecord") {
+		t.Fatal("credential-bearing control-character URL was preservable")
+	}
+	tooLong := "https://archive.example.test/\n" +
+		strings.Repeat("x", MaximumMigrationURLBytes)
+	if IsPreservableLegacyURL(tooLong) {
+		t.Fatal("over-limit control-character URL was preservable")
 	}
 }
 
@@ -75,7 +96,9 @@ func TestValidateURLIdentityPreservesMalformedHostWithFragmentOrBackslash(t *tes
 			if _, err := url.Parse(legacy); err == nil {
 				t.Fatal("fixture should not be parseable")
 			}
-			if got := PreservableLegacyURLStatus(legacy); got != LegacyURLStatusInvalidHostCharacter {
+			if got := PreservableLegacyURLStatus(
+				legacy,
+			); got != LegacyURLStatusInvalidHostCharacter {
 				t.Fatalf("legacy status = %q, want invalid host character", got)
 			}
 			if err := ValidateURLIdentity(legacy, LegacyURLStatusInvalidHostCharacter); err != nil {
@@ -163,9 +186,7 @@ func TestValidateURLIdentityPreservesMalformedPercentEscapeInHostWithPort(t *tes
 
 func TestValidateURLIdentityPreservesPercentEncodedLegacyHost(t *testing.T) {
 	legacy := "https://bad%2fhost.example.test/path"
-	if _, err := url.Parse(legacy); err == nil {
-		t.Fatal("fixture should be rejected by net/url")
-	}
+	assertURLParseRejects(t, legacy)
 	if got := PreservableLegacyURLStatus(legacy); got != LegacyURLStatusInvalidHostEscape {
 		t.Fatalf("legacy status = %q, want invalid host escape", got)
 	}
@@ -176,9 +197,7 @@ func TestValidateURLIdentityPreservesPercentEncodedLegacyHost(t *testing.T) {
 
 func TestValidateURLIdentityPreservesPercentEncodedAtHostAsOpaque(t *testing.T) {
 	legacy := "https://bad%40host.example.test/path"
-	if _, err := url.Parse(legacy); err == nil {
-		t.Fatal("fixture should be rejected by net/url")
-	}
+	assertURLParseRejects(t, legacy)
 	if got := PreservableLegacyURLStatus(legacy); got != LegacyURLStatusInvalidHostEscape {
 		t.Fatalf("legacy status = %q, want invalid host escape", got)
 	}
@@ -187,6 +206,13 @@ func TestValidateURLIdentityPreservesPercentEncodedAtHostAsOpaque(t *testing.T) 
 	}
 	if IsPreservableLegacyURL("https://user%40name@example.test/path") {
 		t.Fatal("URL with an actual user-info delimiter was accepted")
+	}
+}
+
+func assertURLParseRejects(t *testing.T, rawURL string) {
+	t.Helper()
+	if _, err := url.Parse(rawURL); err == nil {
+		t.Fatal("fixture should be rejected by net/url")
 	}
 }
 

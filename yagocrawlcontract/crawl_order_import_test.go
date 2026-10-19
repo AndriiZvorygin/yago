@@ -25,7 +25,10 @@ func TestCrawlOrderImportBatchIdentityIsStableAndContentBound(t *testing.T) {
 	base.BatchID = first
 
 	mapOrderChanged := base
-	mapOrderChanged.Profile.SourceMetadata = map[string]string{"yacy.name": "source", "yacy.depth": "2"}
+	mapOrderChanged.Profile.SourceMetadata = map[string]string{
+		"yacy.name":  "source",
+		"yacy.depth": "2",
+	}
 	mapOrderChanged.SourceID = "source-b"
 	mapOrderChanged.DryRun = true
 	second, err := mapOrderChanged.ComputeBatchID()

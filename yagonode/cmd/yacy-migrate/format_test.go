@@ -347,6 +347,38 @@ func TestMapSolrDocumentPreservesMalformedYaCyURLWithoutRecrawl(t *testing.T) {
 	}
 }
 
+func TestMapSolrDocumentPreservesControlCharacterURLWithoutRecrawl(t *testing.T) {
+	rawURL := "https://archive.example.test/path/\nrecord"
+	encodedURL, err := json.Marshal(rawURL)
+	if err != nil {
+		t.Fatalf("encode fixture URL: %v", err)
+	}
+	row := map[string]json.RawMessage{
+		"sku":            encodedURL,
+		"canonical_s":    encodedURL,
+		"title":          json.RawMessage(`"Control-character legacy identity"`),
+		"text_t":         json.RawMessage(`"preserved fixture content"`),
+		"fresh_date_dt":  json.RawMessage(`"2026-10-03T10:00:00Z"`),
+		"collection_sxt": json.RawMessage(`["canada-reference"]`),
+	}
+	record, err := mapSolrDocument(row, "fixture-export")
+	if err != nil {
+		t.Fatalf("map control-character legacy URL: %v", err)
+	}
+	if record.Document.NormalizedURL != rawURL || record.Document.CanonicalURL != rawURL {
+		t.Fatal("migration changed the source normalized or canonical URL")
+	}
+	if record.NextVisitAt != nil {
+		t.Fatal("control-character legacy URL was scheduled for recrawl")
+	}
+	if got := record.Document.Metadata[documentimport.LegacyURLStatusMetadataKey]; got != documentimport.LegacyURLStatusControlCharacter {
+		t.Fatalf("legacy URL status = %q, want control-character marker", got)
+	}
+	if err := validateImportRecord(record); err != nil {
+		t.Fatalf("validate preserved legacy record: %v", err)
+	}
+}
+
 func TestMapSolrDocumentPreservesMalformedLegacyNonHTTPProtocolWithoutRecrawl(t *testing.T) {
 	for _, rawURL := range []string{
 		"ftp://legacy host.example.test/archive.zip",

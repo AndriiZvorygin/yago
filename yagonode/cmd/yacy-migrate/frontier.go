@@ -109,7 +109,9 @@ func importFrontier(ctx context.Context, opts frontierImportOptions, progress io
 	if err != nil {
 		return fmt.Errorf("stat YaCy frontier: %w", err)
 	}
-	profileFile, err := os.Open(opts.Profiles) // #nosec G304 -- selected by local migration operator.
+	profileFile, err := os.Open(
+		opts.Profiles,
+	) // #nosec G304 -- selected by local migration operator.
 	if err != nil {
 		return fmt.Errorf("open YaCy profile sidecar: %w", err)
 	}
@@ -182,7 +184,19 @@ func importFrontier(ctx context.Context, opts frontierImportOptions, progress io
 			return fmt.Errorf("seek YaCy frontier checkpoint: %w", err)
 		}
 		reader.Reset(input)
-		return runFrontierImport(ctx, opts, progress, input, inputInfo, reader, profiles, seen, endpoint, statePath, state)
+		return runFrontierImport(
+			ctx,
+			opts,
+			progress,
+			input,
+			inputInfo,
+			reader,
+			profiles,
+			seen,
+			endpoint,
+			statePath,
+			state,
+		)
 	} else {
 		if _, err := input.Seek(headerEnd, io.SeekStart); err != nil {
 			return fmt.Errorf("seek YaCy frontier header: %w", err)
@@ -199,8 +213,12 @@ func validateFrontierImportOptions(opts frontierImportOptions) error {
 	if strings.TrimSpace(opts.Input) == "" || strings.TrimSpace(opts.Profiles) == "" {
 		return errors.New("-input and -profiles are required")
 	}
-	if opts.BatchRecords < 1 || opts.BatchRecords > yagocrawlcontract.MaximumCrawlOrderImportBatchRecords {
-		return fmt.Errorf("-batch-records must be between 1 and %d", yagocrawlcontract.MaximumCrawlOrderImportBatchRecords)
+	if opts.BatchRecords < 1 ||
+		opts.BatchRecords > yagocrawlcontract.MaximumCrawlOrderImportBatchRecords {
+		return fmt.Errorf(
+			"-batch-records must be between 1 and %d",
+			yagocrawlcontract.MaximumCrawlOrderImportBatchRecords,
+		)
 	}
 	if opts.MaxRecords < 0 {
 		return errors.New("-max-records must not be negative")
@@ -213,13 +231,19 @@ func validateFrontierImportOptions(opts frontierImportOptions) error {
 
 func validateFrontierEndpoint(raw string, dryRun bool) (*url.URL, error) {
 	if raw == "" && dryRun {
-		return &url.URL{Scheme: "http", Host: "dry-run.invalid", Path: "/admin/crawl/frontier/import"}, nil
+		return &url.URL{
+			Scheme: "http",
+			Host:   "dry-run.invalid",
+			Path:   "/admin/crawl/frontier/import",
+		}, nil
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
 		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" ||
 		parsed.Path != "/admin/crawl/frontier/import" {
-		return nil, errors.New("-endpoint must be an HTTP(S) /admin/crawl/frontier/import URL without credentials or query")
+		return nil, errors.New(
+			"-endpoint must be an HTTP(S) /admin/crawl/frontier/import URL without credentials or query",
+		)
 	}
 	return parsed, nil
 }
@@ -273,7 +297,10 @@ func loadYaCyProfiles(file *os.File) (map[string]frontierSourceProfile, string, 
 		if err != nil {
 			return nil, "", fmt.Errorf("map YaCy crawl profile: %w", err)
 		}
-		profiles[record.Handle] = frontierSourceProfile{sourceHandle: record.Handle, profile: profile}
+		profiles[record.Handle] = frontierSourceProfile{
+			sourceHandle: record.Handle,
+			profile:      profile,
+		}
 	}
 	if len(profiles) == 0 {
 		return nil, "", errors.New("YaCy profile sidecar contains no profiles")
@@ -318,7 +345,9 @@ func mapYaCyProfile(record yaCyProfileRecord) (yagocrawlcontract.CrawlProfile, e
 	if raw := fields["obeyHtmlRobotsNofollow"]; raw != "" {
 		obey, err := strconv.ParseBool(raw)
 		if err != nil {
-			return yagocrawlcontract.CrawlProfile{}, errors.New("invalid YaCy robots-nofollow setting")
+			return yagocrawlcontract.CrawlProfile{}, errors.New(
+				"invalid YaCy robots-nofollow setting",
+			)
 		}
 		profile.FollowNoFollowLinks = !obey
 	}
@@ -335,14 +364,19 @@ func mapYaCyProfile(record yaCyProfileRecord) (yagocrawlcontract.CrawlProfile, e
 	metadata["yacy.source_profile_handle"] = record.Handle
 	for key, value := range fields {
 		if len(key) > 240 || len(value) > 32<<10 {
-			return yagocrawlcontract.CrawlProfile{}, errors.New("YaCy profile field exceeds migration bounds")
+			return yagocrawlcontract.CrawlProfile{}, errors.New(
+				"YaCy profile field exceeds migration bounds",
+			)
 		}
 		metadata["yacy.profile."+key] = value
 	}
 	profile.SourceMetadata = metadata
 	profile = yagocrawlcontract.NewCrawlProfile(profile)
 	if err := profile.Validate(); err != nil {
-		return yagocrawlcontract.CrawlProfile{}, fmt.Errorf("mapped YaCy crawl profile is not supported: %w", err)
+		return yagocrawlcontract.CrawlProfile{}, fmt.Errorf(
+			"mapped YaCy crawl profile is not supported: %w",
+			err,
+		)
 	}
 	return profile, nil
 }
@@ -418,7 +452,13 @@ func runFrontierImport(
 			if err := verifyImportFileUnchanged(input, inputInfo); err != nil {
 				return err
 			}
-			response, err := sendFrontierImportBatch(ctx, client, endpoint.String(), opts.APIKey, importBatch)
+			response, err := sendFrontierImportBatch(
+				ctx,
+				client,
+				endpoint.String(),
+				opts.APIKey,
+				importBatch,
+			)
 			if err != nil {
 				return err
 			}
@@ -548,8 +588,11 @@ func mapYaCyFrontierRequest(
 	row yaCyFrontierRecord,
 	profile yagocrawlcontract.CrawlProfile,
 ) (yagocrawlcontract.CrawlRequest, error) {
-	if row.Depth < 0 || row.Depth > yagocrawlcontract.MaxCrawlDepth || len(row.Anchor) > yagocrawlcontract.MaximumCrawlOrderImportAnchorBytes {
-		return yagocrawlcontract.CrawlRequest{}, errors.New("depth or anchor exceeds migration limit")
+	if row.Depth < 0 || row.Depth > yagocrawlcontract.MaxCrawlDepth ||
+		len(row.Anchor) > yagocrawlcontract.MaximumCrawlOrderImportAnchorBytes {
+		return yagocrawlcontract.CrawlRequest{}, errors.New(
+			"depth or anchor exceeds migration limit",
+		)
 	}
 	request := yagocrawlcontract.CrawlRequest{
 		URL: row.URL, Mode: yagocrawlcontract.CrawlRequestModeURL,
@@ -617,7 +660,12 @@ func sendFrontierImportBatch(
 	if err != nil {
 		return frontierImportResponse{}, fmt.Errorf("encode frontier import batch: %w", err)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
+	request, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		endpoint,
+		bytes.NewReader(encoded),
+	)
 	if err != nil {
 		return frontierImportResponse{}, fmt.Errorf("create frontier import request: %w", err)
 	}
@@ -630,7 +678,10 @@ func sendFrontierImportBatch(
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
-		return frontierImportResponse{}, fmt.Errorf("frontier import endpoint returned HTTP %d", response.StatusCode)
+		return frontierImportResponse{}, fmt.Errorf(
+			"frontier import endpoint returned HTTP %d",
+			response.StatusCode,
+		)
 	}
 	var result frontierImportResponse
 	decoder := json.NewDecoder(io.LimitReader(response.Body, 16<<10))
@@ -669,7 +720,8 @@ func rebuildFrontierSeen(
 			return nil, errors.New("frontier checkpoint is not at a record boundary")
 		}
 		var row yaCyFrontierRecord
-		if json.Unmarshal(line, &row) != nil || row.Type != "crawlRequest" || row.Version != 1 || row.Stack != "LOCAL" {
+		if json.Unmarshal(line, &row) != nil || row.Type != "crawlRequest" || row.Version != 1 ||
+			row.Stack != "LOCAL" {
 			return nil, errors.New("invalid YaCy frontier record before checkpoint")
 		}
 		if _, ok := profiles[row.ProfileHandle]; !ok {
@@ -721,7 +773,8 @@ func loadFrontierImportCheckpoint(path string) (frontierImportCheckpoint, bool, 
 		return frontierImportCheckpoint{}, false, fmt.Errorf("read frontier checkpoint: %w", err)
 	}
 	var state frontierImportCheckpoint
-	if json.Unmarshal(data, &state) != nil || state.Version != 1 || state.SourceID == "" || state.Offset < 0 {
+	if json.Unmarshal(data, &state) != nil || state.Version != 1 || state.SourceID == "" ||
+		state.Offset < 0 {
 		return frontierImportCheckpoint{}, false, errors.New("invalid frontier import checkpoint")
 	}
 	return state, true, nil
@@ -742,21 +795,35 @@ func hashOpenFile(file *os.File) (string, error) {
 }
 
 func writeFrontierImportProgress(progress io.Writer, state frontierImportCheckpoint) error {
-	_, err := fmt.Fprintf(progress,
+	_, err := fmt.Fprintf(
+		progress,
 		"frontier import checkpoint: records=%d unique=%d enqueued=%d already-indexed=%d duplicates=%d blocked-credential-urls=%d blocked-invalid-urls=%d offset=%d\n",
-		state.Records, state.UniqueRequests, state.EnqueuedRequests,
-		state.AlreadyIndexed, state.DuplicateRequests, state.BlockedCredentialURLs,
-		state.BlockedInvalidURLs, state.Offset,
+		state.Records,
+		state.UniqueRequests,
+		state.EnqueuedRequests,
+		state.AlreadyIndexed,
+		state.DuplicateRequests,
+		state.BlockedCredentialURLs,
+		state.BlockedInvalidURLs,
+		state.Offset,
 	)
 	return err
 }
 
-func writeFrontierImportSummary(progress io.Writer, state frontierImportCheckpoint, dryRun bool) error {
+func writeFrontierImportSummary(
+	progress io.Writer,
+	state frontierImportCheckpoint,
+	dryRun bool,
+) error {
 	if dryRun {
-		_, err := fmt.Fprintf(progress,
+		_, err := fmt.Fprintf(
+			progress,
 			"dry-run: validated %d queue records; unique=%d duplicates=%d blocked-credential-urls=%d blocked-invalid-urls=%d; no API calls or checkpoint changes\n",
-			state.Records, state.UniqueRequests, state.DuplicateRequests,
-			state.BlockedCredentialURLs, state.BlockedInvalidURLs,
+			state.Records,
+			state.UniqueRequests,
+			state.DuplicateRequests,
+			state.BlockedCredentialURLs,
+			state.BlockedInvalidURLs,
 		)
 		return err
 	}
