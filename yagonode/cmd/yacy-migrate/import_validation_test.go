@@ -97,6 +97,17 @@ func TestValidateImportOptionsAndCheckpoint(t *testing.T) {
 	}
 }
 
+func TestValidateInterchangeURLAcceptsYaCyFTPAndSMB(t *testing.T) {
+	for _, rawURL := range []string{
+		"ftp://archive.example.test/pub/item.pdf",
+		"smb://archive.example.test/share/item.pdf",
+	} {
+		if err := validateInterchangeURL(rawURL); err != nil {
+			t.Errorf("supported YaCy identity %q rejected: %v", rawURL, err)
+		}
+	}
+}
+
 func TestImportHeaderAndCheckpointLoadingRejectInvalidState(t *testing.T) {
 	for _, line := range [][]byte{
 		[]byte("not-json"),
@@ -256,7 +267,7 @@ func TestImportHeaderReaderRejectsOversizedAndChangedInput(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "input.jsonl")
 	if err := os.WriteFile(
 		path,
-		[]byte(strings.Repeat("x", yagocrawlcontract.MaximumIngestBatchBytes+1)),
+		[]byte(strings.Repeat("x", documentimport.MaximumRequestBytes+1)),
 		0o600,
 	); err != nil {
 		t.Fatal(err)
@@ -349,11 +360,38 @@ func TestImportSessionBatchesAtRecordLimitAndPreservesPendingRows(t *testing.T) 
 	}
 
 	tooLarge := validImportRecord()
-	tooLarge.Document.ExtractedText = strings.Repeat("x", yagocrawlcontract.MaximumIngestBatchBytes)
+	tooLarge.Document.ExtractedText = strings.Repeat("x", 3<<20)
 	oversized := &importSession{pending: &pendingRecord{value: tooLarge}}
-	if _, _, err := oversized.nextBatch(); err == nil ||
+	if _, _, err := oversized.nextBatchUsingLimit(oversized.nextRecord, 3<<20); err == nil ||
 		!strings.Contains(err.Error(), "exceeds the Yago import batch limit") {
 		t.Fatalf("oversized single-record batch error = %v", err)
+	}
+}
+
+func TestImportSessionHonorsConfiguredBatchRecordLimit(t *testing.T) {
+	input := filepath.Join(t.TempDir(), "small-batches.jsonl")
+	records := []documentimport.Record{
+		cliTestRecord("one", "https://one.example.test/"),
+		cliTestRecord("two", "https://two.example.test/"),
+		cliTestRecord("three", "https://three.example.test/"),
+	}
+	writeInterchangeFixture(t, input, records)
+	session, err := openImportSession(importOptions{
+		Input: input, Endpoint: "https://yago.example.test/admin/index/import",
+		APIKey: "token", BatchRecords: 1,
+	})
+	if err != nil {
+		t.Fatalf("open session: %v", err)
+	}
+	closeMigrationFixture(t, session.file)
+	for index, wantID := range []string{"one", "two", "three"} {
+		batch, _, err := session.nextBatch()
+		if err != nil || len(batch) != 1 || batch[0].ID != wantID {
+			t.Fatalf("batch %d = %#v, want %q; error=%v", index, batch, wantID, err)
+		}
+	}
+	if batch, _, err := session.nextBatch(); err != nil || len(batch) != 0 {
+		t.Fatalf("final batch = %#v, %v", batch, err)
 	}
 }
 
@@ -377,7 +415,7 @@ func TestImportSessionDefersRecordWhenByteLimitIsReached(t *testing.T) {
 		)
 		records[index].Document.ExtractedText = strings.Repeat(
 			"x",
-			yagocrawlcontract.MaximumDocumentTextBytes,
+			1<<20,
 		)
 	}
 	writeInterchangeFixture(t, input, records)
@@ -388,9 +426,9 @@ func TestImportSessionDefersRecordWhenByteLimitIsReached(t *testing.T) {
 		t.Fatalf("open large input: %v", err)
 	}
 	closeMigrationFixture(t, session.file)
-	first, firstEnd, err := session.nextBatch()
-	if err != nil || len(first) != 3 || session.pending == nil ||
-		firstEnd != session.pending.end-int64(len(mustEncodeRecordLine(t, records[3]))) {
+	first, firstEnd, err := session.nextBatchUsingLimit(session.nextRecord, 3<<20)
+	if err != nil || len(first) != 2 || session.pending == nil ||
+		firstEnd != session.pending.end-int64(len(mustEncodeRecordLine(t, records[2]))) {
 		t.Fatalf(
 			"bounded first batch size=%d end=%d pending=%v err=%v",
 			len(first),
@@ -399,11 +437,15 @@ func TestImportSessionDefersRecordWhenByteLimitIsReached(t *testing.T) {
 			err,
 		)
 	}
-	second, secondEnd, err := session.nextBatch()
-	if err != nil || len(second) != 2 || second[0].ID != records[3].ID ||
-		second[1].ID != records[4].ID ||
+	second, secondEnd, err := session.nextBatchUsingLimit(session.nextRecord, 3<<20)
+	if err != nil || len(second) != 2 || second[0].ID != records[2].ID ||
+		second[1].ID != records[3].ID ||
 		secondEnd <= firstEnd {
 		t.Fatalf("pending batch=%d end=%d err=%v", len(second), secondEnd, err)
+	}
+	third, thirdEnd, err := session.nextBatchUsingLimit(session.nextRecord, 3<<20)
+	if err != nil || len(third) != 1 || third[0].ID != records[4].ID || thirdEnd <= secondEnd {
+		t.Fatalf("final deferred batch=%d end=%d err=%v", len(third), thirdEnd, err)
 	}
 }
 
@@ -424,7 +466,7 @@ func TestValidateImportFileRejectsBadRecordsAndOversizedLines(t *testing.T) {
 		"not-json\n",
 		`{"type":"header","version":1}` + "\n",
 		`{"type":"document","version":1,"record":{"id":"bad","document":{"normalizedURL":"file:///tmp/x"}}}` + "\n",
-		strings.Repeat("x", yagocrawlcontract.MaximumIngestBatchBytes+1),
+		strings.Repeat("x", documentimport.MaximumRequestBytes+1),
 	} {
 		if err := validateImportFile(
 			bufio.NewReader(strings.NewReader(line)),
@@ -551,18 +593,18 @@ func TestValidateImportRecordRejectsEachUnsupportedField(t *testing.T) {
 		{name: "oversized text", edit: func(r *documentimport.Record) {
 			r.Document.ExtractedText = strings.Repeat(
 				"x",
-				yagocrawlcontract.MaximumDocumentTextBytes+1,
+				documentimport.MaximumRecordTextBytes+1,
 			)
 		}},
 		{name: "oversized title", edit: func(r *documentimport.Record) {
 			r.Document.Title = strings.Repeat("x", yagocrawlcontract.MaximumDocumentTitleBytes+1)
 		}},
 		{name: "too many headings", edit: func(r *documentimport.Record) {
-			r.Document.Headings = make([]string, yagocrawlcontract.MaximumDocumentHeadings+1)
+			r.Document.Headings = make([]string, documentimport.MaximumRecordHeadings+1)
 		}},
 		{name: "oversized heading", edit: func(r *documentimport.Record) {
 			r.Document.Headings = []string{
-				strings.Repeat("x", yagocrawlcontract.MaximumDocumentHeadingBytes+1),
+				strings.Repeat("x", documentimport.MaximumRecordHeadingBytes+1),
 			}
 		}},
 		{
@@ -578,12 +620,12 @@ func TestValidateImportRecordRejectsEachUnsupportedField(t *testing.T) {
 			edit: func(r *documentimport.Record) { r.Document.CanonicalURL = "https://user:secret@example.test/" },
 		},
 		{name: "too many outlinks", edit: func(r *documentimport.Record) {
-			r.Document.Outlinks = make([]string, yagocrawlcontract.MaximumDocumentOutlinks+1)
+			r.Document.Outlinks = make([]string, documentimport.MaximumRecordOutlinks+1)
 		}},
 		{name: "too many anchors", edit: func(r *documentimport.Record) {
 			r.Document.Inlinks = make(
 				[]yagocrawlcontract.AnchorText,
-				yagocrawlcontract.MaximumDocumentAnchors+1,
+				documentimport.MaximumRecordInlinks+1,
 			)
 		}},
 		{name: "too much metadata count", edit: func(r *documentimport.Record) {
@@ -597,7 +639,7 @@ func TestValidateImportRecordRejectsEachUnsupportedField(t *testing.T) {
 		}},
 		{name: "too much metadata bytes", edit: func(r *documentimport.Record) {
 			r.Document.Metadata = map[string]string{
-				"large": strings.Repeat("x", yagocrawlcontract.MaximumDocumentMetadataBytes),
+				"large": strings.Repeat("x", documentimport.MaximumRecordMetadataBytes),
 			}
 		}},
 		{
@@ -616,6 +658,37 @@ func TestValidateImportRecordRejectsEachUnsupportedField(t *testing.T) {
 	}
 	if err := validateImportRecord(validImportRecord()); err != nil {
 		t.Fatalf("valid import record rejected: %v", err)
+	}
+}
+
+func TestValidateImportRecordAcceptsMaximumMigrationText(t *testing.T) {
+	record := validImportRecord()
+	record.Document.ExtractedText = strings.Repeat("x", documentimport.MaximumRecordTextBytes)
+	if err := validateImportRecord(record); err != nil {
+		t.Fatalf("maximum migration text rejected: %v", err)
+	}
+}
+
+func TestValidateImportRecordAcceptsYaCyOutlinksBeyondCrawlerLimit(t *testing.T) {
+	record := validImportRecord()
+	record.Document.Outlinks = make([]string, 12_447)
+	if err := validateImportRecord(record); err != nil {
+		t.Fatalf("YaCy source outlinks rejected at migration boundary: %v", err)
+	}
+}
+
+func TestValidateImportRecordKeepsLegacyEncodedAtHostOutOfRecrawl(t *testing.T) {
+	const rawURL = "https://bad%40host.example.test/path"
+	status := documentimport.PreservableLegacyURLStatus(rawURL)
+	record := cliTestRecord("legacy-opaque-url", rawURL)
+	record.Document.Metadata = map[string]string{
+		documentimport.LegacyURLStatusMetadataKey: status,
+	}
+	if err := validateImportRecord(record); err != nil {
+		t.Fatalf("validate legacy opaque record: %v", err)
+	}
+	if record.NextVisitAt != nil || !documentimport.IsPreservableLegacyURL(rawURL) {
+		t.Fatal("legacy opaque URL must remain ineligible for recrawl")
 	}
 }
 
@@ -648,7 +721,7 @@ func TestReadBoundedLineHandlesEOFAndOversizedLines(t *testing.T) {
 	}
 	line, err = readBoundedLine(
 		bufio.NewReader(
-			strings.NewReader(strings.Repeat("x", yagocrawlcontract.MaximumIngestBatchBytes+1)),
+			strings.NewReader(strings.Repeat("x", documentimport.MaximumRequestBytes+1)),
 		),
 	)
 	if err == nil || !strings.Contains(err.Error(), "line exceeds batch size") || line != nil {

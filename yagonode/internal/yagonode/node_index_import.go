@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"hash/fnv"
 	"sync"
 	"time"
 
 	"github.com/D4rk4/yago/yagocrawlcontract"
 	"github.com/D4rk4/yago/yagonode/internal/adminui"
 	"github.com/D4rk4/yago/yagonode/internal/crawlbroker"
+	"github.com/D4rk4/yago/yagonode/internal/documentimport"
 	"github.com/D4rk4/yago/yagonode/internal/documentstore"
 	"github.com/D4rk4/yago/yagonode/internal/recrawlfrontier"
 )
@@ -34,6 +36,11 @@ type documentImportSubmitter interface {
 	) error
 }
 
+type indexedImportRecord struct {
+	index  int
+	record adminui.IndexImportRecord
+}
+
 type importedScheduleWriter interface {
 	RecordProfile(
 		context.Context,
@@ -41,6 +48,15 @@ type importedScheduleWriter interface {
 		yagocrawlcontract.CrawlOrderPriority,
 	) error
 	ScheduleAtIfAbsent(context.Context, string, string, time.Time, time.Duration) (bool, error)
+}
+
+type importedScheduleBatchWriter interface {
+	ScheduleRecrawlsAtIfAbsent(
+		context.Context,
+		string,
+		[]recrawlfrontier.RecrawlSchedule,
+		time.Duration,
+	) error
 }
 
 func newDocumentImportService(
@@ -71,48 +87,157 @@ func (s *documentImportService) ImportDocuments(
 	if err := s.ensureProfile(ctx); err != nil {
 		return nil, fmt.Errorf("register document migration profile: %w", err)
 	}
-	results := make([]adminui.IndexImportResult, 0, len(records))
-	for _, record := range records {
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("import document batch: %w", ctx.Err())
-		default:
-		}
-		found, conflict, err := s.existingDestination(ctx, record.Document)
-		if err != nil {
-			return nil, fmt.Errorf("check destination document: %w", err)
-		}
-		if conflict {
-			results = append(results, adminui.IndexImportResult{ID: record.ID, Status: "conflict"})
-			continue
-		}
-		if found {
-			if err := s.scheduleImport(ctx, record); err != nil {
-				return nil, err
+	if len(records) == 0 {
+		return []adminui.IndexImportResult{}, nil
+	}
+	workerCount := documentImportWorkerCount(s.ingest, len(records))
+	queues := make([]chan indexedImportRecord, workerCount)
+	queueCapacity := (len(records) + workerCount - 1) / workerCount
+	for index := range queues {
+		queues[index] = make(chan indexedImportRecord, queueCapacity)
+	}
+	results := make([]adminui.IndexImportResult, len(records))
+	importContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var workers sync.WaitGroup
+	var firstErr error
+	var failOnce sync.Once
+	for _, queue := range queues {
+		workers.Add(1)
+		go func(jobs <-chan indexedImportRecord) {
+			defer workers.Done()
+			for job := range jobs {
+				result, err := s.importDocument(importContext, job.record)
+				if err != nil {
+					failOnce.Do(func() {
+						firstErr = err
+						cancel()
+					})
+					return
+				}
+				results[job.index] = result
 			}
-			results = append(
-				results,
-				adminui.IndexImportResult{ID: record.ID, Status: "already-present"},
-			)
+		}(queue)
+	}
+	for index, record := range records {
+		queue := queues[importWorkerForURL(record.Document.NormalizedURL, workerCount)]
+		select {
+		case queue <- indexedImportRecord{index: index, record: record}:
+		case <-importContext.Done():
+			break
+		}
+		if importContext.Err() != nil {
+			break
+		}
+	}
+	for _, queue := range queues {
+		close(queue)
+	}
+	workers.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("import document batch: %w", err)
+	}
+	if err := s.scheduleImportBatch(ctx, records, results); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+func documentImportWorkerCount(submitter documentImportSubmitter, recordCount int) int {
+	maximum := 1
+	if concurrent, ok := submitter.(documentimport.ConcurrentSubmitter); ok {
+		maximum = concurrent.MaximumConcurrentImports()
+	}
+	if maximum < 1 {
+		maximum = 1
+	}
+	if maximum > yagocrawlcontract.MaximumIngestBatchRecords {
+		maximum = yagocrawlcontract.MaximumIngestBatchRecords
+	}
+	return min(recordCount, maximum)
+}
+
+func importWorkerForURL(rawURL string, workerCount int) int {
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(rawURL))
+	return int(hash.Sum32() % uint32(workerCount))
+}
+
+func (s *documentImportService) importDocument(
+	ctx context.Context,
+	record adminui.IndexImportRecord,
+) (adminui.IndexImportResult, error) {
+	if err := ctx.Err(); err != nil {
+		return adminui.IndexImportResult{}, fmt.Errorf("import document batch: %w", err)
+	}
+	found, conflict, err := s.existingDestination(ctx, record.Document)
+	if err != nil {
+		return adminui.IndexImportResult{}, fmt.Errorf("check destination document: %w", err)
+	}
+	if conflict {
+		return adminui.IndexImportResult{ID: record.ID, Status: "conflict"}, nil
+	}
+	if found {
+		return adminui.IndexImportResult{ID: record.ID, Status: "already-present"}, nil
+	}
+	batch := yagocrawlcontract.IngestBatch{
+		SourceURL:     record.Document.NormalizedURL,
+		ProfileHandle: s.profile.Handle,
+		ObservationID: importObservationID(record.ID),
+		ObservedAt:    time.Now().UTC(),
+		Document:      record.Document,
+	}
+	if err := s.ingest.SubmitImport(ctx, batch, s.profile); err != nil {
+		return adminui.IndexImportResult{}, fmt.Errorf("ingest imported document: %w", err)
+	}
+	return adminui.IndexImportResult{ID: record.ID, Status: "imported"}, nil
+}
+
+func (s *documentImportService) scheduleImportBatch(
+	ctx context.Context,
+	records []adminui.IndexImportRecord,
+	results []adminui.IndexImportResult,
+) error {
+	schedules := make([]recrawlfrontier.RecrawlSchedule, 0, len(records))
+	for index, record := range records {
+		if record.NextVisitAt == nil ||
+			(results[index].Status != "imported" && results[index].Status != "already-present") {
 			continue
 		}
-		batch := yagocrawlcontract.IngestBatch{
-			SourceURL:     record.Document.NormalizedURL,
-			ProfileHandle: s.profile.Handle,
-			ObservationID: importObservationID(record.ID),
-			ObservedAt:    time.Now().UTC(),
-			Document:      record.Document,
+		schedules = append(schedules, recrawlfrontier.RecrawlSchedule{
+			URL:   record.Document.NormalizedURL,
+			DueAt: *record.NextVisitAt,
+		})
+	}
+	if len(schedules) == 0 {
+		return nil
+	}
+	if batchWriter, ok := s.frontier.(importedScheduleBatchWriter); ok {
+		if err := batchWriter.ScheduleRecrawlsAtIfAbsent(
+			ctx,
+			s.profile.Handle,
+			schedules,
+			importedRecrawlRetryInterval,
+		); err != nil {
+			return fmt.Errorf("schedule imported recrawls: %w", err)
 		}
-		if err := s.ingest.SubmitImport(ctx, batch, s.profile); err != nil {
-			return nil, fmt.Errorf("ingest imported document: %w", err)
+
+		return nil
+	}
+	for index, record := range records {
+		if record.NextVisitAt == nil ||
+			(results[index].Status != "imported" && results[index].Status != "already-present") {
+			continue
 		}
 		if err := s.scheduleImport(ctx, record); err != nil {
-			return nil, err
+			return err
 		}
-		results = append(results, adminui.IndexImportResult{ID: record.ID, Status: "imported"})
 	}
 
-	return results, nil
+	return nil
 }
 
 func (s *documentImportService) ensureProfile(ctx context.Context) error {

@@ -3,6 +3,7 @@ package yagonode
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,11 +61,141 @@ func (f *importSubmitterFixture) SubmitImport(
 	return nil
 }
 
+func (*importSubmitterFixture) MaximumConcurrentImports() int { return 1 }
+
+type concurrentImportDirectory struct {
+	mu        sync.RWMutex
+	documents map[string]documentstore.Document
+}
+
+func (d *concurrentImportDirectory) Document(
+	_ context.Context,
+	url string,
+) (documentstore.Document, bool, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	document, found := d.documents[url]
+	return document, found, nil
+}
+
+func (d *concurrentImportDirectory) Count(context.Context) (int, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return len(d.documents), nil
+}
+
+func (d *concurrentImportDirectory) store(document documentstore.Document) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.documents[document.NormalizedURL] = document
+}
+
+type concurrentImportSubmitterFixture struct {
+	mu        sync.Mutex
+	directory *concurrentImportDirectory
+	active    int
+	maximum   int
+	limit     int
+	seen      []string
+}
+
+func (f *concurrentImportSubmitterFixture) MaximumConcurrentImports() int {
+	return f.limit
+}
+
+func (f *concurrentImportSubmitterFixture) SubmitImport(
+	ctx context.Context,
+	batch yagocrawlcontract.IngestBatch,
+	_ yagocrawlcontract.CrawlProfile,
+) error {
+	f.mu.Lock()
+	f.active++
+	if f.active > f.maximum {
+		f.maximum = f.active
+	}
+	f.seen = append(f.seen, batch.Document.NormalizedURL)
+	f.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		f.mu.Lock()
+		f.active--
+		f.mu.Unlock()
+		return ctx.Err()
+	case <-time.After(15 * time.Millisecond):
+	}
+	f.directory.store(documentstore.Document{
+		NormalizedURL: batch.Document.NormalizedURL,
+		ContentHash:   batch.Document.ContentHash,
+	})
+	f.mu.Lock()
+	f.active--
+	f.mu.Unlock()
+	return nil
+}
+
+func TestDocumentImportUsesBoundedConcurrentIngestAndSerializesDuplicateURLs(t *testing.T) {
+	documents := &concurrentImportDirectory{documents: make(map[string]documentstore.Document)}
+	submitter := &concurrentImportSubmitterFixture{directory: documents, limit: 4}
+	service := &documentImportService{
+		documents: documents,
+		ingest:    submitter,
+		frontier:  new(importScheduleFixture),
+		profile:   importTestProfile(),
+	}
+	const duplicateURL = "https://same.example/page"
+	records := []adminui.IndexImportRecord{
+		importTestRecord("a", duplicateURL, "same", nil),
+		importTestRecord("b", "https://b.example/page", "b", nil),
+		importTestRecord("c", "https://c.example/page", "c", nil),
+		importTestRecord("d", duplicateURL, "same", nil),
+		importTestRecord("e", "https://e.example/page", "e", nil),
+		importTestRecord("f", "https://f.example/page", "f", nil),
+	}
+	results, err := service.ImportDocuments(t.Context(), records)
+	if err != nil {
+		t.Fatalf("ImportDocuments: %v", err)
+	}
+	if len(results) != len(records) || results[0].Status != "imported" ||
+		results[3].Status != "already-present" {
+		t.Fatalf("ordered import results = %#v", results)
+	}
+	submitter.mu.Lock()
+	maximum, submitted := submitter.maximum, len(submitter.seen)
+	submitter.mu.Unlock()
+	if maximum < 2 || maximum > submitter.limit {
+		t.Fatalf("maximum concurrent submissions = %d, want 2..%d", maximum, submitter.limit)
+	}
+	if submitted != len(records)-1 {
+		t.Fatalf("submitted %d records, want duplicate URL submitted once", submitted)
+	}
+}
+
 type importScheduleFixture struct {
 	urls          []string
 	profiles      []string
 	profileErr    error
 	scheduleError error
+}
+
+type batchImportScheduleFixture struct {
+	*importScheduleFixture
+	batches [][]recrawlfrontier.RecrawlSchedule
+}
+
+func (f *batchImportScheduleFixture) ScheduleRecrawlsAtIfAbsent(
+	_ context.Context,
+	_ string,
+	schedules []recrawlfrontier.RecrawlSchedule,
+	_ time.Duration,
+) error {
+	if f.scheduleError != nil {
+		return f.scheduleError
+	}
+	f.batches = append(f.batches, append([]recrawlfrontier.RecrawlSchedule(nil), schedules...))
+	for _, schedule := range schedules {
+		f.urls = append(f.urls, schedule.URL)
+	}
+	return nil
 }
 
 func (f *importScheduleFixture) RecordProfile(
@@ -194,6 +325,77 @@ func TestDocumentImportSchedulesOnlyExplicitVisitAndReplaysIdempotently(t *testi
 	}
 	if got := len(service.frontier.(*importScheduleFixture).profiles); got != 1 {
 		t.Fatalf("profile registration attempts = %d, want one", got)
+	}
+}
+
+func TestDocumentImportSchedulesEligibleRecrawlsOncePerImportBatch(t *testing.T) {
+	const (
+		presentURL  = "https://already.example/page"
+		conflictURL = "https://conflict.example/page"
+		newURL      = "https://new.example/page"
+	)
+	documents := importDocumentDirectory{
+		presentURL:  {NormalizedURL: presentURL, ContentHash: "same"},
+		conflictURL: {NormalizedURL: conflictURL, ContentHash: "destination"},
+	}
+	schedules := &batchImportScheduleFixture{importScheduleFixture: new(importScheduleFixture)}
+	service := &documentImportService{
+		documents: documents,
+		ingest:    &importSubmitterFixture{docs: documents},
+		frontier:  schedules,
+		profile:   importTestProfile(),
+	}
+	visit := time.Now().UTC().Add(time.Hour)
+	results, err := service.ImportDocuments(t.Context(), []adminui.IndexImportRecord{
+		importTestRecord("same", presentURL, "same", &visit),
+		importTestRecord("new", newURL, "new", &visit),
+		importTestRecord("conflict", conflictURL, "source", &visit),
+		importTestRecord("no-schedule", "https://unscheduled.example/page", "other", nil),
+	})
+	if err != nil {
+		t.Fatalf("ImportDocuments: %v", err)
+	}
+	if results[0].Status != "already-present" || results[1].Status != "imported" ||
+		results[2].Status != "conflict" || results[3].Status != "imported" {
+		t.Fatalf("import results = %#v", results)
+	}
+	if len(schedules.batches) != 1 || len(schedules.batches[0]) != 2 {
+		t.Fatalf("recrawl schedule batches = %#v", schedules.batches)
+	}
+	if schedules.batches[0][0].URL != presentURL || schedules.batches[0][1].URL != newURL {
+		t.Fatalf("recrawl schedules = %#v", schedules.batches[0])
+	}
+	if documents[conflictURL].ContentHash != "destination" {
+		t.Fatal("conflicting source record replaced the destination document")
+	}
+}
+
+func TestDocumentImportReturnsBulkScheduleFailureForIdempotentRetry(t *testing.T) {
+	const url = "https://schedule-retry.example/page"
+	documents := importDocumentDirectory{}
+	schedules := &batchImportScheduleFixture{
+		importScheduleFixture: &importScheduleFixture{
+			scheduleError: errors.New("frontier unavailable"),
+		},
+	}
+	service := &documentImportService{
+		documents: documents,
+		ingest:    &importSubmitterFixture{docs: documents},
+		frontier:  schedules,
+		profile:   importTestProfile(),
+	}
+	visit := time.Now().UTC().Add(time.Hour)
+	results, err := service.ImportDocuments(t.Context(), []adminui.IndexImportRecord{
+		importTestRecord("retry-row", url, "hash", &visit),
+	})
+	if err == nil || len(results) != 0 {
+		t.Fatalf("ImportDocuments = %#v, %v; want retryable schedule failure", results, err)
+	}
+	if documents[url].ContentHash != "hash" {
+		t.Fatal("document ingest was rolled back after recrawl scheduling failed")
+	}
+	if len(schedules.batches) != 0 {
+		t.Fatalf("failed schedule batches = %#v", schedules.batches)
 	}
 }
 

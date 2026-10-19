@@ -33,6 +33,18 @@ func TestIdenticalRulesetsShareHandle(t *testing.T) {
 	}
 }
 
+func TestSourceMetadataDoesNotChangeProfileHandle(t *testing.T) {
+	first := baseProfile()
+	first.SourceMetadata = map[string]string{"source.one": "value"}
+	second := baseProfile()
+	second.SourceMetadata = map[string]string{"source.two": "other"}
+
+	if got, want := yagocrawlcontract.NewCrawlProfile(first).Handle,
+		yagocrawlcontract.NewCrawlProfile(second).Handle; got != want {
+		t.Fatalf("source metadata changed profile handle: %q != %q", got, want)
+	}
+}
+
 func TestDifferingRulesetsDifferHandle(t *testing.T) {
 	a := yagocrawlcontract.NewCrawlProfile(baseProfile())
 

@@ -34,3 +34,10 @@ type Request struct {
 type Importer interface {
 	ImportDocuments(ctx context.Context, records []Record) ([]Result, error)
 }
+
+// ConcurrentSubmitter exposes a bounded number of concurrent submissions the
+// destination can consume together. Submitters that do not implement it are
+// used serially by the migration service.
+type ConcurrentSubmitter interface {
+	MaximumConcurrentImports() int
+}

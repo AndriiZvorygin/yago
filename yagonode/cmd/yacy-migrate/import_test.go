@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -75,6 +76,199 @@ func TestImportCorpusRetriesInterruptedBatchAndResumesFromCheckpoint(t *testing.
 	if calls != 2 {
 		t.Fatalf("completed import replayed %d batches", calls-2)
 	}
+}
+
+func TestImportCorpusStopsAtConfiguredSuccessfulRecordLimit(t *testing.T) {
+	input := filepath.Join(t.TempDir(), "bounded-run.jsonl")
+	writeInterchangeFixture(t, input, []documentimport.Record{
+		cliTestRecord("fixture-a", "https://a.example.test/"),
+		cliTestRecord("fixture-b", "https://b.example.test/"),
+		cliTestRecord("fixture-c", "https://c.example.test/"),
+	})
+	var received int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request documentimport.Request
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode bounded import request: %v", err)
+			return
+		}
+		received += len(request.Records)
+		results := make([]documentimport.Result, len(request.Records))
+		for index, record := range request.Records {
+			results[index] = documentimport.Result{ID: record.ID, Status: "imported"}
+		}
+		_ = json.NewEncoder(w).Encode(importResponse{Results: results})
+	}))
+	defer server.Close()
+	statePath := filepath.Join(t.TempDir(), "bounded-state.json")
+	options := importOptions{
+		Input: input, Endpoint: server.URL, APIKey: "fixture-token", State: statePath,
+		BatchRecords: 1, MaxRecords: 2,
+	}
+	if err := importCorpus(t.Context(), options, io.Discard); err != nil {
+		t.Fatalf("bounded import run: %v", err)
+	}
+	state, found, err := loadImportCheckpoint(statePath)
+	if err != nil || !found || state.Records != 2 || state.Complete || received != 2 {
+		t.Fatalf("bounded run checkpoint=%+v found=%t received=%d err=%v",
+			state, found, received, err)
+	}
+	if err := importCorpus(t.Context(), options, io.Discard); err != nil {
+		t.Fatalf("resumed bounded import run: %v", err)
+	}
+	state, found, err = loadImportCheckpoint(statePath)
+	if err != nil || !found || state.Records != 3 || state.Complete || received != 3 {
+		t.Fatalf("resumed checkpoint=%+v found=%t received=%d err=%v",
+			state, found, received, err)
+	}
+}
+
+func TestImportCorpusFollowsOnlyCommittedExportBytesUntilComplete(t *testing.T) {
+	directory := t.TempDir()
+	input := filepath.Join(directory, "growing.jsonl")
+	exportStatePath := filepath.Join(directory, "export.state.json")
+	importStatePath := filepath.Join(directory, "import.state.json")
+	header, err := json.Marshal(
+		interchangeHeader{Type: "header", Version: 1, SourceID: "fixture-source"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	header = append(header, '\n')
+	if err := os.WriteFile(input, header, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := exportCheckpoint{
+		Version: 1, SourceID: "fixture-source", SourceFingerprint: "fixture-fingerprint",
+		Cursor: "*", Offset: int64(len(header)),
+	}
+	if err := saveCheckpoint(exportStatePath, checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request documentimport.Request
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode import request: %v", err)
+			return
+		}
+		requests.Add(1)
+		results := make([]documentimport.Result, len(request.Records))
+		for index, record := range request.Records {
+			results[index] = documentimport.Result{ID: record.ID, Status: "imported"}
+		}
+		_ = json.NewEncoder(w).Encode(importResponse{Results: results})
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- importCorpus(ctx, importOptions{
+			Input: input, Endpoint: server.URL, APIKey: "fixture-token", State: importStatePath,
+			FollowExportCheckpoint: exportStatePath,
+		}, io.Discard)
+	}()
+
+	appendExportRecord := func(record documentimport.Record, cursor string, complete bool) {
+		t.Helper()
+		file, err := os.OpenFile(input, os.O_WRONLY|os.O_APPEND, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.NewEncoder(file).Encode(
+			interchangeRecord{Type: "document", Version: 1, Record: record},
+		); err != nil {
+			_ = file.Close()
+			t.Fatal(err)
+		}
+		if err := file.Sync(); err != nil {
+			_ = file.Close()
+			t.Fatal(err)
+		}
+		info, err := file.Stat()
+		if closeErr := file.Close(); err != nil || closeErr != nil {
+			t.Fatalf("inspect or close append file: stat=%v close=%v", err, closeErr)
+		}
+		checkpoint.Cursor = cursor
+		checkpoint.Offset = info.Size()
+		checkpoint.Records++
+		checkpoint.Complete = complete
+		if err := saveCheckpoint(exportStatePath, checkpoint); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Bytes not yet committed by the exporter must remain invisible to the importer.
+	first := cliTestRecord("fixture-a", "https://a.example.test/")
+	file, err := os.OpenFile(input, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.NewEncoder(file).Encode(
+		interchangeRecord{Type: "document", Version: 1, Record: first},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("importer read uncommitted export bytes: requests=%d", got)
+	}
+	info, err := os.Stat(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint.Cursor = "cursor-a"
+	checkpoint.Offset = info.Size()
+	checkpoint.Records = 1
+	if err := saveCheckpoint(exportStatePath, checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	waitForImportRequests(t, &requests, 1)
+	select {
+	case err := <-done:
+		t.Fatalf("import finished before export completed: %v", err)
+	default:
+	}
+
+	appendExportRecord(
+		cliTestRecord("fixture-b", "https://b.example.test/"), "cursor-b", true,
+	)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("follow import: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("follow import did not finish after exporter marked complete")
+	}
+	state, found, err := loadImportCheckpoint(importStatePath)
+	if err != nil || !found || !state.Complete || state.Records != 2 ||
+		state.Offset != checkpoint.Offset || state.FollowExportOffset != checkpoint.Offset {
+		t.Fatalf("final follow checkpoint = %+v found=%t err=%v", state, found, err)
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("import requests=%d, want one committed batch per export page", got)
+	}
+}
+
+func waitForImportRequests(t *testing.T, requests *atomic.Int32, want int32) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if requests.Load() >= want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d import request(s); got %d", want, requests.Load())
 }
 
 func TestImportCorpusRejectsMalformedRowsWithoutSendingOrAdvancing(t *testing.T) {

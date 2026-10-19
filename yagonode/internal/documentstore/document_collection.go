@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/D4rk4/yago/yagomodel"
 	"github.com/D4rk4/yago/yagonode/internal/vault"
 )
+
+// Imported YaCy identities may exceed the ordinary crawl-contract URL ceiling.
+// Keep a bounded storage allowance for those opaque, non-fetchable records;
+// ordinary crawl requests remain limited by the crawl contract.
+const maximumStoredDocumentURLIdentityBytes = 16 << 10
 
 const (
 	bucketName                   vault.Name = "documents"
@@ -75,7 +79,7 @@ func orderedDocumentKey(admission uint64, normalizedURL string) (vault.Key, erro
 	if normalizedURL == "" {
 		return nil, fmt.Errorf("ordered document URL must not be empty")
 	}
-	if len(normalizedURL) > yagomodel.MaximumURLIdentityBytes {
+	if len(normalizedURL) > maximumStoredDocumentURLIdentityBytes {
 		return nil, fmt.Errorf("ordered document URL has %d bytes", len(normalizedURL))
 	}
 	encodedAdmission, err := encodeOrderedDocumentAdmission(admission)
@@ -94,7 +98,7 @@ func decodeOrderedDocumentKey(key vault.Key) (uint64, string, error) {
 		return 0, "", fmt.Errorf("ordered document key has %d bytes", len(key))
 	}
 	normalizedURL := string(key[orderedDocumentAdmissionSize:])
-	if len(normalizedURL) > yagomodel.MaximumURLIdentityBytes {
+	if len(normalizedURL) > maximumStoredDocumentURLIdentityBytes {
 		return 0, "", fmt.Errorf("ordered document URL has %d bytes", len(normalizedURL))
 	}
 	admission, err := decodeOrderedDocumentAdmission(key[:orderedDocumentAdmissionSize])

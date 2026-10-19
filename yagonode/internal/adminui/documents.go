@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/D4rk4/yago/yagocrawlcontract"
 	"github.com/D4rk4/yago/yagonode/internal/documentimport"
 )
 
@@ -103,8 +104,24 @@ type IndexExporter interface {
 }
 
 type (
-	IndexImportRecord  = documentimport.Record
-	IndexImportResult  = documentimport.Result
-	IndexImportRequest = documentimport.Request
-	IndexImporter      = documentimport.Importer
+	IndexImportRecord     = documentimport.Record
+	IndexImportResult     = documentimport.Result
+	IndexImportRequest    = documentimport.Request
+	IndexImporter         = documentimport.Importer
+	CrawlOrderImportBatch = yagocrawlcontract.CrawlOrderImportBatch
 )
+
+// CrawlOrderImportResult reports what happened to one bounded frontier batch.
+// It deliberately contains counts only; source URLs must not enter logs or
+// routine API responses.
+type CrawlOrderImportResult struct {
+	EnqueuedRequests int  `json:"enqueuedRequests"`
+	AlreadyIndexed   int  `json:"alreadyIndexed"`
+	DuplicateBatch   bool `json:"duplicateBatch,omitempty"`
+}
+
+// CrawlOrderImporter persists imported requests on the node's ordinary durable
+// crawl-order queue. It does not start crawler workers.
+type CrawlOrderImporter interface {
+	ImportCrawlOrder(context.Context, CrawlOrderImportBatch) (CrawlOrderImportResult, error)
+}
