@@ -35,7 +35,11 @@ func (c *Console) handleCrawlOrderImport(w http.ResponseWriter, r *http.Request)
 	}
 	result, err := c.crawlOrderImport.ImportCrawlOrder(r.Context(), batch)
 	if err != nil {
-		http.Error(w, "frontier batch was not completed; retry the same batch", http.StatusServiceUnavailable)
+		http.Error(
+			w,
+			"frontier batch was not completed; retry the same batch",
+			http.StatusServiceUnavailable,
+		)
 		return
 	}
 	writeCrawlOrderImportResponse(w, crawlOrderImportResponse{
@@ -51,7 +55,9 @@ func decodeCrawlOrderImport(w http.ResponseWriter, r *http.Request) (CrawlOrderI
 		http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
 		return CrawlOrderImportBatch{}, false
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, yagocrawlcontract.MaximumCrawlOrderImportBatchBytes+1))
+	body, err := io.ReadAll(
+		io.LimitReader(r.Body, yagocrawlcontract.MaximumCrawlOrderImportBatchBytes+1),
+	)
 	if err != nil {
 		http.Error(w, "could not read frontier batch", http.StatusBadRequest)
 		return CrawlOrderImportBatch{}, false

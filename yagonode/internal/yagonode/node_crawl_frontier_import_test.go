@@ -109,9 +109,11 @@ func TestCrawlOrderImportLeavesAllIndexedURLsOutOfQueue(t *testing.T) {
 	batch := validFrontierImportBatch(t, firstURL, secondURL)
 	queue := &frontierOrderQueueFixture{seen: make(map[string]bool)}
 	service := &crawlOrderImportService{
-		documents: frontierPresenceFixture{existing: map[string]bool{firstURL: true, secondURL: true}},
-		orders:    queue,
-		profiles:  new(frontierProfileWriterFixture),
+		documents: frontierPresenceFixture{
+			existing: map[string]bool{firstURL: true, secondURL: true},
+		},
+		orders:   queue,
+		profiles: new(frontierProfileWriterFixture),
 	}
 	result, err := service.ImportCrawlOrder(t.Context(), batch)
 	if err != nil {
@@ -138,7 +140,10 @@ func TestCrawlOrderImportDoesNotPublishWhenProfilePersistenceFails(t *testing.T)
 	}
 }
 
-func validFrontierImportBatch(t *testing.T, urls ...string) yagocrawlcontract.CrawlOrderImportBatch {
+func validFrontierImportBatch(
+	t *testing.T,
+	urls ...string,
+) yagocrawlcontract.CrawlOrderImportBatch {
 	t.Helper()
 	profile := yagocrawlcontract.CrawlProfile{
 		Handle:          "fixture-profile",

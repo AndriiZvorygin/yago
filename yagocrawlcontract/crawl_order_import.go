@@ -70,7 +70,10 @@ func (b CrawlOrderImportBatch) Validate() error {
 	if len(b.BatchID) != sha256.Size*2 {
 		return fmt.Errorf("invalid frontier batch ID")
 	}
-	if _, err := hex.DecodeString(b.BatchID); err != nil || strings.ToLower(b.BatchID) != b.BatchID {
+	if _, err := hex.DecodeString(
+		b.BatchID,
+	); err != nil ||
+		strings.ToLower(b.BatchID) != b.BatchID {
 		return fmt.Errorf("invalid frontier batch ID")
 	}
 	if len(b.Profile.Handle) == 0 || len(b.Profile.Handle) > MaximumProfileHandleBytes ||

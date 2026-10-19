@@ -22,8 +22,8 @@ const UnlimitedPagesPerHost = -1
 const DefaultMaxPagesPerRun = 50_000
 
 type CrawlProfile struct {
-	Handle               string
-	Name                 string
+	Handle string
+	Name   string
 	// SourceMetadata preserves adapter-specific profile fields without making
 	// them part of Yago's deterministic rule or profile-handle calculation.
 	SourceMetadata       map[string]string `json:",omitempty"`

@@ -37,8 +37,23 @@ type documentImportSubmitter interface {
 }
 
 type indexedImportRecord struct {
-	index  int
-	record adminui.IndexImportRecord
+	index       int
+	record      adminui.IndexImportRecord
+	destination importDestination
+}
+
+type importDestination struct {
+	known    bool
+	found    bool
+	document documentstore.Document
+}
+
+type importBatchExecution struct {
+	ctx      context.Context
+	cancel   context.CancelFunc
+	results  []adminui.IndexImportResult
+	firstErr error
+	failOnce sync.Once
 }
 
 type importedScheduleWriter interface {
@@ -90,60 +105,151 @@ func (s *documentImportService) ImportDocuments(
 	if len(records) == 0 {
 		return []adminui.IndexImportResult{}, nil
 	}
+	destinations, err := s.importDestinationSnapshots(ctx, records)
+	if err != nil {
+		return nil, fmt.Errorf("read import destination batch: %w", err)
+	}
+	results, err := s.processImportRecords(ctx, records, destinations)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.scheduleImportBatch(ctx, records, results); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+func (s *documentImportService) processImportRecords(
+	ctx context.Context,
+	records []adminui.IndexImportRecord,
+	destinations map[string]importDestination,
+) ([]adminui.IndexImportResult, error) {
 	workerCount := documentImportWorkerCount(s.ingest, len(records))
 	queues := make([]chan indexedImportRecord, workerCount)
 	queueCapacity := (len(records) + workerCount - 1) / workerCount
 	for index := range queues {
 		queues[index] = make(chan indexedImportRecord, queueCapacity)
 	}
-	results := make([]adminui.IndexImportResult, len(records))
-	importContext, cancel := context.WithCancel(ctx)
-	defer cancel()
+	execution := importBatchExecution{
+		results: make([]adminui.IndexImportResult, len(records)),
+	}
+	execution.ctx, execution.cancel = context.WithCancel(ctx)
+	defer execution.cancel()
 	var workers sync.WaitGroup
-	var firstErr error
-	var failOnce sync.Once
+	s.startImportWorkers(queues, &workers, &execution)
+	enqueueImportRecords(execution.ctx, records, destinations, queues)
+	workers.Wait()
+	if execution.firstErr != nil {
+		return nil, execution.firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("import document batch: %w", err)
+	}
+	return execution.results, nil
+}
+
+func (s *documentImportService) startImportWorkers(
+	queues []chan indexedImportRecord,
+	workers *sync.WaitGroup,
+	execution *importBatchExecution,
+) {
 	for _, queue := range queues {
 		workers.Add(1)
 		go func(jobs <-chan indexedImportRecord) {
 			defer workers.Done()
-			for job := range jobs {
-				result, err := s.importDocument(importContext, job.record)
-				if err != nil {
-					failOnce.Do(func() {
-						firstErr = err
-						cancel()
-					})
-					return
-				}
-				results[job.index] = result
-			}
+			s.processImportWorker(jobs, execution)
 		}(queue)
 	}
-	for index, record := range records {
-		queue := queues[importWorkerForURL(record.Document.NormalizedURL, workerCount)]
-		select {
-		case queue <- indexedImportRecord{index: index, record: record}:
-		case <-importContext.Done():
-			break
+}
+
+func (s *documentImportService) processImportWorker(
+	jobs <-chan indexedImportRecord,
+	execution *importBatchExecution,
+) {
+	resolved := make(map[string]importDestination, len(jobs))
+	for job := range jobs {
+		destination, found := resolved[job.record.Document.NormalizedURL]
+		if !found {
+			destination = job.destination
 		}
-		if importContext.Err() != nil {
+		result, destination, err := s.importDocument(execution.ctx, job.record, destination)
+		if err != nil {
+			execution.failOnce.Do(func() {
+				execution.firstErr = err
+				execution.cancel()
+			})
+			return
+		}
+		execution.results[job.index] = result
+		resolved[job.record.Document.NormalizedURL] = destination
+	}
+}
+
+func enqueueImportRecords(
+	ctx context.Context,
+	records []adminui.IndexImportRecord,
+	destinations map[string]importDestination,
+	queues []chan indexedImportRecord,
+) {
+	for index, record := range records {
+		queue := queues[importWorkerForURL(record.Document.NormalizedURL, len(queues))]
+		select {
+		case queue <- indexedImportRecord{
+			index:       index,
+			record:      record,
+			destination: destinations[record.Document.NormalizedURL],
+		}:
+		case <-ctx.Done():
+		}
+		if ctx.Err() != nil {
 			break
 		}
 	}
 	for _, queue := range queues {
 		close(queue)
 	}
-	workers.Wait()
-	if firstErr != nil {
-		return nil, firstErr
+}
+
+func (s *documentImportService) importDestinationSnapshots(
+	ctx context.Context,
+	records []adminui.IndexImportRecord,
+) (map[string]importDestination, error) {
+	documents, ok := s.documents.(documentstore.DocumentSetDirectory)
+	if !ok {
+		return nil, nil
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("import document batch: %w", err)
+	urls := make([]string, 0, len(records))
+	seen := make(map[string]struct{}, len(records))
+	for _, record := range records {
+		url := record.Document.NormalizedURL
+		if _, exists := seen[url]; exists {
+			continue
+		}
+		seen[url] = struct{}{}
+		urls = append(urls, url)
 	}
-	if err := s.scheduleImportBatch(ctx, records, results); err != nil {
-		return nil, err
+	stored, found, err := documents.Documents(ctx, urls)
+	if err != nil {
+		return nil, fmt.Errorf("read destination document set: %w", err)
 	}
-	return results, nil
+	if len(stored) != len(urls) || len(found) != len(urls) {
+		return nil, fmt.Errorf(
+			"document store returned %d documents and %d presence flags for %d URLs",
+			len(stored),
+			len(found),
+			len(urls),
+		)
+	}
+	destinations := make(map[string]importDestination, len(urls))
+	for index, url := range urls {
+		destinations[url] = importDestination{
+			known:    true,
+			found:    found[index],
+			document: stored[index],
+		}
+	}
+
+	return destinations, nil
 }
 
 func documentImportWorkerCount(submitter documentImportSubmitter, recordCount int) int {
@@ -169,19 +275,26 @@ func importWorkerForURL(rawURL string, workerCount int) int {
 func (s *documentImportService) importDocument(
 	ctx context.Context,
 	record adminui.IndexImportRecord,
-) (adminui.IndexImportResult, error) {
+	destination importDestination,
+) (adminui.IndexImportResult, importDestination, error) {
 	if err := ctx.Err(); err != nil {
-		return adminui.IndexImportResult{}, fmt.Errorf("import document batch: %w", err)
+		return adminui.IndexImportResult{}, destination, fmt.Errorf(
+			"import document batch: %w",
+			err,
+		)
 	}
-	found, conflict, err := s.existingDestination(ctx, record.Document)
-	if err != nil {
-		return adminui.IndexImportResult{}, fmt.Errorf("check destination document: %w", err)
+	if !destination.known {
+		existing, found, err := s.existingDestination(ctx, record.Document)
+		if err != nil {
+			return adminui.IndexImportResult{}, destination, fmt.Errorf(
+				"check destination document: %w",
+				err,
+			)
+		}
+		destination = importDestination{known: true, found: found, document: existing}
 	}
-	if conflict {
-		return adminui.IndexImportResult{ID: record.ID, Status: "conflict"}, nil
-	}
-	if found {
-		return adminui.IndexImportResult{ID: record.ID, Status: "already-present"}, nil
+	if destination.found {
+		return importResultForExisting(record, destination.document), destination, nil
 	}
 	batch := yagocrawlcontract.IngestBatch{
 		SourceURL:     record.Document.NormalizedURL,
@@ -191,9 +304,30 @@ func (s *documentImportService) importDocument(
 		Document:      record.Document,
 	}
 	if err := s.ingest.SubmitImport(ctx, batch, s.profile); err != nil {
-		return adminui.IndexImportResult{}, fmt.Errorf("ingest imported document: %w", err)
+		return adminui.IndexImportResult{}, destination, fmt.Errorf(
+			"ingest imported document: %w",
+			err,
+		)
 	}
-	return adminui.IndexImportResult{ID: record.ID, Status: "imported"}, nil
+	destination.found = true
+	destination.document = documentstore.Document{
+		NormalizedURL: record.Document.NormalizedURL,
+		ContentHash:   record.Document.ContentHash,
+	}
+
+	return adminui.IndexImportResult{ID: record.ID, Status: "imported"}, destination, nil
+}
+
+func importResultForExisting(
+	record adminui.IndexImportRecord,
+	existing documentstore.Document,
+) adminui.IndexImportResult {
+	status := "already-present"
+	if existing.ContentHash == "" || existing.ContentHash != record.Document.ContentHash {
+		status = "conflict"
+	}
+
+	return adminui.IndexImportResult{ID: record.ID, Status: status}
 }
 
 func (s *documentImportService) scheduleImportBatch(
@@ -260,15 +394,18 @@ func (s *documentImportService) ensureProfile(ctx context.Context) error {
 func (s *documentImportService) existingDestination(
 	ctx context.Context,
 	document yagocrawlcontract.DocumentIngest,
-) (bool, bool, error) {
+) (documentstore.Document, bool, error) {
 	existing, found, err := s.documents.Document(ctx, document.NormalizedURL)
 	if err != nil || !found {
 		if err != nil {
-			return false, false, fmt.Errorf("read existing normalized URL: %w", err)
+			return documentstore.Document{}, false, fmt.Errorf(
+				"read existing normalized URL: %w",
+				err,
+			)
 		}
-		return found, false, nil
+		return documentstore.Document{}, found, nil
 	}
-	return true, existing.ContentHash == "" || existing.ContentHash != document.ContentHash, nil
+	return existing, true, nil
 }
 
 func (s *documentImportService) scheduleImport(
