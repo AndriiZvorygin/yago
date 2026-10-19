@@ -94,11 +94,19 @@ func TestCrawlOrderImportRequiresScopedAdminWriteKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("provision auth: %v", err)
 	}
-	readKey, err := service.CreateAPIKey(context.Background(), "frontier read key", []string{string(adminauth.ScopeAdminRead)})
+	readKey, err := service.CreateAPIKey(
+		context.Background(),
+		"frontier read key",
+		[]string{string(adminauth.ScopeAdminRead)},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeKey, err := service.CreateAPIKey(context.Background(), "frontier write key", []string{string(adminauth.ScopeAdminWrite)})
+	writeKey, err := service.CreateAPIKey(
+		context.Background(),
+		"frontier write key",
+		[]string{string(adminauth.ScopeAdminWrite)},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +120,12 @@ func TestCrawlOrderImportRequiresScopedAdminWriteKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := func(token string) *httptest.ResponseRecorder {
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/admin/crawl/frontier/import", strings.NewReader(string(body)))
+		req := httptest.NewRequestWithContext(
+			t.Context(),
+			http.MethodPost,
+			"/admin/crawl/frontier/import",
+			strings.NewReader(string(body)),
+		)
 		req.Header.Set("Content-Type", "application/json")
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)

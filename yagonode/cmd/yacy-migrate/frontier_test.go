@@ -18,10 +18,38 @@ import (
 
 func TestImportFrontierIsResumableAndDeduplicatesURLProfilePairs(t *testing.T) {
 	input, profiles := writeFrontierFixtures(t, []yaCyFrontierRecord{
-		{Type: "crawlRequest", Version: 1, Stack: "LOCAL", URL: "https://example.test/one", ProfileHandle: "source-profile", Depth: 1},
-		{Type: "crawlRequest", Version: 1, Stack: "LOCAL", URL: "https://example.test/two", ProfileHandle: "source-profile", Depth: 2},
-		{Type: "crawlRequest", Version: 1, Stack: "LOCAL", URL: "https://example.test/one", ProfileHandle: "source-profile", Depth: 1},
-		{Type: "crawlRequest", Version: 1, Stack: "LOCAL", URL: "https://example.test/three", ProfileHandle: "source-profile", Depth: 3},
+		{
+			Type:          "crawlRequest",
+			Version:       1,
+			Stack:         "LOCAL",
+			URL:           "https://example.test/one",
+			ProfileHandle: "source-profile",
+			Depth:         1,
+		},
+		{
+			Type:          "crawlRequest",
+			Version:       1,
+			Stack:         "LOCAL",
+			URL:           "https://example.test/two",
+			ProfileHandle: "source-profile",
+			Depth:         2,
+		},
+		{
+			Type:          "crawlRequest",
+			Version:       1,
+			Stack:         "LOCAL",
+			URL:           "https://example.test/one",
+			ProfileHandle: "source-profile",
+			Depth:         1,
+		},
+		{
+			Type:          "crawlRequest",
+			Version:       1,
+			Stack:         "LOCAL",
+			URL:           "https://example.test/three",
+			ProfileHandle: "source-profile",
+			Depth:         3,
+		},
 	})
 	var received []yagocrawlcontract.CrawlOrderImportBatch
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -57,7 +85,8 @@ func TestImportFrontierIsResumableAndDeduplicatesURLProfilePairs(t *testing.T) {
 		t.Fatalf("first frontier pass: %v", err)
 	}
 	checkpoint, found, err := loadFrontierImportCheckpoint(state)
-	if err != nil || !found || checkpoint.Records != 2 || checkpoint.EnqueuedRequests != 2 || checkpoint.Complete {
+	if err != nil || !found || checkpoint.Records != 2 || checkpoint.EnqueuedRequests != 2 ||
+		checkpoint.Complete {
 		t.Fatalf("first checkpoint = %+v, found=%t, err=%v", checkpoint, found, err)
 	}
 
@@ -90,9 +119,27 @@ func TestImportFrontierIsResumableAndDeduplicatesURLProfilePairs(t *testing.T) {
 func TestImportFrontierDryRunDoesNotCallDestinationOrWriteCheckpoint(t *testing.T) {
 	credentialedURL := "https://" + url.User("fixture-user").String() + "@example.test/private"
 	input, profiles := writeFrontierFixtures(t, []yaCyFrontierRecord{
-		{Type: "crawlRequest", Version: 1, Stack: "LOCAL", URL: "https://example.test/one", ProfileHandle: "source-profile"},
-		{Type: "crawlRequest", Version: 1, Stack: "LOCAL", URL: credentialedURL, ProfileHandle: "source-profile"},
-		{Type: "crawlRequest", Version: 1, Stack: "LOCAL", URL: "https://exa mple.test/private", ProfileHandle: "source-profile"},
+		{
+			Type:          "crawlRequest",
+			Version:       1,
+			Stack:         "LOCAL",
+			URL:           "https://example.test/one",
+			ProfileHandle: "source-profile",
+		},
+		{
+			Type:          "crawlRequest",
+			Version:       1,
+			Stack:         "LOCAL",
+			URL:           credentialedURL,
+			ProfileHandle: "source-profile",
+		},
+		{
+			Type:          "crawlRequest",
+			Version:       1,
+			Stack:         "LOCAL",
+			URL:           "https://exa mple.test/private",
+			ProfileHandle: "source-profile",
+		},
 	})
 	checkpoint := filepath.Join(t.TempDir(), "dry-run.state")
 	var output strings.Builder
@@ -104,7 +151,10 @@ func TestImportFrontierDryRunDoesNotCallDestinationOrWriteCheckpoint(t *testing.
 	}
 	if !strings.Contains(output.String(), "blocked-credential-urls=1") ||
 		!strings.Contains(output.String(), "blocked-invalid-urls=1") ||
-		strings.Contains(output.String(), "fixture-user") || strings.Contains(output.String(), credentialedURL) {
+		strings.Contains(
+			output.String(),
+			"fixture-user",
+		) || strings.Contains(output.String(), credentialedURL) {
 		t.Fatalf("dry-run output leaked or omitted credential URL disposition: %s", output.String())
 	}
 	if _, err := os.Stat(checkpoint); !os.IsNotExist(err) {
@@ -115,9 +165,27 @@ func TestImportFrontierDryRunDoesNotCallDestinationOrWriteCheckpoint(t *testing.
 func TestImportFrontierBlocksUnsafeURLsWithoutForwardingThem(t *testing.T) {
 	credentialedURL := "https://" + url.User("fixture-user").String() + "@example.test/private"
 	input, profiles := writeFrontierFixtures(t, []yaCyFrontierRecord{
-		{Type: "crawlRequest", Version: 1, Stack: "LOCAL", URL: credentialedURL, ProfileHandle: "source-profile"},
-		{Type: "crawlRequest", Version: 1, Stack: "LOCAL", URL: "https://exa mple.test/private", ProfileHandle: "source-profile"},
-		{Type: "crawlRequest", Version: 1, Stack: "LOCAL", URL: "https://example.test/public", ProfileHandle: "source-profile"},
+		{
+			Type:          "crawlRequest",
+			Version:       1,
+			Stack:         "LOCAL",
+			URL:           credentialedURL,
+			ProfileHandle: "source-profile",
+		},
+		{
+			Type:          "crawlRequest",
+			Version:       1,
+			Stack:         "LOCAL",
+			URL:           "https://exa mple.test/private",
+			ProfileHandle: "source-profile",
+		},
+		{
+			Type:          "crawlRequest",
+			Version:       1,
+			Stack:         "LOCAL",
+			URL:           "https://example.test/public",
+			ProfileHandle: "source-profile",
+		},
 	})
 	var received []yagocrawlcontract.CrawlOrderImportBatch
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -146,22 +214,32 @@ func TestImportFrontierBlocksUnsafeURLsWithoutForwardingThem(t *testing.T) {
 		t.Fatalf("forwarded frontier batches = %+v", received)
 	}
 	checkpoint, found, err := loadFrontierImportCheckpoint(statePath)
-	if err != nil || !found || checkpoint.BlockedCredentialURLs != 1 || checkpoint.BlockedInvalidURLs != 1 || checkpoint.Records != 3 ||
-		checkpoint.EnqueuedRequests != 1 || !checkpoint.Complete {
+	if err != nil || !found || checkpoint.BlockedCredentialURLs != 1 ||
+		checkpoint.BlockedInvalidURLs != 1 ||
+		checkpoint.Records != 3 ||
+		checkpoint.EnqueuedRequests != 1 ||
+		!checkpoint.Complete {
 		t.Fatalf("frontier checkpoint = %+v, found=%t, err=%v", checkpoint, found, err)
 	}
 	stateBytes, err := os.ReadFile(statePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(stateBytes), "fixture-user") || strings.Contains(output.String(), "fixture-user") {
+	if strings.Contains(string(stateBytes), "fixture-user") ||
+		strings.Contains(output.String(), "fixture-user") {
 		t.Fatal("credentialed URL leaked into checkpoint or progress output")
 	}
 }
 
 func TestImportFrontierRejectsInputMutationAndMissingProfile(t *testing.T) {
 	input, profiles := writeFrontierFixtures(t, []yaCyFrontierRecord{
-		{Type: "crawlRequest", Version: 1, Stack: "LOCAL", URL: "https://example.test/one", ProfileHandle: "missing-profile"},
+		{
+			Type:          "crawlRequest",
+			Version:       1,
+			Stack:         "LOCAL",
+			URL:           "https://example.test/one",
+			ProfileHandle: "missing-profile",
+		},
 	})
 	server := httptest.NewServer(http.NotFoundHandler())
 	defer server.Close()
@@ -175,7 +253,13 @@ func TestImportFrontierRejectsInputMutationAndMissingProfile(t *testing.T) {
 	}
 
 	validInput, validProfiles := writeFrontierFixtures(t, []yaCyFrontierRecord{
-		{Type: "crawlRequest", Version: 1, Stack: "LOCAL", URL: "https://example.test/one", ProfileHandle: "source-profile"},
+		{
+			Type:          "crawlRequest",
+			Version:       1,
+			Stack:         "LOCAL",
+			URL:           "https://example.test/one",
+			ProfileHandle: "source-profile",
+		},
 	})
 	state := filepath.Join(t.TempDir(), "frontier-state.json")
 	opts.Input, opts.Profiles, opts.State = validInput, validProfiles, state
@@ -240,7 +324,10 @@ func TestMapYaCyRecrawlCutoffRemainsSourceMetadata(t *testing.T) {
 				t.Fatalf("map profile: %v", err)
 			}
 			if profile.RecrawlIfOlder != 0 {
-				t.Fatalf("RecrawlIfOlder = %v; YaCy cutoff must not become a Yago interval", profile.RecrawlIfOlder)
+				t.Fatalf(
+					"RecrawlIfOlder = %v; YaCy cutoff must not become a Yago interval",
+					profile.RecrawlIfOlder,
+				)
 			}
 			if got := profile.SourceMetadata["yacy.profile.recrawlIfOlder"]; got != cutoff {
 				t.Fatalf("source recrawl cutoff metadata = %q, want %q", got, cutoff)
@@ -268,7 +355,9 @@ func TestReadFrontierHeaderAcceptsYaCyExporterType(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, _, err := readFrontierHeader(bufio.NewReader(strings.NewReader(string(line) + "\n")))
+			got, _, err := readFrontierHeader(
+				bufio.NewReader(strings.NewReader(string(line) + "\n")),
+			)
 			if err != nil || got.Type != kind {
 				t.Fatalf("read frontier header = %+v, err=%v", got, err)
 			}
@@ -286,7 +375,9 @@ func writeFrontierFixtures(t *testing.T, records []yaCyFrontierRecord) (string, 
 		t.Fatal(err)
 	}
 	encoder := json.NewEncoder(frontierFile)
-	if err := encoder.Encode(frontierFileHeader{Type: "yacy-queue-frontier", Version: 1, SourceID: "fixture-source"}); err != nil {
+	if err := encoder.Encode(
+		frontierFileHeader{Type: "yacy-queue-frontier", Version: 1, SourceID: "fixture-source"},
+	); err != nil {
 		t.Fatal(err)
 	}
 	for _, record := range records {
@@ -302,7 +393,9 @@ func writeFrontierFixtures(t *testing.T, records []yaCyFrontierRecord) (string, 
 		t.Fatal(err)
 	}
 	profileEncoder := json.NewEncoder(profileFile)
-	if err := profileEncoder.Encode(frontierFileHeader{Type: "yacy-crawl-profiles", Version: 1, SourceID: "fixture-source"}); err != nil {
+	if err := profileEncoder.Encode(
+		frontierFileHeader{Type: "yacy-crawl-profiles", Version: 1, SourceID: "fixture-source"},
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := profileEncoder.Encode(yaCyProfileRecord{

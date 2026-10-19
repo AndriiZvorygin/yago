@@ -404,7 +404,9 @@ func (session *importSession) nextBatch() ([]documentimport.Record, int64, error
 	return session.nextBatchLimit(maximumRecords)
 }
 
-func (session *importSession) nextBatchLimit(maximumRecords int) ([]documentimport.Record, int64, error) {
+func (session *importSession) nextBatchLimit(
+	maximumRecords int,
+) ([]documentimport.Record, int64, error) {
 	return session.nextBatchUsingBounds(
 		session.nextRecord,
 		documentimport.MaximumRequestBytes,

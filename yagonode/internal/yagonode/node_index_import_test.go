@@ -3,6 +3,7 @@ package yagonode
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -36,6 +37,78 @@ func (d failingImportDocumentDirectory) Document(
 }
 
 func (failingImportDocumentDirectory) Count(context.Context) (int, error) { return 0, nil }
+
+type batchImportDocumentDirectory struct {
+	mu        sync.Mutex
+	documents map[string]documentstore.Document
+	batchURLs []string
+	batchErr  error
+	lookups   int
+}
+
+func (d *batchImportDocumentDirectory) Document(
+	_ context.Context,
+	url string,
+) (documentstore.Document, bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.lookups++
+	document, found := d.documents[url]
+	return document, found, nil
+}
+
+func (d *batchImportDocumentDirectory) Documents(
+	_ context.Context,
+	urls []string,
+) ([]documentstore.Document, []bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.batchErr != nil {
+		return nil, nil, d.batchErr
+	}
+	d.batchURLs = append(d.batchURLs, urls...)
+	documents := make([]documentstore.Document, len(urls))
+	found := make([]bool, len(urls))
+	for index, url := range urls {
+		documents[index], found[index] = d.documents[url]
+	}
+	return documents, found, nil
+}
+
+func (d *batchImportDocumentDirectory) Count(context.Context) (int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.documents), nil
+}
+
+func (d *batchImportDocumentDirectory) store(document documentstore.Document) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.documents[document.NormalizedURL] = document
+}
+
+type batchImportSubmitterFixture struct {
+	mu        sync.Mutex
+	directory *batchImportDocumentDirectory
+	batches   []yagocrawlcontract.IngestBatch
+}
+
+func (f *batchImportSubmitterFixture) MaximumConcurrentImports() int { return 4 }
+
+func (f *batchImportSubmitterFixture) SubmitImport(
+	_ context.Context,
+	batch yagocrawlcontract.IngestBatch,
+	_ yagocrawlcontract.CrawlProfile,
+) error {
+	f.mu.Lock()
+	f.batches = append(f.batches, batch)
+	f.mu.Unlock()
+	f.directory.store(documentstore.Document{
+		NormalizedURL: batch.Document.NormalizedURL,
+		ContentHash:   batch.Document.ContentHash,
+	})
+	return nil
+}
 
 type importSubmitterFixture struct {
 	batches []yagocrawlcontract.IngestBatch
@@ -120,7 +193,7 @@ func (f *concurrentImportSubmitterFixture) SubmitImport(
 		f.mu.Lock()
 		f.active--
 		f.mu.Unlock()
-		return ctx.Err()
+		return fmt.Errorf("context: %w", ctx.Err())
 	case <-time.After(15 * time.Millisecond):
 	}
 	f.directory.store(documentstore.Document{
@@ -167,6 +240,90 @@ func TestDocumentImportUsesBoundedConcurrentIngestAndSerializesDuplicateURLs(t *
 	}
 	if submitted != len(records)-1 {
 		t.Fatalf("submitted %d records, want duplicate URL submitted once", submitted)
+	}
+}
+
+func TestDocumentImportUsesBatchedDestinationSnapshotAndPreservesDuplicates(t *testing.T) {
+	const (
+		presentURL  = "https://present.example/page"
+		conflictURL = "https://conflict.example/page"
+		newURL      = "https://new.example/page"
+		otherURL    = "https://other.example/page"
+	)
+	documents := &batchImportDocumentDirectory{
+		documents: map[string]documentstore.Document{
+			presentURL:  {NormalizedURL: presentURL, ContentHash: "same"},
+			conflictURL: {NormalizedURL: conflictURL, ContentHash: "destination"},
+		},
+	}
+	submitter := &batchImportSubmitterFixture{directory: documents}
+	service := &documentImportService{
+		documents: documents,
+		ingest:    submitter,
+		frontier:  new(importScheduleFixture),
+		profile:   importTestProfile(),
+	}
+	results, err := service.ImportDocuments(t.Context(), []adminui.IndexImportRecord{
+		importTestRecord("present", presentURL, "same", nil),
+		importTestRecord("conflict", conflictURL, "source", nil),
+		importTestRecord("new-first", newURL, "first", nil),
+		importTestRecord("new-repeat", newURL, "first", nil),
+		importTestRecord("new-conflict", newURL, "second", nil),
+		importTestRecord("other", otherURL, "other", nil),
+	})
+	if err != nil {
+		t.Fatalf("ImportDocuments: %v", err)
+	}
+	wantStatuses := []string{
+		"already-present", "conflict", "imported", "already-present", "conflict", "imported",
+	}
+	if len(results) != len(wantStatuses) {
+		t.Fatalf("results length = %d, want %d", len(results), len(wantStatuses))
+	}
+	for index, want := range wantStatuses {
+		if results[index].Status != want {
+			t.Errorf("result %d status = %q, want %q", index, results[index].Status, want)
+		}
+	}
+	if got := len(documents.batchURLs); got != 4 {
+		t.Fatalf("batched destination lookup URLs = %d, want 4 unique URLs", got)
+	}
+	if documents.lookups != 0 {
+		t.Fatalf(
+			"performed %d per-document lookup transactions after batch read",
+			documents.lookups,
+		)
+	}
+	if len(submitter.batches) != 2 {
+		t.Fatalf("submitted %d records, want only the two unique new URLs", len(submitter.batches))
+	}
+	if documents.documents[conflictURL].ContentHash != "destination" {
+		t.Fatal("conflicting import changed the pre-existing destination document")
+	}
+}
+
+func TestDocumentImportStopsWhenBatchedDestinationReadFails(t *testing.T) {
+	documents := &batchImportDocumentDirectory{
+		documents: map[string]documentstore.Document{},
+		batchErr:  errors.New("destination read unavailable"),
+	}
+	submitter := &batchImportSubmitterFixture{directory: documents}
+	service := &documentImportService{
+		documents: documents,
+		ingest:    submitter,
+		frontier:  new(importScheduleFixture),
+		profile:   importTestProfile(),
+	}
+	if _, err := service.ImportDocuments(t.Context(), []adminui.IndexImportRecord{
+		importTestRecord("row", "https://read-failure.example/", "hash", nil),
+	}); err == nil {
+		t.Fatal("ImportDocuments succeeded after the batched destination read failed")
+	}
+	if len(submitter.batches) != 0 {
+		t.Fatalf(
+			"submitted %d documents after destination preflight failed",
+			len(submitter.batches),
+		)
 	}
 }
 

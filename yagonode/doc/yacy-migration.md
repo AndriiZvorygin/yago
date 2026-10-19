@@ -159,6 +159,10 @@ the measured storage pressure. Do not point Yago at YaCy's data or index path.
 Replaying a batch is idempotent: the normalized/canonical URL and content hash
 are checked before ingest. Matching documents return `already-present`; a
 different destination document is reported as `conflict` and is not replaced.
+The bounded request checks its unique normalized URLs together, and repeated
+URLs within the same request reuse the first result. This avoids a separate
+document-store read transaction for every source row without weakening conflict
+preservation.
 The importer preserves separate URLs even when their text hashes match, so
 aliases and link evidence are not discarded. Source rows without a supported
 required field or beyond Yago's existing document limits stop the pass with an

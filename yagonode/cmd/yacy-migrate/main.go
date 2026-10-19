@@ -100,11 +100,31 @@ func run(ctx context.Context, args []string, progress io.Writer) error {
 		opts := frontierImportOptions{}
 		flags.StringVar(&opts.Input, "input", "", "private versioned YaCy queue JSONL file")
 		flags.StringVar(&opts.Profiles, "profiles", "", "private YaCy crawl-profile JSONL sidecar")
-		flags.StringVar(&opts.Endpoint, "endpoint", "", "Yago POST /admin/crawl/frontier/import endpoint")
+		flags.StringVar(
+			&opts.Endpoint,
+			"endpoint",
+			"",
+			"Yago POST /admin/crawl/frontier/import endpoint",
+		)
 		flags.StringVar(&opts.State, "state", "", "checkpoint path; defaults beside input")
-		flags.IntVar(&opts.BatchRecords, "batch-records", 256, "maximum queue records per request, 1 through 256")
-		flags.IntVar(&opts.MaxRecords, "max-records", 0, "stop after this many source records; 0 means unlimited")
-		flags.BoolVar(&opts.DryRun, "dry-run", false, "validate and count remaining input without sending or checkpointing")
+		flags.IntVar(
+			&opts.BatchRecords,
+			"batch-records",
+			256,
+			"maximum queue records per request, 1 through 256",
+		)
+		flags.IntVar(
+			&opts.MaxRecords,
+			"max-records",
+			0,
+			"stop after this many source records; 0 means unlimited",
+		)
+		flags.BoolVar(
+			&opts.DryRun,
+			"dry-run",
+			false,
+			"validate and count remaining input without sending or checkpointing",
+		)
 		if err := flags.Parse(args[1:]); err != nil {
 			return fmt.Errorf("parse frontier import options: %w", err)
 		}

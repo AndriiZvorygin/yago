@@ -34,7 +34,8 @@ func TestCrawlOrderImportValidatesDryRunAndPersistsThroughImporter(t *testing.T)
 	batch := validCrawlOrderImportBatch(t)
 	batch.DryRun = true
 	response := performCrawlOrderImport(t, console, batch)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"validated":true`) {
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `"validated":true`) {
 		t.Fatalf("dry-run response = %d %s", response.Code, response.Body.String())
 	}
 	if importer.calls != 0 {
@@ -45,7 +46,12 @@ func TestCrawlOrderImportValidatesDryRunAndPersistsThroughImporter(t *testing.T)
 	response = performCrawlOrderImport(t, console, batch)
 	if response.Code != http.StatusOK || importer.calls != 1 ||
 		!strings.Contains(response.Body.String(), `"enqueuedRequests":1`) {
-		t.Fatalf("import response = %d %s; calls=%d", response.Code, response.Body.String(), importer.calls)
+		t.Fatalf(
+			"import response = %d %s; calls=%d",
+			response.Code,
+			response.Body.String(),
+			importer.calls,
+		)
 	}
 	if importer.batch.BatchID != batch.BatchID {
 		t.Fatal("importer received a different idempotent batch")
@@ -74,14 +80,24 @@ func TestCrawlOrderImportRejectsMalformedOrTamperedPayload(t *testing.T) {
 		t.Fatal("invalid frontier reached the importer")
 	}
 
-	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, crawlOrderImportPath, strings.NewReader(string(body)))
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		crawlOrderImportPath,
+		strings.NewReader(string(body)),
+	)
 	request.Header.Set("Content-Type", "text/plain")
 	response := httptest.NewRecorder()
 	console.ServeHTTP(response, request)
 	if response.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("unsupported content type status = %d", response.Code)
 	}
-	request = httptest.NewRequestWithContext(t.Context(), http.MethodPost, crawlOrderImportPath, failedFrontierBody{})
+	request = httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		crawlOrderImportPath,
+		failedFrontierBody{},
+	)
 	request.Header.Set("Content-Type", "application/json")
 	response = httptest.NewRecorder()
 	console.ServeHTTP(response, request)
@@ -138,7 +154,12 @@ func performCrawlOrderImportBody(
 	body string,
 ) *httptest.ResponseRecorder {
 	t.Helper()
-	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, crawlOrderImportPath, strings.NewReader(body))
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		crawlOrderImportPath,
+		strings.NewReader(body),
+	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	console.ServeHTTP(response, request)

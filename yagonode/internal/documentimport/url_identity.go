@@ -17,6 +17,7 @@ const (
 	LegacyURLStatusInvalidEscape         = "invalid_percent_escape_in_url"
 	LegacyURLStatusInvalidAuthority      = "invalid_source_authority"
 	LegacyURLStatusExceedsCrawlLimit     = "exceeds_yago_crawl_url_limit"
+	LegacyURLStatusControlCharacter      = "control_character_in_source_url"
 )
 
 // ValidateURLIdentity accepts ordinary crawlable URLs plus marked malformed
@@ -51,6 +52,9 @@ func IsPreservableLegacyURL(rawURL string) bool {
 // controls, or ambiguous authorities. Invalid hosts containing fragments or
 // backslashes remain opaque and are never fetched.
 func PreservableLegacyURLStatus(rawURL string) string {
+	if strings.IndexFunc(rawURL, unicode.IsControl) >= 0 {
+		return controlCharacterIdentityStatus(rawURL)
+	}
 	if len(rawURL) > yagocrawlcontract.MaximumCrawlURLBytes {
 		return overlongURLIdentityStatus(rawURL)
 	}
@@ -61,19 +65,16 @@ func PreservableLegacyURLStatus(rawURL string) string {
 	if !ok {
 		return ""
 	}
-	urlErr, ok := parseErr.(*url.Error)
-	if !ok {
+	var urlErr *url.Error
+	if !errors.As(parseErr, &urlErr) {
 		return ""
 	}
-	switch urlErr.Err.(type) {
-	case url.EscapeError:
+	var escapeErr url.EscapeError
+	if errors.As(urlErr.Err, &escapeErr) {
 		if strings.ContainsAny(rawURL, "#\\") {
 			return ""
 		}
-		if status := encodedHostWhitespaceStatus(
-			authority,
-			urlErr.Err.(url.EscapeError),
-		); status != "" {
+		if status := encodedHostWhitespaceStatus(authority, escapeErr); status != "" {
 			return status
 		}
 		if status := invalidHostPercentEscapeStatus(rawURL, authority); status != "" {
@@ -83,7 +84,9 @@ func PreservableLegacyURLStatus(rawURL string) string {
 			return status
 		}
 		return malformedLegacyEscapeStatus(rawURL, authority)
-	case url.InvalidHostError:
+	}
+	var invalidHostErr url.InvalidHostError
+	if errors.As(urlErr.Err, &invalidHostErr) {
 		if strings.IndexFunc(authority, unicode.IsControl) >= 0 ||
 			strings.Contains(authority, "@") {
 			return ""
@@ -95,9 +98,33 @@ func PreservableLegacyURLStatus(rawURL string) string {
 			return LegacyURLStatusInvalidHostEscape
 		}
 		return LegacyURLStatusInvalidHostCharacter
-	default:
-		return preservableInvalidAuthorityStatus(rawURL, authority)
 	}
+	return preservableInvalidAuthorityStatus(rawURL, authority)
+}
+
+func controlCharacterIdentityStatus(rawURL string) string {
+	if len(rawURL) > MaximumMigrationURLBytes {
+		return ""
+	}
+	separator := strings.Index(rawURL, "://")
+	if separator < 0 || !isSupportedImportScheme(rawURL[:separator]) ||
+		strings.ContainsAny(rawURL, "#\\") {
+		return ""
+	}
+	sanitized := strings.Map(func(character rune) rune {
+		if unicode.IsControl(character) {
+			return -1
+		}
+		return character
+	}, rawURL)
+	parsed, err := url.Parse(sanitized)
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" ||
+		!isSupportedImportScheme(parsed.Scheme) ||
+		strings.Contains(strings.ToLower(parsed.Host), "%40") {
+		return ""
+	}
+
+	return LegacyURLStatusControlCharacter
 }
 
 func overlongURLIdentityStatus(rawURL string) string {
@@ -258,7 +285,7 @@ func encodedHostWhitespaceStatus(authority string, escapeErr url.EscapeError) st
 			hasWhitespace = true
 			continue
 		}
-		if !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') &&
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') &&
 			r != '.' && r != '-' {
 			return ""
 		}

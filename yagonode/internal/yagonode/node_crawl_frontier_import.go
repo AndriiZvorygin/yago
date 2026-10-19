@@ -55,7 +55,9 @@ func (s *crawlOrderImportService) ImportCrawlOrder(
 		return adminui.CrawlOrderImportResult{}, fmt.Errorf("check imported frontier URLs: %w", err)
 	}
 	if len(present) != len(batch.Requests) {
-		return adminui.CrawlOrderImportResult{}, fmt.Errorf("document presence lookup returned an incomplete result")
+		return adminui.CrawlOrderImportResult{}, fmt.Errorf(
+			"document presence lookup returned an incomplete result",
+		)
 	}
 	requests := make([]yagocrawlcontract.CrawlRequest, 0, len(batch.Requests))
 	result := adminui.CrawlOrderImportResult{}
@@ -74,7 +76,10 @@ func (s *crawlOrderImportService) ImportCrawlOrder(
 		batch.Profile,
 		yagocrawlcontract.CrawlOrderPriorityNormal,
 	); err != nil {
-		return adminui.CrawlOrderImportResult{}, fmt.Errorf("register imported crawl profile: %w", err)
+		return adminui.CrawlOrderImportResult{}, fmt.Errorf(
+			"register imported crawl profile: %w",
+			err,
+		)
 	}
 	order := yagocrawlcontract.CrawlOrder{
 		Provenance: mintProvenance(),
@@ -84,7 +89,10 @@ func (s *crawlOrderImportService) ImportCrawlOrder(
 	}
 	duplicate, err := s.orders.PublishOnce(ctx, batch.IdempotencyKey(), order)
 	if err != nil {
-		return adminui.CrawlOrderImportResult{}, fmt.Errorf("persist imported crawl frontier: %w", err)
+		return adminui.CrawlOrderImportResult{}, fmt.Errorf(
+			"persist imported crawl frontier: %w",
+			err,
+		)
 	}
 	result.DuplicateBatch = duplicate
 	if !duplicate {

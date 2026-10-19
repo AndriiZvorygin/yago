@@ -16,8 +16,11 @@ func TestCrawlOrderRoundTrip(t *testing.T) {
 		Provenance: []byte{0x00, 0x01, 0xff, 0x7f, 0x80},
 		Priority:   CrawlOrderPriorityAutomaticDiscovery,
 		Profile: NewCrawlProfile(CrawlProfile{
-			Name:                     "deep",
-			SourceMetadata:           map[string]string{"yacy.name": "source profile", "yacy.depth": "4"},
+			Name: "deep",
+			SourceMetadata: map[string]string{
+				"yacy.name":  "source profile",
+				"yacy.depth": "4",
+			},
 			Scope:                    ScopeSubpath,
 			URLMustMatch:             MatchAll,
 			URLMustNotMatch:          ".*\\.pdf",
