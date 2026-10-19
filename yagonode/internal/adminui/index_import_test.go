@@ -11,7 +11,19 @@ import (
 	"time"
 
 	"github.com/D4rk4/yago/yagocrawlcontract"
+	"github.com/D4rk4/yago/yagonode/internal/documentimport"
 )
+
+func TestIndexImportErrorURLRedaction(t *testing.T) {
+	got := indexImportErrorURLPattern.ReplaceAllString(
+		"import failed for https://private-user:private-secret@example.test/path",
+		"<redacted-url>",
+	)
+	if strings.Contains(got, "private-user") || strings.Contains(got, "private-secret") ||
+		!strings.Contains(got, "<redacted-url>") {
+		t.Fatalf("redacted import error = %q", got)
+	}
+}
 
 type indexImporterFixture struct {
 	calls      int
@@ -128,7 +140,7 @@ func TestIndexImportRejectsMalformedOrIncompleteBatchBeforeMutation(t *testing.T
 
 func TestIndexImportBoundsRequestBody(t *testing.T) {
 	console := New(Options{IndexImport: new(indexImporterFixture)})
-	body := strings.Repeat(" ", yagocrawlcontract.MaximumIngestBatchBytes+1)
+	body := strings.Repeat(" ", documentimport.MaximumRequestBytes+1)
 	request := httptest.NewRequestWithContext(
 		t.Context(),
 		http.MethodPost,
@@ -278,18 +290,18 @@ func TestIndexImportRejectsInvalidDocumentTextAndURLs(t *testing.T) {
 		{name: "large text", change: func(r *IndexImportRecord) {
 			r.Document.ExtractedText = strings.Repeat(
 				"x",
-				yagocrawlcontract.MaximumDocumentTextBytes+1,
+				documentimport.MaximumRecordTextBytes+1,
 			)
 		}},
 		{name: "large title", change: func(r *IndexImportRecord) {
 			r.Document.Title = strings.Repeat("x", yagocrawlcontract.MaximumDocumentTitleBytes+1)
 		}},
 		{name: "too many headings", change: func(r *IndexImportRecord) {
-			r.Document.Headings = make([]string, yagocrawlcontract.MaximumDocumentHeadings+1)
+			r.Document.Headings = make([]string, documentimport.MaximumRecordHeadings+1)
 		}},
 		{name: "large heading", change: func(r *IndexImportRecord) {
 			r.Document.Headings = []string{
-				strings.Repeat("x", yagocrawlcontract.MaximumDocumentHeadingBytes+1),
+				strings.Repeat("x", documentimport.MaximumRecordHeadingBytes+1),
 			}
 		}},
 		{
@@ -316,15 +328,80 @@ func TestIndexImportRejectsInvalidDocumentTextAndURLs(t *testing.T) {
 	}
 }
 
+func TestIndexImportAcceptsMaximumMigrationText(t *testing.T) {
+	record := validIndexImportRecord()
+	record.Document.ExtractedText = strings.Repeat("x", documentimport.MaximumRecordTextBytes)
+	if err := validateIndexImportRecord(record); err != nil {
+		t.Fatalf("maximum migration text rejected: %v", err)
+	}
+}
+
+func TestIndexImportAcceptsLongYaCyDescriptionMetadata(t *testing.T) {
+	record := validIndexImportRecord()
+	record.Document.Metadata = map[string]string{
+		"yacy.description": strings.Repeat("x", (4<<20)+(256<<10)),
+	}
+	if err := validateIndexImportRecord(record); err != nil {
+		t.Fatalf("long YaCy description metadata rejected: %v", err)
+	}
+}
+
+func TestIndexImportAcceptsYaCyFTPAndSMBIdentities(t *testing.T) {
+	for _, rawURL := range []string{
+		"ftp://archive.example.test/pub/item.pdf",
+		"smb://archive.example.test/share/item.pdf",
+	} {
+		record := validIndexImportRecord()
+		record.Document.NormalizedURL = rawURL
+		record.Document.CanonicalURL = rawURL
+		if err := validateIndexImportRecord(record); err != nil {
+			t.Errorf("supported YaCy identity %q rejected: %v", rawURL, err)
+		}
+	}
+}
+
+func TestIndexImportAcceptsOnlyMarkedLegacyYaCyURLWithoutRecrawl(t *testing.T) {
+	rawURL := "https://bad%20host.example.test/document"
+	record := validIndexImportRecord()
+	record.Document.NormalizedURL = rawURL
+	record.Document.CanonicalURL = rawURL
+	record.Document.Metadata = map[string]string{
+		documentimport.LegacyURLStatusMetadataKey: documentimport.LegacyURLStatusEncodedHostWhitespace,
+	}
+	if err := validateIndexImportRecord(record); err != nil {
+		t.Fatalf("marked legacy YaCy identity rejected: %v", err)
+	}
+	record.Document.Metadata = nil
+	if err := validateIndexImportRecord(record); err == nil {
+		t.Fatal("unmarked malformed URL identity was accepted")
+	}
+	record.Document.Metadata = map[string]string{
+		documentimport.LegacyURLStatusMetadataKey: documentimport.LegacyURLStatusEncodedHostWhitespace,
+	}
+	nextVisit := time.Now().UTC()
+	record.NextVisitAt = &nextVisit
+	if err := validateIndexImportRecord(record); err == nil {
+		t.Fatal("malformed legacy URL identity was scheduled for recrawl")
+	}
+}
+
+func TestIndexImportAcceptsYaCyOutlinksBeyondCrawlerLimit(t *testing.T) {
+	record := validIndexImportRecord()
+	record.Document.Outlinks = make([]string, 73_275)
+	if err := validateIndexImportRecord(record); err != nil {
+		t.Fatalf("YaCy source outlinks rejected at migration boundary: %v", err)
+	}
+}
+
 func TestIndexImportRejectsLinkMetadataAndScheduleLimits(t *testing.T) {
 	assertIndexImportRecordsRejected(t, []indexImportRecordMutation{
 		{name: "too many outlinks", change: func(r *IndexImportRecord) {
-			r.Document.Outlinks = make([]string, yagocrawlcontract.MaximumDocumentOutlinks+1)
+			r.Document.Outlinks = make([]string, documentimport.MaximumRecordOutlinks+1)
 		}},
 		{name: "too many inlinks", change: func(r *IndexImportRecord) {
 			r.Document.Inlinks = make(
 				[]yagocrawlcontract.AnchorText,
-				yagocrawlcontract.MaximumDocumentAnchors+1,
+				documentimport.MaximumRecordInlinks+1,
 			)
 		}},
 		{name: "too many outbound anchors", change: func(r *IndexImportRecord) {
@@ -341,7 +418,7 @@ func TestIndexImportRejectsLinkMetadataAndScheduleLimits(t *testing.T) {
 		}},
 		{name: "large metadata", change: func(r *IndexImportRecord) {
 			r.Document.Metadata = map[string]string{
-				"key": strings.Repeat("x", yagocrawlcontract.MaximumDocumentMetadataBytes+1),
+				"key": strings.Repeat("x", documentimport.MaximumRecordMetadataBytes+1),
 			}
 		}},
 		{name: "zero next visit", change: func(r *IndexImportRecord) {

@@ -2,6 +2,7 @@ package yagonode
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -75,5 +76,61 @@ func TestIndexImportRequiresScopedAdminWriteKey(t *testing.T) {
 	}
 	if importer.calls != 1 {
 		t.Fatalf("importer calls = %d, want only the authorized write", importer.calls)
+	}
+}
+
+type frontierImportAuthFixture struct{ calls int }
+
+func (f *frontierImportAuthFixture) ImportCrawlOrder(
+	context.Context,
+	adminui.CrawlOrderImportBatch,
+) (adminui.CrawlOrderImportResult, error) {
+	f.calls++
+	return adminui.CrawlOrderImportResult{EnqueuedRequests: 1}, nil
+}
+
+func TestCrawlOrderImportRequiresScopedAdminWriteKey(t *testing.T) {
+	service, err := provisionAdminAuth(context.Background(), nodeConfig{}, openTestVault(t), nil)
+	if err != nil {
+		t.Fatalf("provision auth: %v", err)
+	}
+	readKey, err := service.CreateAPIKey(context.Background(), "frontier read key", []string{string(adminauth.ScopeAdminRead)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeKey, err := service.CreateAPIKey(context.Background(), "frontier write key", []string{string(adminauth.ScopeAdminWrite)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	importer := new(frontierImportAuthFixture)
+	ops := http.NewServeMux()
+	ops.Handle(adminui.BasePath, adminui.New(adminui.Options{CrawlOrderImport: importer}))
+	handler := guardAdminSurface(service, ops)
+	batch := validFrontierImportBatch(t, "https://example.test/pending")
+	body, err := json.Marshal(batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(token string) *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/admin/crawl/frontier/import", strings.NewReader(string(body)))
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		return response
+	}
+	if got := request(""); got.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated frontier import = %d, want 401", got.Code)
+	}
+	if got := request(readKey.Secret); got.Code != http.StatusForbidden {
+		t.Fatalf("admin:read frontier import = %d, want 403", got.Code)
+	}
+	if got := request(writeKey.Secret); got.Code != http.StatusOK {
+		t.Fatalf("admin:write frontier import = %d %s, want 200", got.Code, got.Body.String())
+	}
+	if importer.calls != 1 {
+		t.Fatalf("frontier importer calls = %d, want only authorized write", importer.calls)
 	}
 }

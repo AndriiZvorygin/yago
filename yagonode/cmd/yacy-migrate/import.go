@@ -21,27 +21,34 @@ import (
 	"github.com/D4rk4/yago/yagonode/internal/documentimport"
 )
 
-const importMaximumRecords = 64
+const importMaximumRecords = documentimport.MaximumBatchRecords
 
 type importCheckpoint struct {
-	Version                int    `json:"version"`
-	SourceID               string `json:"sourceId"`
-	DestinationFingerprint string `json:"destinationFingerprint"`
-	InputSize              int64  `json:"inputSize"`
-	InputModTime           int64  `json:"inputModTime"`
-	Offset                 int64  `json:"offset"`
-	Records                int64  `json:"records"`
-	Imported               int64  `json:"imported"`
-	Present                int64  `json:"alreadyPresent"`
-	Conflicts              int64  `json:"conflicts"`
+	Version                 int    `json:"version"`
+	SourceID                string `json:"sourceId"`
+	DestinationFingerprint  string `json:"destinationFingerprint"`
+	FollowExportCheckpoint  string `json:"followExportCheckpoint,omitempty"`
+	FollowSourceFingerprint string `json:"followSourceFingerprint,omitempty"`
+	FollowExportOffset      int64  `json:"followExportOffset,omitempty"`
+	InputSize               int64  `json:"inputSize"`
+	InputModTime            int64  `json:"inputModTime"`
+	Offset                  int64  `json:"offset"`
+	Records                 int64  `json:"records"`
+	Imported                int64  `json:"imported"`
+	Present                 int64  `json:"alreadyPresent"`
+	Conflicts               int64  `json:"conflicts"`
+	Complete                bool   `json:"complete,omitempty"`
 }
 
 type importOptions struct {
-	Input    string
-	Endpoint string
-	APIKey   string
-	State    string
-	DryRun   bool
+	Input                  string
+	Endpoint               string
+	APIKey                 string
+	State                  string
+	FollowExportCheckpoint string
+	BatchRecords           int
+	MaxRecords             int
+	DryRun                 bool
 }
 
 type importResponse struct {
@@ -54,15 +61,17 @@ type pendingRecord struct {
 }
 
 type importSession struct {
-	options   importOptions
-	endpoint  *url.URL
-	file      *os.File
-	info      os.FileInfo
-	reader    *bufio.Reader
-	statePath string
-	state     importCheckpoint
-	offset    int64
-	pending   *pendingRecord
+	options              importOptions
+	endpoint             *url.URL
+	file                 *os.File
+	info                 os.FileInfo
+	reader               *bufio.Reader
+	statePath            string
+	state                importCheckpoint
+	offset               int64
+	pending              *pendingRecord
+	followExportOffset   int64
+	followExportComplete bool
 }
 
 func importCorpus(ctx context.Context, opts importOptions, progress io.Writer) (resultErr error) {
@@ -113,13 +122,24 @@ func openImportSessionUsing(
 	if err != nil {
 		return nil, err
 	}
-	if err := validateImportCheckpoint(state, found, info, endpoint); err != nil {
+	if opts.FollowExportCheckpoint == "" {
+		if err := validateImportCheckpoint(state, found, info, endpoint); err != nil {
+			return nil, err
+		}
+	} else if err := validateFollowImportCheckpoint(
+		state,
+		found,
+		info,
+		endpoint,
+		opts.FollowExportCheckpoint,
+	); err != nil {
 		return nil, err
 	}
-	reader := bufio.NewReaderSize(file, yagocrawlcontract.MaximumIngestBatchBytes+1)
+	reader := bufio.NewReader(file)
 	session = &importSession{
 		options: opts, endpoint: endpoint, file: file, info: info,
 		reader: reader, statePath: statePath, state: state, offset: state.Offset,
+		followExportOffset: state.FollowExportOffset,
 	}
 	if found {
 		err = session.restoreCheckpointHeader()
@@ -131,6 +151,28 @@ func openImportSessionUsing(
 	}
 	keepOpen = true
 	return session, nil
+}
+
+func validateFollowImportCheckpoint(
+	state importCheckpoint,
+	found bool,
+	info os.FileInfo,
+	endpoint *url.URL,
+	followStatePath string,
+) error {
+	if found && state.FollowExportCheckpoint != followStatePath {
+		return errors.New("import checkpoint belongs to a different followed export")
+	}
+	if found && state.DestinationFingerprint != destinationFingerprint(endpoint) {
+		return errors.New("import checkpoint belongs to a different destination endpoint")
+	}
+	if state.Offset < 0 || state.Offset > info.Size() {
+		return errors.New("import checkpoint offset is outside the growing input file")
+	}
+	if found && state.FollowExportOffset < state.Offset {
+		return errors.New("import checkpoint exceeds its last committed export boundary")
+	}
+	return nil
 }
 
 type importInputStat interface {
@@ -155,6 +197,19 @@ func closeImportInput(file *os.File, operation string, resultErr error) error {
 func validateImportOptions(opts importOptions) (*url.URL, error) {
 	if opts.Input == "" {
 		return nil, errors.New("input path is required")
+	}
+	if opts.DryRun && opts.FollowExportCheckpoint != "" {
+		return nil, errors.New("dry-run cannot follow an export that is still running")
+	}
+	if opts.BatchRecords < 0 || opts.BatchRecords > importMaximumRecords {
+		return nil, fmt.Errorf("batch records must be between 1 and %d", importMaximumRecords)
+	}
+	if opts.MaxRecords < 0 {
+		return nil, errors.New("max records must not be negative")
+	}
+	if opts.FollowExportCheckpoint == opts.Input ||
+		(opts.State != "" && opts.FollowExportCheckpoint == opts.State) {
+		return nil, errors.New("import and export checkpoints must use separate paths")
 	}
 	endpoint, err := url.Parse(opts.Endpoint)
 	if err != nil || endpoint.Host == "" ||
@@ -223,13 +278,20 @@ func (session *importSession) readInitialHeader() error {
 		Version:                1,
 		SourceID:               header.SourceID,
 		DestinationFingerprint: destinationFingerprint(session.endpoint),
+		FollowExportCheckpoint: session.options.FollowExportCheckpoint,
 		InputSize:              session.info.Size(),
 		InputModTime:           session.info.ModTime().UnixNano(),
 		Offset:                 session.offset,
 	}
 	if !session.options.DryRun {
-		if err := verifyImportFileUnchanged(session.file, session.info); err != nil {
+		if session.options.FollowExportCheckpoint == "" {
+			if err := verifyImportFileUnchanged(session.file, session.info); err != nil {
+				return err
+			}
+		} else if err := session.refreshFollowExportBoundary(); err != nil {
 			return err
+		} else {
+			session.state.FollowExportOffset = session.followExportOffset
 		}
 		if err := saveCheckpoint(session.statePath, session.state); err != nil {
 			return err
@@ -251,12 +313,46 @@ func parseInterchangeHeader(line []byte) (interchangeHeader, error) {
 
 func (session *importSession) importDocuments(ctx context.Context, progress io.Writer) error {
 	client := &http.Client{Timeout: 2 * time.Minute}
+	remainingRunRecords := session.options.MaxRecords
 	for {
-		batch, batchEnd, err := session.nextBatch()
+		if session.options.FollowExportCheckpoint != "" {
+			if err := session.refreshFollowExportBoundary(); err != nil {
+				return err
+			}
+		}
+		batchLimit := session.options.BatchRecords
+		if batchLimit == 0 {
+			batchLimit = importMaximumRecords
+		}
+		if remainingRunRecords > 0 && remainingRunRecords < batchLimit {
+			batchLimit = remainingRunRecords
+		}
+		batch, batchEnd, err := session.nextBatchLimit(batchLimit)
 		if err != nil {
 			return err
 		}
 		if len(batch) == 0 {
+			if session.options.FollowExportCheckpoint != "" {
+				if session.followExportComplete {
+					if session.state.Offset != session.followExportOffset {
+						return errors.New(
+							"completed export boundary does not match imported record boundary",
+						)
+					}
+					session.state.Complete = true
+					if err := session.refreshImportFileInfo(); err != nil {
+						return err
+					}
+					if err := saveCheckpoint(session.statePath, session.state); err != nil {
+						return err
+					}
+					return writeImportSummary(progress, session.state)
+				}
+				if err := waitForFollowedExport(ctx); err != nil {
+					return err
+				}
+				continue
+			}
 			return writeImportSummary(progress, session.state)
 		}
 		results, err := sendImportBatch(
@@ -269,10 +365,20 @@ func (session *importSession) importDocuments(ctx context.Context, progress io.W
 			return fmt.Errorf("validate destination receipt: %w", err)
 		}
 		session.recordResults(results)
+		if remainingRunRecords > 0 {
+			remainingRunRecords -= len(batch)
+		}
 		session.state.Offset = batchEnd
 		session.state.Records += int64(len(batch))
-		if err := verifyImportFileUnchanged(session.file, session.info); err != nil {
-			return err
+		if session.options.FollowExportCheckpoint == "" {
+			if err := verifyImportFileUnchanged(session.file, session.info); err != nil {
+				return err
+			}
+		} else {
+			session.state.FollowExportOffset = session.followExportOffset
+			if err := session.refreshImportFileInfo(); err != nil {
+				return err
+			}
 		}
 		if err := saveCheckpoint(session.statePath, session.state); err != nil {
 			return err
@@ -280,22 +386,56 @@ func (session *importSession) importDocuments(ctx context.Context, progress io.W
 		if err := writeImportProgress(progress, session.state); err != nil {
 			return err
 		}
-		if session.pending == nil && session.offset == session.info.Size() {
+		if session.options.MaxRecords > 0 && remainingRunRecords == 0 {
+			return writeImportSummary(progress, session.state)
+		}
+		if session.options.FollowExportCheckpoint == "" &&
+			session.pending == nil && session.offset == session.info.Size() {
 			return writeImportSummary(progress, session.state)
 		}
 	}
 }
 
 func (session *importSession) nextBatch() ([]documentimport.Record, int64, error) {
-	return session.nextBatchUsing(session.nextRecord)
+	maximumRecords := session.options.BatchRecords
+	if maximumRecords == 0 {
+		maximumRecords = importMaximumRecords
+	}
+	return session.nextBatchLimit(maximumRecords)
+}
+
+func (session *importSession) nextBatchLimit(maximumRecords int) ([]documentimport.Record, int64, error) {
+	return session.nextBatchUsingBounds(
+		session.nextRecord,
+		documentimport.MaximumRequestBytes,
+		maximumRecords,
+	)
 }
 
 func (session *importSession) nextBatchUsing(
 	readNext func() (*pendingRecord, bool, error),
 ) ([]documentimport.Record, int64, error) {
-	batch := make([]documentimport.Record, 0, importMaximumRecords)
+	return session.nextBatchUsingBounds(
+		readNext,
+		documentimport.MaximumRequestBytes,
+		importMaximumRecords,
+	)
+}
+
+func (session *importSession) nextBatchUsingLimit(
+	readNext func() (*pendingRecord, bool, error),
+	maximumBytes int,
+) ([]documentimport.Record, int64, error) {
+	return session.nextBatchUsingBounds(readNext, maximumBytes, importMaximumRecords)
+}
+
+func (session *importSession) nextBatchUsingBounds(
+	readNext func() (*pendingRecord, bool, error),
+	maximumBytes, maximumRecords int,
+) ([]documentimport.Record, int64, error) {
+	batch := make([]documentimport.Record, 0, maximumRecords)
 	batchEnd := session.state.Offset
-	for len(batch) < importMaximumRecords {
+	for len(batch) < maximumRecords {
 		next, eof, err := readNext()
 		if err != nil {
 			return nil, 0, err
@@ -308,7 +448,7 @@ func (session *importSession) nextBatchUsing(
 		}
 		batch = append(batch, next.value)
 		encoded, _ := json.Marshal(documentimport.Request{Version: 1, Records: batch})
-		if len(encoded) > yagocrawlcontract.MaximumIngestBatchBytes {
+		if len(encoded) > maximumBytes {
 			batch = batch[:len(batch)-1]
 			if len(batch) == 0 {
 				return nil, 0, fmt.Errorf(
@@ -330,6 +470,10 @@ func (session *importSession) nextRecord() (*pendingRecord, bool, error) {
 		session.pending = nil
 		return next, false, nil
 	}
+	if session.options.FollowExportCheckpoint != "" &&
+		session.offset >= session.followExportOffset {
+		return nil, true, nil
+	}
 	line, err := readBoundedLine(session.reader)
 	if errors.Is(err, io.EOF) && len(line) == 0 {
 		return nil, true, nil
@@ -350,6 +494,56 @@ func (session *importSession) nextRecord() (*pendingRecord, bool, error) {
 		return nil, false, fmt.Errorf("invalid source record %q: %w", envelope.Record.ID, err)
 	}
 	return &pendingRecord{value: envelope.Record, end: session.offset}, false, nil
+}
+
+func (session *importSession) refreshFollowExportBoundary() error {
+	state, found, err := loadExportCheckpoint(session.options.FollowExportCheckpoint)
+	if err != nil {
+		return fmt.Errorf("read followed export checkpoint: %w", err)
+	}
+	if !found || state.SourceID != session.state.SourceID {
+		return errors.New("followed export checkpoint does not match the interchange header")
+	}
+	if session.state.FollowSourceFingerprint != "" &&
+		session.state.FollowSourceFingerprint != state.SourceFingerprint {
+		return errors.New("followed export belongs to a different YaCy source")
+	}
+	if state.Offset < session.state.Offset || state.Offset < session.state.FollowExportOffset {
+		return errors.New("followed export checkpoint moved behind imported progress")
+	}
+	info, err := session.file.Stat()
+	if err != nil {
+		return fmt.Errorf("inspect growing interchange file: %w", err)
+	}
+	if state.Offset > info.Size() {
+		return errors.New("followed export checkpoint exceeds durable interchange bytes")
+	}
+	session.followExportOffset = state.Offset
+	session.followExportComplete = state.Complete
+	session.state.FollowSourceFingerprint = state.SourceFingerprint
+	return nil
+}
+
+func (session *importSession) refreshImportFileInfo() error {
+	info, err := session.file.Stat()
+	if err != nil {
+		return fmt.Errorf("inspect growing interchange file: %w", err)
+	}
+	session.info = info
+	session.state.InputSize = info.Size()
+	session.state.InputModTime = info.ModTime().UnixNano()
+	return nil
+}
+
+func waitForFollowedExport(ctx context.Context) error {
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("wait for followed export: %w", ctx.Err())
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (session *importSession) recordResults(results []documentimport.Result) {
@@ -420,35 +614,39 @@ func validateImportRecord(record documentimport.Record) error {
 	if strings.TrimSpace(record.ID) == "" || len(record.ID) > 512 {
 		return errors.New("missing or oversized record ID")
 	}
-	if len(record.Document.ExtractedText) > yagocrawlcontract.MaximumDocumentTextBytes {
-		return errors.New("extracted text exceeds Yago's 1 MiB limit")
+	if len(record.Document.ExtractedText) > documentimport.MaximumRecordTextBytes {
+		return errors.New("extracted text exceeds the migration import limit")
 	}
 	if len(record.Document.Title) > yagocrawlcontract.MaximumDocumentTitleBytes ||
-		len(record.Document.Headings) > yagocrawlcontract.MaximumDocumentHeadings {
+		len(record.Document.Headings) > documentimport.MaximumRecordHeadings {
 		return errors.New("document title or heading count exceeds Yago's limit")
 	}
 	for _, heading := range record.Document.Headings {
-		if len(heading) > yagocrawlcontract.MaximumDocumentHeadingBytes {
+		if len(heading) > documentimport.MaximumRecordHeadingBytes {
 			return errors.New("document heading exceeds Yago's size limit")
 		}
 	}
 	if record.Document.NormalizedURL == "" {
 		return errors.New("missing normalized URL")
 	}
-	if err := validateInterchangeURL(record.Document.NormalizedURL); err != nil {
+	legacyURLStatus := record.Document.Metadata[documentimport.LegacyURLStatusMetadataKey]
+	if err := documentimport.ValidateURLIdentity(
+		record.Document.NormalizedURL,
+		legacyURLStatus,
+	); err != nil {
 		return errors.New("normalized URL must be a supported absolute HTTP(S) URL")
 	}
 	if record.Document.CanonicalURL != "" {
-		if err := validateInterchangeURL(record.Document.CanonicalURL); err != nil {
+		if err := documentimport.ValidateURLIdentity(
+			record.Document.CanonicalURL,
+			legacyURLStatus,
+		); err != nil {
 			return errors.New("canonical URL must be a supported absolute HTTP(S) URL")
 		}
 	}
-	if len(record.Document.Outlinks) > yagocrawlcontract.MaximumDocumentOutlinks ||
-		len(
-			record.Document.Inlinks,
-		)+len(
-			record.Document.OutboundAnchors,
-		) > yagocrawlcontract.MaximumDocumentAnchors ||
+	if len(record.Document.Outlinks) > documentimport.MaximumRecordOutlinks ||
+		len(record.Document.Inlinks) > documentimport.MaximumRecordInlinks ||
+		len(record.Document.OutboundAnchors) > yagocrawlcontract.MaximumDocumentAnchors ||
 		len(record.Document.Metadata) > yagocrawlcontract.MaximumDocumentMetadata {
 		return errors.New("document exceeds Yago's link or metadata count limits")
 	}
@@ -456,11 +654,15 @@ func validateImportRecord(record documentimport.Record) error {
 	for key, value := range record.Document.Metadata {
 		metadataBytes += len(key) + len(value)
 	}
-	if metadataBytes > yagocrawlcontract.MaximumDocumentMetadataBytes {
+	if metadataBytes > documentimport.MaximumRecordMetadataBytes {
 		return errors.New("document metadata exceeds Yago's size limit")
 	}
 	if record.NextVisitAt != nil && record.NextVisitAt.IsZero() {
 		return errors.New("nextVisitAt must be a non-zero timestamp")
+	}
+	if record.NextVisitAt != nil &&
+		documentimport.IsPreservableLegacyURL(record.Document.NormalizedURL) {
+		return errors.New("legacy malformed URL identities cannot be scheduled for recrawl")
 	}
 	return nil
 }
@@ -470,9 +672,11 @@ func validateInterchangeURL(raw string) error {
 		return errors.New("URL exceeds Yago's identity length limit")
 	}
 	parsed, err := url.Parse(raw)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" ||
+	if err != nil || !supportedImportedScheme(parsed.Scheme) || parsed.Host == "" ||
 		parsed.User != nil || parsed.Fragment != "" {
-		return errors.New("URL is not an absolute HTTP(S) URL without credentials or fragment")
+		return errors.New(
+			"URL is not a supported absolute HTTP, HTTPS, FTP, or SMB URL without credentials or fragment",
+		)
 	}
 	return nil
 }
@@ -496,7 +700,7 @@ func readBoundedLine(reader *bufio.Reader) ([]byte, error) {
 	line := make([]byte, 0, 4096)
 	for {
 		part, err := reader.ReadSlice('\n')
-		if len(line)+len(part) > yagocrawlcontract.MaximumIngestBatchBytes {
+		if len(line)+len(part) > documentimport.MaximumRequestBytes {
 			return nil, errors.New("interchange line exceeds batch size limit")
 		}
 		line = append(line, part...)

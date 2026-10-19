@@ -16,8 +16,10 @@ import (
 // consumer. SubmitIngest blocks on Receive until the consumer takes the
 // delivery, which is the backpressure the crawler observes.
 type IngestReceiver struct {
-	out         chan crawlresults.IngestDelivery
-	outstanding atomic.Int64
+	out             chan crawlresults.IngestDelivery
+	outstanding     atomic.Int64
+	importSlotsOnce sync.Once
+	importSlots     chan struct{}
 }
 
 func newIngestReceiver() *IngestReceiver {
@@ -30,6 +32,19 @@ func (r *IngestReceiver) Receive() <-chan crawlresults.IngestDelivery {
 
 func (r *IngestReceiver) Outstanding() int {
 	return int(r.outstanding.Load())
+}
+
+// MaximumConcurrentImports allows migration callers to fill the ingest
+// consumer's bounded micro-batch without exceeding its batch width.
+func (r *IngestReceiver) MaximumConcurrentImports() int {
+	return yagocrawlcontract.MaximumIngestBatchRecords
+}
+
+func (r *IngestReceiver) concurrentImportSlots() chan struct{} {
+	r.importSlotsOnce.Do(func() {
+		r.importSlots = make(chan struct{}, r.MaximumConcurrentImports())
+	})
+	return r.importSlots
 }
 
 func (r *IngestReceiver) beginIngest() func() {
@@ -51,6 +66,13 @@ func (r *IngestReceiver) SubmitImport(
 	if batch.ProfileHandle == "" || batch.ProfileHandle != profile.Handle {
 		return errors.New("document import profile does not match its handle")
 	}
+	slots := r.concurrentImportSlots()
+	select {
+	case slots <- struct{}{}:
+	case <-ctx.Done():
+		return fmt.Errorf("admit imported ingest batch: %w", ctx.Err())
+	}
+	defer func() { <-slots }()
 	encoded, err := json.Marshal(batch)
 	if err != nil {
 		return fmt.Errorf("size imported ingest batch: %w", err)

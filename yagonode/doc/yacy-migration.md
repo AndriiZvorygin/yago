@@ -5,14 +5,61 @@ YaCy documents into a Yago node. It uses YaCy's read-only Solr `select` cursor
 API and Yago's authenticated `POST /admin/index/import` route. It does not read
 or write either engine's on-disk index files.
 
-This is a document-content migration, not a complete YaCy crawl-state or peer
-index migration. The inspected YaCy interfaces do not export the full URLDB,
-pending frontier, focused-crawler sidecar, or exact per-URL next-visit schedule.
-The adapter preserves source values that are present in Solr and does not infer
-missing state. Imported documents are locally stored and searchable through
-Yago's normal document/index owners, but this adapter does not generate peer
-RWI postings. Do not cut over or stop YaCy based only on a successful import.
-See [the design and field-gap note](yacy-migration-design.md).
+HTTP(S), FTP, and SMB indexed identities are retained. Only HTTP(S) records can
+carry an active Yago recrawl schedule; other source freshness values remain
+metadata because Yago's recrawl worker is HTTP(S)-only.
+
+Legacy YaCy HTTP URLs with percent-encoded whitespace, a narrowly recognized
+invalid host character, or a malformed percent escape in the host, path, or
+query are
+retained verbatim, tagged in
+`yacy.migration_url_status`, and never recrawled. These narrow exceptions
+preserve the source identity and document without pretending the malformed
+host is fetchable. Other malformed URLs still stop the export.
+
+YaCy may also contain valid, credential-free URLs longer than Yago's ordinary
+2,048-byte crawl identity limit. The migration can retain these as searchable
+document identities up to 16 KiB, tagged
+`yacy.migration_url_status=exceeds_yago_crawl_url_limit`; they are explicitly
+non-crawlable and never receive a recrawl schedule. Ordinary crawler URL limits
+remain unchanged. Identities above the migration bound still stop export.
+
+When an indexed URL, canonical URL, source ID, or redirect contains URL
+userinfo, the adapter removes that userinfo before writing the interchange
+record, marks `yacy.migration_credentials_redacted=true`, and suppresses
+recrawl for the affected primary URL. Page content and the credential-free
+identity remain importable; credentials are never copied to Yago or emitted in
+export errors. Credential-bearing link targets are omitted.
+
+YaCy titles longer than Yago's ordinary title field are kept in full in the
+`yacy.title_full` metadata value and marked `yacy.migration_title_truncated`;
+the searchable title field contains a UTF-8-safe prefix within Yago's normal
+limit. Titles larger than the migration metadata budget (8 MiB per record)
+remain a hard export error rather than being discarded.
+
+Headings larger than YaGo's typed heading size or count limits are stored as
+UTF-8-safe indexed prefixes when they fit and retained in full, with their
+original YaCy field and array position, in bounded `yacy.headings_full`
+metadata. The record is marked with `yacy.migration_headings_truncated`. If the
+complete heading metadata would exceed the 8 MiB per-record migration metadata
+budget, export stops rather than dropping it.
+
+Each imported record retains up to 131,072 outbound URLs and 65,536 inbound
+URLs. When a source list exceeds its migration bound, Yago stores the bounded
+prefix and records available and stored counts in
+`yacy.migration_links_truncated`. This keeps one document bounded while making
+the loss of excess link entries explicit; ordinary crawler link limits do not
+change.
+
+This is a document-content migration plus a separate recoverable snapshot of
+pending local crawl requests, not a complete YaCy URLDB or peer-index
+migration. The pending frontier can be imported into Yago's durable crawl-order
+queue after document import and reconciliation; the focused-crawler sidecar,
+full URLDB outcomes, and exact per-URL next-visit schedule are not available
+through these interfaces. Imported documents are locally stored and searchable
+through Yago's normal document/index owners, but this adapter does not generate
+peer RWI postings. Do not cut over or stop YaCy based only on a successful
+document/frontier import. See [the design and field-gap note](yacy-migration-design.md).
 
 ## Export
 
@@ -32,7 +79,9 @@ YACY_USERNAME='admin-user' YACY_PASSWORD='read-only-password' \
 ```
 
 The endpoint must be a read-only Solr `select` URL. `--rows` is limited to
-1–64. The default is 16. `--dry-run` asks Solr for the current row count without
+1–256. The default is 16. Responses are decoded with an 80 MiB bound; if an
+unusually large page exceeds it, resume from the checkpoint with a smaller
+`--rows` value. `--dry-run` asks Solr for the current row count without
 creating an output or checkpoint:
 
 ```sh
@@ -49,6 +98,24 @@ committed output offset are discarded. The cursor is not a point-in-time
 snapshot: writes or deletes during export can make one pass inconsistent. Run
 a fresh export/reconciliation pass and compare counts before any migration
 cutover. Use a new output path for each reconciliation pass.
+
+For a long export, the importer can consume only pages already committed by the
+export checkpoint and wait for subsequent pages. This lets import overlap
+export without reading partial output:
+
+```sh
+cd yagonode
+YAGO_API_KEY='admin-write-key' \
+  go run ./cmd/yacy-migrate import \
+    --input '/secure/private/yacy-documents.jsonl' \
+    --follow-export-checkpoint '/secure/private/yacy-documents.jsonl.state.json' \
+    --endpoint 'https://yago.example/admin/index/import'
+```
+
+The follower exits only after the export checkpoint is marked complete and the
+imported byte offset reaches its committed offset. Its own import checkpoint
+supports restart; resume with the same input, destination, export checkpoint,
+and import checkpoint.
 
 ## Import
 
@@ -73,13 +140,21 @@ go run ./cmd/yacy-migrate import \
   --endpoint 'https://yago.example/admin/index/import' --dry-run
 ```
 
-The importer holds a bounded batch (at most 64 records and below the existing
+The importer holds a bounded batch (at most 256 records and below the existing
 ingest request limit), waits for normal ingest backpressure, and checkpoints
-only after it receives a valid receipt for every record. On interruption,
-rerun with the same input and endpoint. The default checkpoint is
+only after it receives a valid receipt for every record. Use `--batch-records`
+to lower work per request when diagnosing destination backpressure;
+`--max-records` bounds one invocation while leaving a resumable checkpoint.
+On interruption, rerun with the same input and endpoint. The default checkpoint is
 `<input>.import.state.json`; `--state` selects another path. Keep the input
 unchanged. A changed size or modification time is rejected rather than
 resumed against stale progress.
+
+Before a large import, size the destination's existing `YAGO_STORAGE_QUOTA`
+setting for the expected corpus and available disk headroom. The default is
+1 GB; reaching it can defer ingest and return HTTP 503 without advancing the
+import checkpoint. Resume after increasing the quota or otherwise relieving
+the measured storage pressure. Do not point Yago at YaCy's data or index path.
 
 Replaying a batch is idempotent: the normalized/canonical URL and content hash
 are checked before ingest. Matching documents return `already-present`; a
@@ -93,7 +168,10 @@ YaCy's current Solr export has no exact next-visit schedule. A versioned JSONL
 record may carry `nextVisitAt` when an operator has a separately verified
 source for it. Only such an explicit value creates a durable Yago recrawl
 schedule, and only a due schedule enters the recrawl frontier. Other imported
-records are not added to new-crawl work.
+records are not added to new-crawl work. Schedules for eligible records in one
+import request are committed together in one durable frontier transaction.
+The import checkpoint advances only after both document receipts and schedule
+storage succeed, so retrying a partially completed request remains idempotent.
 
 ## Field mapping and known gaps
 
@@ -111,3 +189,46 @@ destination counts, representative local searches, metadata, URLs and any
 supplemented schedules independently before deciding whether the remaining
 source-state gaps are acceptable. Keep YaCy and its production data untouched
 until that verification and a separate recoverable cutover plan are complete.
+
+## Pending frontier import
+
+The frontier import is a separate step and must run only after the document
+import has reached a stable source boundary. The command uses the stopped-YaCy
+queue snapshot JSONL plus its crawl-profile sidecar; it never reads or mutates
+the live YaCy queue files. Keep both artifacts private because they contain
+operator crawl URLs.
+
+First validate the full frontier without contacting Yago or writing a
+checkpoint:
+
+```sh
+cd yagonode
+go run ./cmd/yacy-migrate import-frontier \
+  --input '/private/yacy-queue-frontier.jsonl' \
+  --profiles '/private/yacy-crawl-profiles.jsonl' \
+  --dry-run
+```
+
+For a live import, use an API key scoped to `admin:write` and a protected
+operations endpoint. The command streams at most 256 requests per bounded
+batch, defaults to a sidecar checkpoint next to the input, and resumes only
+when both input files and the destination endpoint match the checkpoint. A
+batch is acknowledged by a content-derived idempotency key before its byte
+offset is checkpointed. `--max-records` is useful for a small test before the
+full frontier pass.
+
+```sh
+cd yagonode
+YAGO_API_KEY='admin-write-key' go run ./cmd/yacy-migrate import-frontier \
+  --input '/private/yacy-queue-frontier.jsonl' \
+  --profiles '/private/yacy-crawl-profiles.jsonl' \
+  --endpoint 'https://yago.example/admin/crawl/frontier/import' \
+  --max-records 512
+```
+
+The node checks its existing document store before queue publication and skips
+already-indexed URLs. The current interchange has no exact source next-visit
+time, so these skipped rows are not reintroduced as recrawls. Import stores
+orders only; it does not start a crawler worker. The captured production queue
+was the ordinary `LOCAL` lane and its source profile was not the Canadian
+focused profile. It must not be described or enabled as a Canadian crawl.

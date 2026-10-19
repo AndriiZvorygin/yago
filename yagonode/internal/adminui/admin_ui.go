@@ -133,6 +133,7 @@ type Options struct {
 	Blacklist            BlacklistSource
 	IndexExport          IndexExporter
 	IndexImport          IndexImporter
+	CrawlOrderImport     CrawlOrderImporter
 	Compactor            Compactor
 	Network              NetworkSource
 	NetworkSelfTest      NetworkSelfTester
@@ -469,6 +470,7 @@ type Console struct {
 	blacklist            BlacklistSource
 	indexExport          IndexExporter
 	indexImport          IndexImporter
+	crawlOrderImport     CrawlOrderImporter
 	compactor            Compactor
 	network              NetworkSource
 	networkSelfTest      NetworkSelfTester
@@ -532,6 +534,7 @@ func New(opts Options) *Console {
 		blacklist:            opts.Blacklist,
 		indexExport:          opts.IndexExport,
 		indexImport:          opts.IndexImport,
+		crawlOrderImport:     opts.CrawlOrderImport,
 		compactor:            opts.Compactor,
 		network:              opts.Network,
 		networkSelfTest:      opts.NetworkSelfTest,
