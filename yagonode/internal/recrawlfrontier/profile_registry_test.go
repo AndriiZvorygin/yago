@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/D4rk4/yago/yagocrawlcontract"
+	"github.com/D4rk4/yago/yagomodel"
 	"github.com/D4rk4/yago/yagonode/internal/boltvault"
+	"github.com/D4rk4/yago/yagonode/internal/vault"
 )
 
 func profileWithRecrawl(name string, recrawl time.Duration) yagocrawlcontract.CrawlProfile {
@@ -192,6 +194,97 @@ func TestScheduleAtIfAbsentRejectsInvalidAndUnknownSchedules(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestScheduleRecrawlsAtIfAbsentWritesOneIdempotentBatch(t *testing.T) {
+	f := openTestFrontier(t)
+	ctx := context.Background()
+	profile := profileWithRecrawl("migration schedule batch", 0)
+	recordImportedScheduleProfile(t, f, profile)
+	firstDue := testBase.Add(time.Hour)
+	secondDue := testBase.Add(2 * time.Hour)
+	if err := f.ScheduleRecrawlsAtIfAbsent(
+		ctx,
+		profile.Handle,
+		[]RecrawlSchedule{
+			{URL: "https://first.example/page", DueAt: firstDue},
+			{URL: "https://second.example/page", DueAt: secondDue},
+			{URL: "https://first.example/page", DueAt: testBase.Add(3 * time.Hour)},
+		},
+		time.Hour,
+	); err != nil {
+		t.Fatalf("schedule recrawl batch: %v", err)
+	}
+	if err := f.ScheduleRecrawlsAtIfAbsent(
+		ctx,
+		profile.Handle,
+		[]RecrawlSchedule{{URL: "https://first.example/page", DueAt: testBase.Add(4 * time.Hour)}},
+		time.Hour,
+	); err != nil {
+		t.Fatalf("repeat recrawl batch: %v", err)
+	}
+	first := importedScheduleRecord(t, f, "https://first.example/page")
+	if !first.NextDueAt.Equal(firstDue) {
+		t.Fatalf("first schedule due at %s, want %s", first.NextDueAt, firstDue)
+	}
+	second := importedScheduleRecord(t, f, "https://second.example/page")
+	if !second.NextDueAt.Equal(secondDue) {
+		t.Fatalf("second schedule due at %s, want %s", second.NextDueAt, secondDue)
+	}
+}
+
+func TestScheduleRecrawlsAtIfAbsentRejectsInvalidBatchWithoutPartialWrites(t *testing.T) {
+	f := openTestFrontier(t)
+	profile := profileWithRecrawl("migration invalid schedule batch", 0)
+	recordImportedScheduleProfile(t, f, profile)
+	err := f.ScheduleRecrawlsAtIfAbsent(
+		context.Background(),
+		profile.Handle,
+		[]RecrawlSchedule{
+			{URL: "https://valid.example/page", DueAt: testBase.Add(time.Hour)},
+			{URL: "", DueAt: testBase.Add(time.Hour)},
+		},
+		time.Hour,
+	)
+	if err == nil {
+		t.Fatal("invalid recrawl batch was accepted")
+	}
+	if _, found := importedScheduleRecordFound(t, f, "https://valid.example/page"); found {
+		t.Fatal("invalid batch partially wrote a valid schedule")
+	}
+}
+
+func importedScheduleRecord(t *testing.T, f *Frontier, url string) scheduleRecord {
+	t.Helper()
+	record, found := importedScheduleRecordFound(t, f, url)
+	if !found {
+		t.Fatalf("schedule for %s was not stored", url)
+	}
+	return record
+}
+
+func importedScheduleRecordFound(
+	t *testing.T,
+	f *Frontier,
+	url string,
+) (scheduleRecord, bool) {
+	t.Helper()
+	hash, err := yagomodel.HashURL(url)
+	if err != nil {
+		t.Fatalf("hash URL: %v", err)
+	}
+	var (
+		record scheduleRecord
+		found  bool
+	)
+	if err := f.vault.View(t.Context(), func(tx *vault.Txn) error {
+		var readErr error
+		record, found, readErr = f.records.Get(tx, vault.Key(string(hash)))
+		return readErr
+	}); err != nil {
+		t.Fatalf("read scheduled record: %v", err)
+	}
+	return record, found
 }
 
 func TestScheduleAtIfAbsentSurfacesCorruptProfileAndRecord(t *testing.T) {

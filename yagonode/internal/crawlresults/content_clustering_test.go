@@ -262,6 +262,60 @@ func TestClusterDocumentsPersistsRepresentativeChangesWithoutDroppingMembers(t *
 	}
 }
 
+func TestImportedDocumentsPreserveContentHashAndSkipDerivedClustering(t *testing.T) {
+	url := "https://imported.example/page"
+	clusters := &contentClusterScript{
+		assignment: contentcluster.Assignment{
+			ClusterID:         "cluster",
+			RepresentativeURL: url,
+		},
+		cluster: contentcluster.Cluster{
+			ID:                "cluster",
+			RepresentativeURL: url,
+			MemberURLs:        []string{url},
+		},
+		clusterFound: true,
+	}
+	consumer := &IngestConsumer{}
+	consumer.TrackContentClusters(clusters)
+	doc := documentstore.Document{
+		NormalizedURL: url,
+		CanonicalURL:  url,
+		ContentHash:   "source-content-hash",
+		ExtractedText: "source text",
+	}
+
+	imported, err := consumer.prepareIngestDocumentClusters(
+		t.Context(),
+		[]IngestDelivery{{ImportOnly: true}},
+		[]documentstore.Document{doc},
+	)
+	if err != nil {
+		t.Fatalf("prepare imported document: %v", err)
+	}
+	if len(clusters.evidence) != 0 || imported.documents[0].ContentHash != doc.ContentHash ||
+		imported.documents[0].ClusterID != "" {
+		t.Fatalf("imported document changed source identity or ran clustering: evidence=%d doc=%+v",
+			len(clusters.evidence), imported.documents[0])
+	}
+
+	ordinary, err := consumer.prepareIngestDocumentClusters(
+		t.Context(),
+		[]IngestDelivery{{ImportOnly: false}},
+		[]documentstore.Document{doc},
+	)
+	if err != nil {
+		t.Fatalf("prepare ordinary document: %v", err)
+	}
+	if len(clusters.evidence) != 1 || ordinary.documents[0].ClusterID != "cluster" {
+		t.Fatalf("ordinary document did not retain full clustering: evidence=%d doc=%+v",
+			len(clusters.evidence), ordinary.documents[0])
+	}
+	if _, err := consumer.prepareIngestDocumentClusters(t.Context(), nil, nil); err != nil {
+		t.Fatalf("prepare empty ingest cluster set: %v", err)
+	}
+}
+
 func TestNearDuplicateRecrawlKeepsStableClusterAssignment(t *testing.T) {
 	lifecycle := openClusterLifecycle(t)
 	first := documentstore.Document{

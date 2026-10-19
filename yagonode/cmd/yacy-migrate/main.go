@@ -50,7 +50,7 @@ func run(ctx context.Context, args []string, progress io.Writer) error {
 			"",
 			"non-sensitive stable identifier for this export",
 		)
-		flags.IntVar(&opts.Rows, "rows", 16, "bounded Solr page size, 1 through 64")
+		flags.IntVar(&opts.Rows, "rows", 16, "bounded Solr page size, 1 through 256")
 		flags.BoolVar(&opts.DryRun, "dry-run", false, "query source count only; do not write files")
 		if err := flags.Parse(args[1:]); err != nil {
 			return fmt.Errorf("parse export options: %w", err)
@@ -65,6 +65,24 @@ func run(ctx context.Context, args []string, progress io.Writer) error {
 		flags.StringVar(&opts.Input, "input", "", "versioned YaCy JSONL interchange file")
 		flags.StringVar(&opts.Endpoint, "endpoint", "", "Yago POST /admin/index/import endpoint")
 		flags.StringVar(&opts.State, "state", "", "checkpoint path; defaults beside input")
+		flags.StringVar(
+			&opts.FollowExportCheckpoint,
+			"follow-export-checkpoint",
+			"",
+			"follow only output bytes committed by the named resumable export checkpoint",
+		)
+		flags.IntVar(
+			&opts.BatchRecords,
+			"batch-records",
+			importMaximumRecords,
+			"maximum records per destination request, 1 through 256",
+		)
+		flags.IntVar(
+			&opts.MaxRecords,
+			"max-records",
+			0,
+			"stop after this many successful records in this run; 0 means unlimited",
+		)
 		flags.BoolVar(
 			&opts.DryRun,
 			"dry-run",
@@ -76,7 +94,23 @@ func run(ctx context.Context, args []string, progress io.Writer) error {
 		}
 		opts.APIKey = os.Getenv("YAGO_API_KEY")
 		return importCorpus(ctx, opts, progress)
+	case "import-frontier":
+		flags := flag.NewFlagSet("import-frontier", flag.ContinueOnError)
+		flags.SetOutput(progress)
+		opts := frontierImportOptions{}
+		flags.StringVar(&opts.Input, "input", "", "private versioned YaCy queue JSONL file")
+		flags.StringVar(&opts.Profiles, "profiles", "", "private YaCy crawl-profile JSONL sidecar")
+		flags.StringVar(&opts.Endpoint, "endpoint", "", "Yago POST /admin/crawl/frontier/import endpoint")
+		flags.StringVar(&opts.State, "state", "", "checkpoint path; defaults beside input")
+		flags.IntVar(&opts.BatchRecords, "batch-records", 256, "maximum queue records per request, 1 through 256")
+		flags.IntVar(&opts.MaxRecords, "max-records", 0, "stop after this many source records; 0 means unlimited")
+		flags.BoolVar(&opts.DryRun, "dry-run", false, "validate and count remaining input without sending or checkpointing")
+		if err := flags.Parse(args[1:]); err != nil {
+			return fmt.Errorf("parse frontier import options: %w", err)
+		}
+		opts.APIKey = os.Getenv("YAGO_API_KEY")
+		return importFrontier(ctx, opts, progress)
 	default:
-		return fmt.Errorf("unknown command %q; use export or import", args[0])
+		return fmt.Errorf("unknown command %q; use export, import, or import-frontier", args[0])
 	}
 }

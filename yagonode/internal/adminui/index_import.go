@@ -7,15 +7,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/D4rk4/yago/yagocrawlcontract"
+	"github.com/D4rk4/yago/yagonode/internal/documentimport"
 )
 
-const indexImportMaxRecords = 64
+const indexImportMaxRecords = documentimport.MaximumBatchRecords
+
+var indexImportErrorURLPattern = regexp.MustCompile(`(?i)\b(?:https?|ftp|smb)://[^\s"'<>]+`)
 
 func (c *Console) handleIndexImport(w http.ResponseWriter, r *http.Request) {
 	if c.indexImport == nil {
@@ -28,6 +33,11 @@ func (c *Console) handleIndexImport(w http.ResponseWriter, r *http.Request) {
 	}
 	results, err := c.runIndexImport(r.Context(), request)
 	if err != nil {
+		slog.WarnContext(r.Context(), "index import batch failed",
+			slog.String("error", indexImportErrorURLPattern.ReplaceAllString(
+				err.Error(), "<redacted-url>",
+			)),
+		)
 		http.Error(
 			w,
 			"import batch was not completed; retry the same records",
@@ -44,12 +54,12 @@ func decodeIndexImportRequest(w http.ResponseWriter, r *http.Request) (IndexImpo
 		http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
 		return IndexImportRequest{}, false
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, yagocrawlcontract.MaximumIngestBatchBytes+1))
+	body, err := io.ReadAll(io.LimitReader(r.Body, documentimport.MaximumRequestBytes+1))
 	if err != nil {
 		http.Error(w, "could not read import batch", http.StatusBadRequest)
 		return IndexImportRequest{}, false
 	}
-	if len(body) > yagocrawlcontract.MaximumIngestBatchBytes {
+	if len(body) > documentimport.MaximumRequestBytes {
 		http.Error(w, "import batch exceeds size limit", http.StatusRequestEntityTooLarge)
 		return IndexImportRequest{}, false
 	}
@@ -121,35 +131,40 @@ func validateIndexImportRecord(record IndexImportRecord) error {
 		return errors.New("each import record requires an ID of at most 512 bytes")
 	}
 	doc := record.Document
-	if len(doc.ExtractedText) > yagocrawlcontract.MaximumDocumentTextBytes {
+	if len(doc.ExtractedText) > documentimport.MaximumRecordTextBytes {
 		return errors.New("document text exceeds the supported limit")
 	}
 	if len(doc.Title) > yagocrawlcontract.MaximumDocumentTitleBytes {
 		return errors.New("document title exceeds the supported limit")
 	}
-	if len(doc.Headings) > yagocrawlcontract.MaximumDocumentHeadings {
+	if len(doc.Headings) > documentimport.MaximumRecordHeadings {
 		return errors.New("document has too many headings")
 	}
 	for _, heading := range doc.Headings {
-		if len(heading) > yagocrawlcontract.MaximumDocumentHeadingBytes {
+		if len(heading) > documentimport.MaximumRecordHeadingBytes {
 			return errors.New("document heading exceeds the supported limit")
 		}
 	}
 	if doc.NormalizedURL == "" {
 		return errors.New("document requires a normalized URL")
 	}
-	if err := validateImportURL(doc.NormalizedURL); err != nil {
-		return errors.New("document normalized URL must be a supported absolute HTTP or HTTPS URL")
+	legacyURLStatus := doc.Metadata[documentimport.LegacyURLStatusMetadataKey]
+	if err := documentimport.ValidateURLIdentity(doc.NormalizedURL, legacyURLStatus); err != nil {
+		return errors.New("document normalized URL must be a supported absolute URL")
 	}
 	if doc.CanonicalURL != "" {
-		if err := validateImportURL(doc.CanonicalURL); err != nil {
+		if err := documentimport.ValidateURLIdentity(
+			doc.CanonicalURL,
+			legacyURLStatus,
+		); err != nil {
 			return errors.New(
-				"document canonical URL must be a supported absolute HTTP or HTTPS URL",
+				"document canonical URL must be a supported absolute URL",
 			)
 		}
 	}
-	if len(doc.Outlinks) > yagocrawlcontract.MaximumDocumentOutlinks ||
-		len(doc.Inlinks)+len(doc.OutboundAnchors) > yagocrawlcontract.MaximumDocumentAnchors ||
+	if len(doc.Outlinks) > documentimport.MaximumRecordOutlinks ||
+		len(doc.Inlinks) > documentimport.MaximumRecordInlinks ||
+		len(doc.OutboundAnchors) > yagocrawlcontract.MaximumDocumentAnchors ||
 		len(doc.Metadata) > yagocrawlcontract.MaximumDocumentMetadata {
 		return errors.New("document exceeds a supported link or metadata count")
 	}
@@ -157,11 +172,14 @@ func validateIndexImportRecord(record IndexImportRecord) error {
 	for key, value := range doc.Metadata {
 		metadataBytes += len(key) + len(value)
 	}
-	if metadataBytes > yagocrawlcontract.MaximumDocumentMetadataBytes {
+	if metadataBytes > documentimport.MaximumRecordMetadataBytes {
 		return errors.New("document metadata exceeds the supported size")
 	}
 	if record.NextVisitAt != nil && record.NextVisitAt.IsZero() {
 		return errors.New("nextVisitAt must be a non-zero timestamp")
+	}
+	if record.NextVisitAt != nil && documentimport.IsPreservableLegacyURL(doc.NormalizedURL) {
+		return errors.New("legacy malformed URL identities cannot be scheduled for recrawl")
 	}
 	return nil
 }
@@ -171,13 +189,22 @@ func validateImportURL(raw string) error {
 		return errors.New("URL exceeds supported identity length")
 	}
 	parsed, err := url.Parse(raw)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" ||
+	if err != nil || !supportedImportURLScheme(parsed.Scheme) || parsed.Host == "" ||
 		parsed.User != nil || parsed.Fragment != "" {
 		return errors.New(
-			"URL is not an absolute HTTP or HTTPS URL without credentials or fragment",
+			"URL is not a supported absolute HTTP, HTTPS, FTP, or SMB URL without credentials or fragment",
 		)
 	}
 	return nil
+}
+
+func supportedImportURLScheme(scheme string) bool {
+	switch scheme {
+	case "http", "https", "ftp", "smb":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeIndexImportResponse(w http.ResponseWriter, results []IndexImportResult) {

@@ -29,19 +29,20 @@ type crawlProcess interface {
 }
 
 type crawlRuntime struct {
-	broker      *crawlbroker.CrawlBroker
-	state       *vault.Vault
-	ownsState   bool
-	statePath   string
-	consumer    *crawlresults.IngestConsumer
-	runs        *crawlruns.Registry
-	frontier    *recrawlfrontier.Frontier
-	formats     *crawlformats.Store
-	profiles    *crawlProfileDispatchRegistry
-	initiator   yagomodel.Hash
-	pageBudget  *crawlRunPageBudget
-	remoteCrawl remoteCrawlOrderObserver
-	indexImport adminui.IndexImporter
+	broker         *crawlbroker.CrawlBroker
+	state          *vault.Vault
+	ownsState      bool
+	statePath      string
+	consumer       *crawlresults.IngestConsumer
+	runs           *crawlruns.Registry
+	frontier       *recrawlfrontier.Frontier
+	formats        *crawlformats.Store
+	profiles       *crawlProfileDispatchRegistry
+	initiator      yagomodel.Hash
+	pageBudget     *crawlRunPageBudget
+	remoteCrawl    remoteCrawlOrderObserver
+	indexImport    adminui.IndexImporter
+	frontierImport adminui.CrawlOrderImporter
 }
 
 const msgCrawlRuntimeStateCloseFailed = "crawl runtime state close failed"
@@ -91,6 +92,11 @@ func buildCrawlRuntime(
 		ingest.frontier,
 	)
 	runtime.indexImport = importer
+	runtime.frontierImport = newCrawlOrderImportService(
+		storage.documentDirectory,
+		coordination.broker.Orders,
+		ingest.frontier,
+	)
 
 	return runtime, nil
 }

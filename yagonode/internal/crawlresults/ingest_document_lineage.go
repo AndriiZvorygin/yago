@@ -38,6 +38,12 @@ func (c *IngestConsumer) reserveIngestDocumentLineages(
 	if c.lineages == nil {
 		return nil, nil
 	}
+	if len(deliveries) > 0 && allImportOnly(deliveries) {
+		// Imported URL identities may be valid archival keys that are intentionally
+		// not crawlable under the ordinary URL limit. They do not publish outbound
+		// crawl lineage, so don't send them through the crawler's anchor reservation.
+		return nil, nil
+	}
 	urls := make([]string, 0, len(deliveries)*3)
 	for _, delivery := range deliveries {
 		urls = append(urls, delivery.Batch.SourceURL)
@@ -56,6 +62,16 @@ func (c *IngestConsumer) reserveIngestDocumentLineages(
 	}
 
 	return reservation, nil
+}
+
+func allImportOnly(deliveries []IngestDelivery) bool {
+	for _, delivery := range deliveries {
+		if !delivery.ImportOnly {
+			return false
+		}
+	}
+
+	return len(deliveries) > 0
 }
 
 func (c *IngestConsumer) releaseIngestDocumentLineages(

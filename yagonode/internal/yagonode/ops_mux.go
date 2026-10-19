@@ -108,6 +108,9 @@ func buildOpsMux(
 	if importer, ok := assembled.crawl.(adminui.IndexImporter); ok {
 		options.IndexImport = importer
 	}
+	if importer, ok := assembled.crawl.(adminui.CrawlOrderImporter); ok {
+		options.CrawlOrderImport = importer
+	}
 	applyOpsPageOptions(&options, config, assembled, sources)
 	applyIndexAdminOptions(&options, assembled)
 	applyExtractionRecrawlOption(&options, assembled)

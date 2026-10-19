@@ -257,7 +257,11 @@ func (c *IngestConsumer) storeReservedDocument(
 
 		return true
 	}
-	projection, err := c.prepareDocumentClusters(ctx, docs)
+	projection, err := c.prepareIngestDocumentClusters(
+		ctx,
+		[]IngestDelivery{delivery},
+		docs,
+	)
 	if err != nil {
 		c.redeliver(ctx, delivery, batch.SourceURL, "content cluster", err)
 
@@ -291,6 +295,23 @@ func (c *IngestConsumer) storeReservedDocument(
 	}
 
 	return false
+}
+
+func (c *IngestConsumer) prepareIngestDocumentClusters(
+	ctx context.Context,
+	deliveries []IngestDelivery,
+	docs []documentstore.Document,
+) (documentClusterProjection, error) {
+	if len(deliveries) == 0 {
+		return c.prepareDocumentClusters(ctx, docs)
+	}
+	for _, delivery := range deliveries {
+		if !delivery.ImportOnly {
+			return c.prepareDocumentClusters(ctx, docs)
+		}
+	}
+
+	return documentClusterProjection{documents: docs}, nil
 }
 
 // qualityRejectionRule names the quality rule the batch's document text

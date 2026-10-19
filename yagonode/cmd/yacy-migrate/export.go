@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-const maximumSolrRows = 64
+const maximumSolrRows = 256
 
 const solrStoredFields = "id,sku,canonical_s,title,description_txt,text_t,h1_txt,h2_txt,h3_txt,h4_txt,h5_txt,h6_txt,language_s,content_type,httpstatus_i,failreason_s,failtype_s,load_date_dt,last_modified,fresh_date_dt,exact_signature_l,collection_sxt,focused_policy_sxt,focused_profile_version_sxt,focused_relevance_i,focused_priority_s,focused_reason_sxt,httpstatus_redirect_s,outboundlinks_protocol_sxt,outboundlinks_urlstub_sxt,inboundlinks_protocol_sxt,inboundlinks_urlstub_sxt"
 
@@ -130,7 +130,7 @@ func validateExportOptions(opts exportOptions) (*url.URL, error) {
 	}
 	if strings.TrimSpace(opts.SourceID) == "" || len(opts.SourceID) > 128 || opts.Rows < 1 ||
 		opts.Rows > maximumSolrRows {
-		return nil, errors.New("source ID is required and rows must be between 1 and 64")
+		return nil, errors.New("source ID is required and rows must be between 1 and 256")
 	}
 	if !opts.DryRun && opts.Output == "" {
 		return nil, errors.New("output path is required")

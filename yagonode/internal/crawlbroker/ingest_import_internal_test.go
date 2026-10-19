@@ -94,6 +94,50 @@ func TestSubmitImportCancellationBeforeDeliveryReleasesOutstanding(t *testing.T)
 	}
 }
 
+func TestSubmitImportBoundsConcurrentDeliveriesAndHonorsCancellation(t *testing.T) {
+	receiver := newIngestReceiver()
+	profile := yagocrawlcontract.NewCrawlProfile(
+		yagocrawlcontract.CrawlProfile{Name: "migration concurrency fixture"},
+	)
+	if got := receiver.MaximumConcurrentImports(); got != yagocrawlcontract.MaximumIngestBatchRecords {
+		t.Fatalf("maximum concurrent imports = %d", got)
+	}
+	contexts := make([]context.Context, yagocrawlcontract.MaximumIngestBatchRecords)
+	cancels := make([]context.CancelFunc, len(contexts))
+	results := make(chan error, len(contexts)+1)
+	batch := yagocrawlcontract.IngestBatch{ProfileHandle: profile.Handle}
+	for index := range contexts {
+		contexts[index], cancels[index] = context.WithCancel(context.Background())
+		go func(ctx context.Context) { results <- receiver.SubmitImport(ctx, batch, profile) }(
+			contexts[index],
+		)
+	}
+	deadline := time.Now().Add(time.Second)
+	for receiver.Outstanding() < len(contexts) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := receiver.Outstanding(); got != len(contexts) {
+		t.Fatalf("outstanding concurrent imports = %d, want %d", got, len(contexts))
+	}
+	blockedContext, cancelBlocked := context.WithCancel(context.Background())
+	go func() { results <- receiver.SubmitImport(blockedContext, batch, profile) }()
+	cancelBlocked()
+	if err := <-results; !errors.Is(err, context.Canceled) {
+		t.Fatalf("submission beyond global bound = %v, want context canceled", err)
+	}
+	for _, cancel := range cancels {
+		cancel()
+	}
+	for range contexts {
+		if err := <-results; !errors.Is(err, context.Canceled) {
+			t.Fatalf("blocked delivery result = %v, want context canceled", err)
+		}
+	}
+	if got := receiver.Outstanding(); got != 0 {
+		t.Fatalf("outstanding after canceled imports = %d, want zero", got)
+	}
+}
+
 func TestSubmitImportRejectAndDeferReturnDeliveryOutcome(t *testing.T) {
 	tests := []struct {
 		name      string
