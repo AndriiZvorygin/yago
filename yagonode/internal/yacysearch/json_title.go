@@ -17,3 +17,11 @@ func yacyDisplayTitle(title string) string {
 	}
 	return title
 }
+
+func yacyDisplayDescription(title, description string) string {
+	displayDescription := yacyDisplayTitle(description)
+	if displayDescription != description && displayDescription == yacyDisplayTitle(title) {
+		return displayDescription
+	}
+	return description
+}

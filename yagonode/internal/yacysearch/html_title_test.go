@@ -14,8 +14,9 @@ func TestHTMLEndpointDisplaysImportedTitleArray(t *testing.T) {
 		TotalResults: 2,
 		Results: []searchcore.Result{
 			{
-				Title: `["Sample page title", "Alternate title"]`,
-				URL:   "https://example.org/imported",
+				Title:   `["Sample page title", "Alternate title"]`,
+				Snippet: `["Sample page title"]`,
+				URL:     "https://example.org/imported",
 			},
 			{
 				Title: "Ordinary page title",
@@ -36,6 +37,7 @@ func TestHTMLEndpointDisplaysImportedTitleArray(t *testing.T) {
 	body := recorder.Body.String()
 	for _, expected := range []string{
 		">Sample page title</a>",
+		">Sample page title</p>",
 		">Ordinary page title</a>",
 	} {
 		if !strings.Contains(body, expected) {

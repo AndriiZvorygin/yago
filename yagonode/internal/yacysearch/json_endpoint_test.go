@@ -51,6 +51,7 @@ func TestJSONEndpointReturnsYaCySearchShape(t *testing.T) {
 			DisplayURL: "example.org/doc",
 		}, {
 			Title:   `["Unknown publication"]`,
+			Snippet: `["Unknown publication"]`,
 			URL:     "https://example.org/unknown",
 			URLHash: "BBBBBBBBBBBB",
 		}},
@@ -88,7 +89,8 @@ func TestJSONEndpointReturnsYaCySearchShape(t *testing.T) {
 		item.Ranking != "7" {
 		t.Fatalf("item = %#v", item)
 	}
-	if item := channel.Items[1]; item.Title != "Unknown publication" || item.PubDate != "" {
+	if item := channel.Items[1]; item.Title != "Unknown publication" ||
+		item.Description != "Unknown publication" || item.PubDate != "" {
 		t.Fatalf("unknown publication item = %#v", item)
 	}
 	if search.got.SiteHost != "example.org" ||

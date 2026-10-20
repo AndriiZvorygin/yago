@@ -446,6 +446,7 @@ func responseHTMLItems(
 ) []htmlSearchItem {
 	items := make([]htmlSearchItem, 0, len(results))
 	for index, result := range results {
+		result.Snippet = yacyDisplayDescription(result.Title, result.Snippet)
 		item := htmlSearchItem{
 			Title:    yacyDisplayTitle(result.Title),
 			URL:      result.URL,

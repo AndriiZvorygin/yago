@@ -94,7 +94,7 @@ func responseItems(results []searchcore.Result) []jsonItem {
 			Title:       yacyDisplayTitle(result.Title),
 			Link:        result.URL,
 			Code:        result.URLHash,
-			Description: result.Snippet,
+			Description: yacyDisplayDescription(result.Title, result.Snippet),
 			PubDate:     result.Date,
 			Size:        strconv.Itoa(result.Size),
 			SizeName:    sizeName(result.Size),
