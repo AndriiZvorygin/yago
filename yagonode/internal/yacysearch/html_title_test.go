@@ -13,7 +13,7 @@ func TestHTMLEndpointRendersFirstNonemptyMultivalueTitle(t *testing.T) {
 	search := &fakeSearch{response: searchcore.Response{
 		TotalResults: 2,
 		Results: []searchcore.Result{
-			{Title: `["", "Sample page title", "Alternate title"]`, URL: "https://example.org/imported"},
+			{Title: `["", "Sample page title", "Alternate title"]`, Snippet: `["Sample page title"]`, URL: "https://example.org/imported"},
 			{Title: "Ordinary page title", URL: "https://example.org/ordinary"},
 		},
 	}}
@@ -21,7 +21,7 @@ func TestHTMLEndpointRendersFirstNonemptyMultivalueTitle(t *testing.T) {
 	req := httptest.NewRequestWithContext(
 		t.Context(),
 		http.MethodGet,
-		"http://node.test/yacysearch.html?query=sample&resource=local",
+		"http://node.test/yacysearch.html?query=fixture&resource=local",
 		nil,
 	)
 
@@ -33,6 +33,7 @@ func TestHTMLEndpointRendersFirstNonemptyMultivalueTitle(t *testing.T) {
 	body := rec.Body.String()
 	for _, expected := range []string{
 		">Sample page title</a>",
+		">Sample page title</p>",
 		">Ordinary page title</a>",
 	} {
 		if !strings.Contains(body, expected) {

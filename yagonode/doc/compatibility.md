@@ -98,9 +98,13 @@ hint rather than scanning the corpus.
 | Full embedded Solr API | `/solr/*` | GET, POST | unsupported | Full Solr server compatibility is not a Go peer target. No Solr subset is planned. |
 
 The YaCy-compatible HTML and JSON search surfaces render a valid array of title
-strings as its first nonempty title. This keeps already-imported multivalue
-titles readable without modifying stored documents; the migration importer
-applies the same first-title rule to new records.
+strings as its first nonempty title. If a description is itself an array whose
+first nonempty string matches that displayed title, the adapter renders the
+title in place of the duplicated serialized value. This keeps already-imported
+multivalue titles readable without modifying stored documents; the migration
+importer applies the same first-title rule to new records. Ordinary
+descriptions, unrelated JSON snippets, malformed values, and non-string arrays
+remain unchanged.
 
 ### Swarm remote-search interop (no-Solr divergence)
 
