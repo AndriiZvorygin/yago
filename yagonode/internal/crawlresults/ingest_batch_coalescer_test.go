@@ -10,9 +10,9 @@ import (
 )
 
 func TestIngestMicroBatchPolicy(t *testing.T) {
-	if ingestMicroBatch != 64 || ingestMicroBatchMaximumWait != 10*time.Millisecond ||
+	if ingestMicroBatch != 128 || ingestMicroBatchMaximumWait != 10*time.Millisecond ||
 		ingestMicroBatchMaximumJSONBytes != 64<<20 {
-		t.Fatalf("batch policy = %d/%v/%d, want 64/10ms/64MiB",
+		t.Fatalf("batch policy = %d/%v/%d, want 128/10ms/64MiB",
 			ingestMicroBatch, ingestMicroBatchMaximumWait,
 			ingestMicroBatchMaximumJSONBytes)
 	}
