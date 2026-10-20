@@ -395,6 +395,78 @@ func TestImportSessionHonorsConfiguredBatchRecordLimit(t *testing.T) {
 	}
 }
 
+func TestImportSessionUsesExactEncodedRequestByteLimit(t *testing.T) {
+	records := []documentimport.Record{
+		cliTestRecord("bounded-a", "https://bounded.example.test/a"),
+		cliTestRecord("bounded-b", "https://bounded.example.test/b"),
+	}
+	records[0].Document.ExtractedText = "quotes: \"; slash: \\; newline:\n; HTML: <&; separator: \u2028"
+	records[1].Document.ExtractedText = "second record"
+	exactRequest, err := json.Marshal(documentimport.Request{Version: 1, Records: records})
+	if err != nil {
+		t.Fatalf("marshal expected request: %v", err)
+	}
+	requestOne, err := json.Marshal(documentimport.Request{
+		Version: 1, Records: records[:1],
+	})
+	if err != nil {
+		t.Fatalf("marshal one-record request: %v", err)
+	}
+	if len(exactRequest) <= len(requestOne) {
+		t.Fatalf(
+			"two-record request size %d is not larger than one-record size %d",
+			len(exactRequest),
+			len(requestOne),
+		)
+	}
+
+	for _, test := range []struct {
+		name        string
+		maximumSize int
+		wantRecords int
+		wantPending bool
+	}{
+		{
+			name:        "exact request limit is accepted",
+			maximumSize: len(exactRequest),
+			wantRecords: 2,
+		},
+		{
+			name:        "one byte below limit defers the second record",
+			maximumSize: len(exactRequest) - 1,
+			wantRecords: 1,
+			wantPending: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := filepath.Join(t.TempDir(), "bounded.jsonl")
+			writeInterchangeFixture(t, input, records)
+			session, err := openImportSession(importOptions{
+				Input: input, Endpoint: "https://yago.example.test/import", APIKey: "token",
+			})
+			if err != nil {
+				t.Fatalf("open session: %v", err)
+			}
+			closeMigrationFixture(t, session.file)
+			batch, _, err := session.nextBatchUsingLimit(session.nextRecord, test.maximumSize)
+			if err != nil || len(batch) != test.wantRecords ||
+				(session.pending != nil) != test.wantPending {
+				t.Fatalf(
+					"batch size=%d pending=%t, want size=%d pending=%t; error=%v",
+					len(batch), session.pending != nil, test.wantRecords, test.wantPending, err,
+				)
+			}
+			actualRequest, err := json.Marshal(documentimport.Request{Version: 1, Records: batch})
+			if err != nil || len(actualRequest) > test.maximumSize {
+				t.Fatalf(
+					"encoded request size=%d, limit=%d, error=%v",
+					len(actualRequest), test.maximumSize, err,
+				)
+			}
+		})
+	}
+}
+
 func TestImportSessionRejectsMissingRecordFromReader(t *testing.T) {
 	session := new(importSession)
 	_, _, err := session.nextBatchUsing(func() (*pendingRecord, bool, error) {

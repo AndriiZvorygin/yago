@@ -437,6 +437,15 @@ func (session *importSession) nextBatchUsingBounds(
 ) ([]documentimport.Record, int64, error) {
 	batch := make([]documentimport.Record, 0, maximumRecords)
 	batchEnd := session.state.Offset
+	emptyRequest, err := json.Marshal(documentimport.Request{
+		Version: 1,
+		Records: []documentimport.Record{},
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("size empty import request: %w", err)
+	}
+	requestBaseBytes := len(emptyRequest)
+	recordBytes := 0
 	for len(batch) < maximumRecords {
 		next, eof, err := readNext()
 		if err != nil {
@@ -448,10 +457,12 @@ func (session *importSession) nextBatchUsingBounds(
 		if next == nil {
 			return nil, 0, errors.New("interchange reader returned no record")
 		}
-		batch = append(batch, next.value)
-		encoded, _ := json.Marshal(documentimport.Request{Version: 1, Records: batch})
-		if len(encoded) > maximumBytes {
-			batch = batch[:len(batch)-1]
+		encodedRecord, err := json.Marshal(next.value)
+		if err != nil {
+			return nil, 0, fmt.Errorf("size import record %q: %w", next.value.ID, err)
+		}
+		candidateBytes := requestBaseBytes + recordBytes + len(encodedRecord) + len(batch)
+		if candidateBytes > maximumBytes {
 			if len(batch) == 0 {
 				return nil, 0, fmt.Errorf(
 					"record %q exceeds the Yago import batch limit",
@@ -461,6 +472,8 @@ func (session *importSession) nextBatchUsingBounds(
 			session.pending = next
 			break
 		}
+		batch = append(batch, next.value)
+		recordBytes += len(encodedRecord)
 		batchEnd = next.end
 	}
 	return batch, batchEnd, nil

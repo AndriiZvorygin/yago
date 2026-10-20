@@ -141,9 +141,10 @@ go run ./cmd/yacy-migrate import \
 ```
 
 The importer holds a bounded batch (at most 256 records and below the existing
-ingest request limit), waits for normal ingest backpressure, and checkpoints
-only after it receives a valid receipt for every record. Use `--batch-records`
-to lower work per request when diagnosing destination backpressure;
+ingest request limit), accounts for the exact encoded request size without
+re-encoding earlier records, waits for normal ingest backpressure, and
+checkpoints only after it receives a valid receipt for every record. Use
+`--batch-records` to lower work per request when diagnosing destination backpressure;
 `--max-records` bounds one invocation while leaving a resumable checkpoint.
 On interruption, rerun with the same input and endpoint. The default checkpoint is
 `<input>.import.state.json`; `--state` selects another path. Keep the input

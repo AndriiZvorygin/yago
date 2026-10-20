@@ -13,7 +13,11 @@ func TestHTMLEndpointRendersFirstNonemptyMultivalueTitle(t *testing.T) {
 	search := &fakeSearch{response: searchcore.Response{
 		TotalResults: 2,
 		Results: []searchcore.Result{
-			{Title: `["", "Sample page title", "Alternate title"]`, Snippet: `["Sample page title"]`, URL: "https://example.org/imported"},
+			{
+				Title:   `["", "Sample page title", "Alternate title"]`,
+				Snippet: `["Sample page title"]`,
+				URL:     "https://example.org/imported",
+			},
 			{Title: "Ordinary page title", URL: "https://example.org/ordinary"},
 		},
 	}}
@@ -41,7 +45,10 @@ func TestHTMLEndpointRendersFirstNonemptyMultivalueTitle(t *testing.T) {
 		}
 	}
 	if strings.Contains(body, `Alternate title</a>`) ||
-		strings.Contains(body, `[&#34;&#34;, &#34;Sample page title&#34;, &#34;Alternate title&#34;]`) {
+		strings.Contains(
+			body,
+			`[&#34;&#34;, &#34;Sample page title&#34;, &#34;Alternate title&#34;]`,
+		) {
 		t.Fatalf("multivalue title was not normalized: %s", body)
 	}
 }

@@ -683,6 +683,11 @@ and tested together; use matching releases when upgrading a node and crawler.
 - **Offline backup/restore scripts** for docker and systemd — covered by an
   automated end-to-end round-trip test — plus a console page that shows
   storage usage and hands you the exact commands.
+- **Resumable YaCy document migration** through the read-only Solr export and
+  normal document-ingest path. Bounded import batches preserve their exact
+  request-size limit without repeatedly re-encoding prior records; full YaCy
+  crawl-frontier state is a separate, incomplete migration concern. See
+  [`yacy-migration.md`](yagonode/doc/yacy-migration.md).
 - Storage: a sharded, compressed, quota-bounded vault (bbolt + zstd) where
   losing one shard file loses 1/N of the keyspace, never the store; shard
   integrity checks and full-text generation or rebuild admission run at startup.
