@@ -31,3 +31,30 @@ func TestConfiguredBaseURLOverridesRequestBase(t *testing.T) {
 	}
 	SetBaseURLProvider(func() string { return "" })
 }
+
+func TestRequestBaseURLHonorsForwardedProto(t *testing.T) {
+	SetBaseURLProvider(func() string { return "" })
+	t.Cleanup(func() { baseURLProvider.Store(nil) })
+
+	for _, test := range []struct {
+		forwardedProto string
+		want           string
+	}{
+		{forwardedProto: "https", want: "https://node.test"},
+		{forwardedProto: "http", want: "http://node.test"},
+		{want: "http://node.test"},
+	} {
+		req := httptest.NewRequestWithContext(
+			t.Context(),
+			http.MethodGet,
+			"http://node.test/yacysearch.html",
+			nil,
+		)
+		if test.forwardedProto != "" {
+			req.Header.Set("X-Forwarded-Proto", test.forwardedProto)
+		}
+		if got := requestBaseURL(req); got != test.want {
+			t.Errorf("forwarded proto %q: base = %q, want %q", test.forwardedProto, got, test.want)
+		}
+	}
+}

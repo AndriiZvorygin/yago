@@ -166,7 +166,7 @@ func requestBaseURL(r *http.Request) string {
 		return configured
 	}
 	scheme := "http"
-	if r.TLS != nil {
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
 		scheme = "https"
 	}
 	host := r.Host
