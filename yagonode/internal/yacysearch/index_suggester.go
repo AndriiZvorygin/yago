@@ -75,7 +75,10 @@ func titleSuggestions(results []searchcore.Result, prefix string, limit int) []s
 }
 
 func normalizeSuggestion(raw string) string {
-	title := strings.Join(strings.Fields(raw), " ")
+	// Imported YaCy metadata can contain title arrays serialized as JSON. Search
+	// result renderers unwrap those at the compatibility edge; autocomplete must
+	// use the same display title rather than showing the encoded array literally.
+	title := strings.Join(strings.Fields(yacyJSONDisplayTitle(raw)), " ")
 	if title == "" {
 		return ""
 	}

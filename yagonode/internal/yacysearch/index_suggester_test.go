@@ -22,10 +22,17 @@ func TestIndexSuggesterReturnsDedupedLocalTitles(t *testing.T) {
 		"Linux kernel newbies",
 		"linux KERNEL newbies", // case-insensitive duplicate of the first
 		"Linux kernel scheduling internals",
+		`["Linux kernel documentation"]`,
+		`["Linux kernel archived title", "Alternate title"]`,
 	)
 	got := indexSuggester{search: search}.Suggest(t.Context(), "linux ker", publicSuggestionLimit)
 
-	want := []string{"Linux kernel newbies", "Linux kernel scheduling internals"}
+	want := []string{
+		"Linux kernel newbies",
+		"Linux kernel scheduling internals",
+		"Linux kernel documentation",
+		"Linux kernel archived title",
+	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("suggestions = %v, want %v", got, want)
 	}
