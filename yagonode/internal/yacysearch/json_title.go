@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func yacyJSONDisplayTitle(title string) string {
+func yacyDisplayTitle(title string) string {
 	var values []string
 	if err := json.Unmarshal([]byte(title), &values); err != nil {
 		return title

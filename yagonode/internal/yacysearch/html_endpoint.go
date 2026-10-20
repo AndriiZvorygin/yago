@@ -447,7 +447,7 @@ func responseHTMLItems(
 	items := make([]htmlSearchItem, 0, len(results))
 	for index, result := range results {
 		item := htmlSearchItem{
-			Title:    result.Title,
+			Title:    yacyDisplayTitle(result.Title),
 			URL:      result.URL,
 			Identity: result.URL,
 			// Rank is the result's 1-based position across all pages, so click

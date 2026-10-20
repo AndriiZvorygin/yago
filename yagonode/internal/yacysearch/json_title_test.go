@@ -2,7 +2,7 @@ package yacysearch
 
 import "testing"
 
-func TestYacyJSONDisplayTitle(t *testing.T) {
+func TestYacyDisplayTitle(t *testing.T) {
 	for _, test := range []struct {
 		name  string
 		input string
@@ -17,8 +17,8 @@ func TestYacyJSONDisplayTitle(t *testing.T) {
 		{name: "all blank values", input: `["", "  "]`, want: `["", "  "]`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := yacyJSONDisplayTitle(test.input); got != test.want {
-				t.Fatalf("yacyJSONDisplayTitle(%q) = %q, want %q", test.input, got, test.want)
+			if got := yacyDisplayTitle(test.input); got != test.want {
+				t.Fatalf("yacyDisplayTitle(%q) = %q, want %q", test.input, got, test.want)
 			}
 		})
 	}
