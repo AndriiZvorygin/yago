@@ -97,10 +97,10 @@ hint rather than scanning the corpus.
 | MCP and OpenAI-compatible AI surfaces | `/tools*`, `/v1/*`, `/api/tags` | — | unsupported | Deliberate non-goal (operator decision, 2026-07): upstream grew an MCP JSON-RPC search server and OpenAI/Ollama proxy endpoints, but this node's agent surface is the Tavily-compatible `/search`, `/extract`, `/crawl`, and `/map` API — one agent protocol, kept simple. |
 | Full embedded Solr API | `/solr/*` | GET, POST | unsupported | Full Solr server compatibility is not a Go peer target. No Solr subset is planned. |
 
-The YaCy-compatible JSON search adapter renders a valid array of title strings
-as its first nonempty title. This also keeps already-imported multivalue titles
-readable without modifying stored documents; the migration importer applies
-the same first-title rule to new records.
+The YaCy-compatible HTML and JSON search surfaces render a valid array of title
+strings as its first nonempty title. This keeps already-imported multivalue
+titles readable without modifying stored documents; the migration importer
+applies the same first-title rule to new records.
 
 ### Swarm remote-search interop (no-Solr divergence)
 
