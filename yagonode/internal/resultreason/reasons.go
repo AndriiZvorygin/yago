@@ -6,6 +6,9 @@ const Maximum = 6
 
 func For(result searchcore.Result) []string {
 	reasons := make([]string, 0, Maximum)
+	if result.PersonalizedReason != "" {
+		reasons = append(reasons, result.PersonalizedReason)
+	}
 	switch {
 	case result.FromWeb():
 		reasons = append(reasons, "Returned by the enabled web fallback.")

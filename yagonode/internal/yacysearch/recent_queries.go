@@ -1,8 +1,11 @@
 package yacysearch
 
 import (
+	"context"
 	"strings"
 	"sync"
+
+	"github.com/D4rk4/yago/yagonode/internal/searchcore"
 )
 
 const (
@@ -42,6 +45,13 @@ func (q *recentQueries) Record(raw string) {
 		}
 	}
 	q.queries = next
+}
+
+func (q *recentQueries) RecordSearch(ctx context.Context, raw string) {
+	if searchcore.SessionScope(ctx) != "" {
+		return
+	}
+	q.Record(raw)
 }
 
 func (q *recentQueries) Suggest(rawPrefix string, limit int) []string {

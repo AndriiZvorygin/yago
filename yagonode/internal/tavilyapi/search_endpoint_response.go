@@ -20,6 +20,12 @@ func writeSearchEndpointResponse(
 		return
 	}
 
+	if response.private {
+		w.Header().Set("Cache-Control", "private, no-store")
+	}
+	if response.personalImpression != "" {
+		w.Header().Set("X-Yago-Impression", response.personalImpression)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(response)

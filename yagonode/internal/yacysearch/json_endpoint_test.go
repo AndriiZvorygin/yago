@@ -100,6 +100,36 @@ func TestJSONEndpointReturnsYaCySearchShape(t *testing.T) {
 	}
 }
 
+func TestJSONEndpointDoesNotPublishAccountQueriesAsSuggestions(t *testing.T) {
+	recent := newRecentQueries()
+	endpoint := jsonEndpoint{
+		search:      &fakeSearch{response: searchcore.Response{}},
+		suggestions: recent,
+	}
+	search := func(query, scope string) {
+		req := httptest.NewRequestWithContext(
+			searchcore.WithSessionScope(t.Context(), scope),
+			http.MethodGet,
+			yagoproto.PathYaCySearchJSON+"?query="+url.QueryEscape(query),
+			nil,
+		)
+		response := httptest.NewRecorder()
+		endpoint.ServeHTTP(response, req)
+		if response.Code != http.StatusOK {
+			t.Fatalf("search %q status = %d, body=%s", query, response.Code, response.Body.String())
+		}
+	}
+
+	search("public astronomy", "")
+	search("private family research", "account-a")
+	if got := recent.Suggest("private", 10); len(got) != 0 {
+		t.Fatalf("account-scoped query leaked into public suggestions: %v", got)
+	}
+	if got := recent.Suggest("public", 10); len(got) != 1 || got[0] != "public astronomy" {
+		t.Fatalf("public query was not retained: %v", got)
+	}
+}
+
 func TestJSONEndpointRejectsBadRequests(t *testing.T) {
 	cases := []string{
 		"?maximumRecords=bad",

@@ -216,6 +216,73 @@ func richSearchEndpoint() (searchEndpoint, *fakeSearcher, *fakeDocuments) {
 	}, search, documents
 }
 
+type searchFeedbackStub struct {
+	calls   int
+	query   string
+	results []SearchResult
+}
+
+func (s *searchFeedbackStub) PrepareSearchImpression(
+	_ context.Context,
+	query string,
+	results []SearchResult,
+) string {
+	s.calls++
+	s.query = query
+	s.results = append([]SearchResult(nil), results...)
+	return "account-impression-token"
+}
+
+func TestAccountSearchFeedbackIsPrivateAndReturnedOnlyInHeader(t *testing.T) {
+	endpoint, _, _ := richSearchEndpoint()
+	feedback := &searchFeedbackStub{}
+	endpoint.feedback = feedback
+	body := `{"query":"private family research","max_results":1}`
+	request := httptest.NewRequestWithContext(
+		t.Context(), http.MethodPost, PathSearch, strings.NewReader(body),
+	)
+	request.Header.Set("Authorization", "Bearer "+searchTestKey)
+	request = request.WithContext(searchcore.WithSessionScope(request.Context(), "account-scope"))
+	response := httptest.NewRecorder()
+	endpoint.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("account search status = %d, body=%s", response.Code, response.Body.String())
+	}
+	if response.Header().Get("X-Yago-Impression") != "account-impression-token" ||
+		response.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("account feedback headers = %#v", response.Header())
+	}
+	if strings.Contains(response.Body.String(), "account-impression-token") {
+		t.Fatalf("private impression token leaked into Tavily JSON: %s", response.Body.String())
+	}
+	if feedback.calls != 1 || feedback.query != "private family research" ||
+		len(feedback.results) != 1 ||
+		feedback.results[0].URL != "https://example.org/doc" {
+		t.Fatalf(
+			"feedback input = calls:%d query:%q results:%+v",
+			feedback.calls,
+			feedback.query,
+			feedback.results,
+		)
+	}
+
+	guest := httptest.NewRequestWithContext(
+		t.Context(), http.MethodPost, PathSearch, strings.NewReader(body),
+	)
+	guest.Header.Set("Authorization", "Bearer "+searchTestKey)
+	guestResponse := httptest.NewRecorder()
+	endpoint.ServeHTTP(guestResponse, guest)
+	if guestResponse.Header().Get("X-Yago-Impression") != "" ||
+		guestResponse.Header().Get("Cache-Control") == "private, no-store" ||
+		feedback.calls != 1 {
+		t.Fatalf(
+			"guest search received private feedback state: headers=%#v calls=%d",
+			guestResponse.Header(),
+			feedback.calls,
+		)
+	}
+}
+
 func assertRichSearchResponse(
 	t *testing.T,
 	got SearchResponse,

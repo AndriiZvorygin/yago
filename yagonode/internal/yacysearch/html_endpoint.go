@@ -269,7 +269,7 @@ func (e htmlEndpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "search failed", http.StatusInternalServerError)
 		return
 	}
-	e.suggestions.Record(req.SubmittedText())
+	e.suggestions.RecordSearch(r.Context(), req.SubmittedText())
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	markUnprovenZero(w, resp)

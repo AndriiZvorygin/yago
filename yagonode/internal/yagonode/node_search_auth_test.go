@@ -1,11 +1,15 @@
 package yagonode
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/D4rk4/yago/yagonode/internal/adminauth"
 	"github.com/D4rk4/yago/yagonode/internal/memvault"
+	"github.com/D4rk4/yago/yagonode/internal/personalsearch"
 	"github.com/D4rk4/yago/yagonode/internal/tavilyapi"
 )
 
@@ -69,6 +73,108 @@ func TestSearchAccessPolicyCombinesAuthorizerAndStaticToken(t *testing.T) {
 	static := searchAccessPolicy(publicSearchAssembly{searchAPIKey: "static"})
 	if static.Authorizer != nil || static.BearerToken != "static" {
 		t.Fatalf("static policy = %#v", static)
+	}
+}
+
+func TestPersonalSearchAPIKeyUsesItsAccountScopes(t *testing.T) {
+	accounts, accountID := createScopedTestAccount(t)
+	key, err := accounts.CreateAPIKey(t.Context(), accountID, "read-only", []string{"read"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorizer := accountSearchScopeAuthorizer{accounts: accounts}
+	if got := authorizer.Authorize(
+		t.Context(),
+		key.Secret,
+		tavilyapi.ScopeRead,
+	); got != tavilyapi.DecisionAllow {
+		t.Fatalf("read scope decision = %v", got)
+	}
+	if got := authorizer.Authorize(
+		t.Context(),
+		key.Secret,
+		tavilyapi.ScopeRaw,
+	); got != tavilyapi.DecisionForbidden {
+		t.Fatalf("raw scope decision = %v, want forbidden", got)
+	}
+	if got := authorizer.Authorize(
+		t.Context(),
+		"ygp_unknown",
+		tavilyapi.ScopeRead,
+	); got != tavilyapi.DecisionUnauthenticated {
+		t.Fatalf("unknown account-key decision = %v", got)
+	}
+}
+
+func TestPersonalRawScopeDoesNotAuthorizeCrawl(t *testing.T) {
+	accounts, accountID := createScopedTestAccount(t)
+	rawKey, err := accounts.CreateAPIKey(
+		t.Context(), accountID, "raw-content", []string{"read", "raw"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assembly := publicSearchAssembly{personalAccounts: accounts}
+	searchPolicy := searchAccessPolicy(assembly)
+	if got := searchPolicy.Authorizer.Authorize(
+		t.Context(), rawKey.Secret, tavilyapi.ScopeRaw,
+	); got != tavilyapi.DecisionAllow {
+		t.Fatalf("account raw-content access decision = %v", got)
+	}
+	assertAccountKeyCannotCrawl(t, rawKey.Secret, crawlAccessPolicy(assembly))
+}
+
+func createScopedTestAccount(t *testing.T) (*personalsearch.Accounts, string) {
+	t.Helper()
+	storage, err := memvault.Open(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+	accounts, err := personalsearch.NewAccounts(storage, personalsearch.AccountsConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	invitation, err := accounts.IssueInvitation(t.Context(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := accounts.ClaimInvitation(
+		t.Context(),
+		invitation.Token,
+		"agent_reader",
+		"a sufficiently long password",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return accounts, account.ID
+}
+
+func assertAccountKeyCannotCrawl(
+	t *testing.T,
+	secret string,
+	policy tavilyapi.SearchAccessPolicy,
+) {
+	t.Helper()
+	crawlMux := http.NewServeMux()
+	tavilyapi.MountCrawl(crawlMux, policy, nil)
+	crawlResponse := httptest.NewRecorder()
+	crawlRequest := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		tavilyapi.PathCrawl,
+		strings.NewReader(`{"url":"https://example.org/"}`),
+	)
+	crawlRequest.Header.Set("Authorization", "Bearer "+secret)
+	crawlRequest.Header.Set("Content-Type", "application/json")
+	crawlMux.ServeHTTP(crawlResponse, crawlRequest)
+	if crawlResponse.Code != http.StatusUnauthorized {
+		t.Fatalf(
+			"account raw key accessed remote crawl: status=%d body=%s",
+			crawlResponse.Code,
+			crawlResponse.Body.String(),
+		)
 	}
 }
 

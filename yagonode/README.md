@@ -9,3 +9,7 @@ Configuration and operator behavior are documented in [`doc/configuration.md`](d
 Optional search-demand-guided crawling is described in
 [`doc/search-demand-crawling.md`](doc/search-demand-crawling.md). That feature
 is disabled by default and does not replace ordinary crawl profiles.
+
+Invitation-only account personalization is disabled by default and described
+in [`doc/personalized-search.md`](doc/personalized-search.md). It reranks only
+the signed-in user's retrieved results and keeps personal history on this node.

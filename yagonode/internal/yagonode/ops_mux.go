@@ -64,6 +64,9 @@ func buildOpsMux(
 		newEventsEndpoint(recorder),
 	)
 	mountOpsExtras(opsMux, assembled)
+	if assembled.personalAccounts != nil {
+		assembled.personalAccounts.MountAdminPages(opsMux, assembled.personalLearning)
+	}
 	seedStatus, seedRefresh := seedImportSources(assembled, config, recorder)
 	blocks := assembledPeerBlocks(assembled)
 	network := newNetworkSource(

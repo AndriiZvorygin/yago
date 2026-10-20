@@ -130,3 +130,27 @@ func TestRuntimeSettingDefinitionsIncludePortal(t *testing.T) {
 		t.Fatal("portal default value should reflect the environment configuration")
 	}
 }
+
+func TestPersonalizationSettingIsDisabledByDefaultAndAppliesLive(t *testing.T) {
+	t.Parallel()
+
+	definition, ok := indexSettingDefinitions()[settingKeyPersonalSearch]
+	if !ok {
+		t.Fatal("personalized-search setting is not in the runtime settings whitelist")
+	}
+	if definition.defaultValue(nodeConfig{}) != settingBoolFalse {
+		t.Fatal("personalized search must default to disabled")
+	}
+	if definition.restartRequired() {
+		t.Fatal("personalized-search setting should apply without a restart")
+	}
+	config := definition.apply(nodeConfig{}, settingBoolTrue)
+	toggles := newRuntimeToggles(config)
+	if !toggles.PersonalizationEnabled() {
+		t.Fatal("enabled personalization setting was not applied during startup")
+	}
+	definition.applyLive(toggles, settingBoolFalse)
+	if toggles.PersonalizationEnabled() {
+		t.Fatal("live personalization disable did not take effect")
+	}
+}

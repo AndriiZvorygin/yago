@@ -31,7 +31,7 @@ func (s RecentSuccessSearcher) Search(
 	if context.Cause(ctx) != nil || err == nil && !incompleteRefresh(response) {
 		return recentSearchResult(response, err)
 	}
-	recent, ok := recentCoverage(s.recent, req)
+	recent, ok := recentCoverage(ctx, s.recent, req)
 	if !ok {
 		return recentSearchResult(response, err)
 	}

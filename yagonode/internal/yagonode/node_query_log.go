@@ -63,10 +63,15 @@ func (s queryLoggingSearcher) Search(
 ) (searchcore.Response, error) {
 	started := time.Now()
 	resp, err := s.next.Search(ctx, req)
-	s.record(ctx, req, resp)
+	personalSearch := searchcore.SessionScope(ctx) != ""
+	s.record(ctx, req, resp, !personalSearch)
+	queryText := req.Query
+	if personalSearch {
+		queryText = ""
+	}
 	s.tracker.Record(searchactivity.Entry{
 		At:          started,
-		Query:       req.Query,
+		Query:       queryText,
 		QueryLength: len([]rune(req.Query)),
 		Terms:       len(req.Terms),
 		Results:     resp.TotalResults,
@@ -83,8 +88,9 @@ func (s queryLoggingSearcher) record(
 	ctx context.Context,
 	req searchcore.Request,
 	resp searchcore.Response,
+	includeQueryText bool,
 ) {
-	if s.mode == queryLogFull {
+	if s.mode == queryLogFull && includeQueryText {
 		s.logger.InfoContext(
 			ctx,
 			"search query",

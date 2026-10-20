@@ -147,6 +147,7 @@ type Result struct {
 	FieldScores        map[string]float64
 	FieldTermPositions map[string]map[string][]int
 	Explanation        string
+	PersonalizedReason string
 	// Images carries the page's extracted images for the image vertical.
 	Images []ResultImage
 }

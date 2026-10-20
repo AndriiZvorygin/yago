@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/D4rk4/yago/yagonode/internal/adminauth"
+	"github.com/D4rk4/yago/yagonode/internal/personalsearch"
 	"github.com/D4rk4/yago/yagonode/internal/tavilyapi"
 )
 
@@ -21,6 +22,38 @@ func legacySearchAPIKeyFor(config nodeConfig) string {
 
 type searchScopeAuthorizer struct {
 	authorizer *adminauth.APIKeyAuthorizer
+}
+
+type accountSearchScopeAuthorizer struct {
+	accounts *personalsearch.Accounts
+	fallback tavilyapi.ScopeAuthorizer
+}
+
+func (a accountSearchScopeAuthorizer) Authorize(
+	ctx context.Context,
+	token string,
+	scope tavilyapi.SearchScope,
+) tavilyapi.AuthDecision {
+	if a.accounts != nil {
+		required := "read"
+		if scope == tavilyapi.ScopeRaw {
+			required = "raw"
+		}
+		_, known, allowed, err := a.accounts.AuthorizeAPIKey(ctx, token, required)
+		if err != nil {
+			return tavilyapi.DecisionUnavailable
+		}
+		if known {
+			if allowed {
+				return tavilyapi.DecisionAllow
+			}
+			return tavilyapi.DecisionForbidden
+		}
+	}
+	if a.fallback != nil {
+		return a.fallback.Authorize(ctx, token, scope)
+	}
+	return tavilyapi.DecisionUnauthenticated
 }
 
 func (a searchScopeAuthorizer) Authorize(

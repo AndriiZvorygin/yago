@@ -105,6 +105,32 @@ func TestQueryLoggingFullRecordsQueryText(t *testing.T) {
 	}
 }
 
+func TestFullQueryLoggingRedactsAccountScopedSearches(t *testing.T) {
+	var buffer bytes.Buffer
+	tracker := searchactivity.New(searchactivity.ModeFull)
+	searcher := queryLoggingSearcher{
+		next: stubPrimarySearcher{resp: searchcore.Response{TotalResults: 2}},
+		mode: queryLogFull, logger: slog.New(slog.NewJSONHandler(&buffer, nil)), tracker: tracker,
+	}
+	ctx := searchcore.WithSessionScope(context.Background(), "account-scope")
+	if _, err := searcher.Search(
+		ctx,
+		searchcore.Request{Query: "private family research"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buffer.String(), "private family research") {
+		t.Fatalf("account query leaked to the operator log: %s", buffer.String())
+	}
+	entries, _, _ := tracker.Snapshot()
+	if len(entries) != 1 || entries[0].Query != "" || entries[0].QueryLength == 0 {
+		t.Fatalf(
+			"full-mode admin activity did not retain aggregate-only account evidence: %+v",
+			entries,
+		)
+	}
+}
+
 func TestQueryActivityDistinguishesErrorsAndPartialAnswersFromMisses(t *testing.T) {
 	tracker := searchactivity.New(searchactivity.ModeAggregate)
 	logger := slog.New(slog.DiscardHandler)

@@ -17,6 +17,7 @@ import (
 	"github.com/D4rk4/yago/yagonode/internal/metrics"
 	"github.com/D4rk4/yago/yagonode/internal/nodeidentity"
 	"github.com/D4rk4/yago/yagonode/internal/peerroster"
+	"github.com/D4rk4/yago/yagonode/internal/personalsearch"
 	"github.com/D4rk4/yago/yagonode/internal/portaltheme"
 	"github.com/D4rk4/yago/yagonode/internal/publicportal"
 	"github.com/D4rk4/yago/yagonode/internal/publicrobots"
@@ -74,6 +75,9 @@ type publicSearchAssembly struct {
 	clickCapture           bool
 	clickRecorder          yacysearch.ImpressionRecorder
 	portalClickRecorder    publicportal.ImpressionRecorder
+	personalAccounts       *personalsearch.Accounts
+	personalLearning       *personalsearch.Learning
+	personalizationEnabled func() bool
 	learnedRanker          *learnedrank.Ranker
 	peerReputation         searchremote.ReputationSnapshotSource
 	peerObservations       searchremote.ReputationObservationSink
@@ -224,25 +228,33 @@ func mountNodePublicSearchWithExplanation(
 	// same as served results) so typeahead never fans out to the swarm or the web
 	// fallback that the main search path can reach.
 	suggestSource := withDenylistFilter(local, assembly.denylist)
+	clicksEnabled := assembly.clickCapture || assembly.personalLearning != nil
 	yacysearch.Mount(mux, search, suggestSource, assembly.linksNewTab, yacysearch.ClickCapture{
-		Enabled:  assembly.clickCapture,
-		Recorder: assembly.clickRecorder,
+		Enabled:  clicksEnabled,
+		Recorder: newPersonalYacyImpressionRecorder(assembly),
 	})
 	cachedpage.Mount(mux, assembly.storage.documentDirectory, passages)
 	faviconproxy.Mount(mux, assembly.client)
 	faviconproxy.MountImages(mux, assembly.client)
-	tavilyapi.Mount(
+	tavilyapi.MountWithSearchFeedback(
 		mux,
-		search,
-		assembly.storage.documentDirectory,
-		access,
-		assembly.searchAdmission,
+		tavilyapi.SearchEndpointConfig{
+			Searcher:  search,
+			Documents: assembly.storage.documentDirectory,
+			Access:    access,
+			Admission: assembly.searchAdmission,
+			Feedback:  newPersonalTavilySearchFeedbackRecorder(assembly),
+		},
 	)
 	tavilyapi.MountExtract(mux, assembly.storage.documentDirectory, access, assembly.extractFetcher)
-	tavilyapi.MountCrawl(mux, access, crawlPageFetcher(assembly.extractFetcher))
+	tavilyapi.MountCrawl(
+		mux,
+		crawlAccessPolicy(assembly),
+		crawlPageFetcher(assembly.extractFetcher),
+	)
 	portal := publicportal.New(newPortalSource(search), assembly.linksNewTab)
-	if assembly.clickCapture {
-		portal.SetImpressionRecorder(assembly.portalClickRecorder)
+	if clicksEnabled {
+		portal.SetImpressionRecorder(newPersonalPortalImpressionRecorder(assembly))
 	}
 	if assembly.theme != nil {
 		portal.SetTheme(assembly.theme)
@@ -253,6 +265,12 @@ func mountNodePublicSearchWithExplanation(
 	mountPortalOpenSearch(mux, assembly.toggles)
 	publicrobots.Mount(mux, assembly.toggles.RobotsPolicy)
 	publicportal.SetGreetingProvider(assembly.toggles.PortalGreeting)
+	mountPersonalSearchPages(
+		mux,
+		assembly.personalAccounts,
+		assembly.personalLearning,
+		assembly.personalizationEnabled,
+	)
 
 	return search, suggestSource, explanation
 }
@@ -292,6 +310,11 @@ func assembleConfiguredPublicSearcher(
 ) searchcore.Searcher {
 	retrieval := assemblePublicRetrievalSearcher(local, remote, assembly)
 	ranked := assembleRankingStages(retrieval, assembly)
+	ranked = personalsearch.NewSearcher(
+		ranked,
+		assembly.personalLearning,
+		assembly.personalizationEnabled,
+	)
 	// The session cache makes paging stable (YaCy SearchEventCache): page one
 	// runs one deep search, deeper pages slice the cached result list.
 	stable := searchsession.NewStableWindow(ranked, assembly.toggles.SearchSessionTTL)
@@ -346,7 +369,12 @@ func assembleConfiguredPublicSearcher(
 	search = withSearchMetrics(search, assembly.searchMetrics)
 	search = withEffectiveWebFallbackRequest(search, assembly.webFallback)
 
-	return withParsedQuery(withSearchExecutionDiagnostics(search))
+	search = withParsedQuery(withSearchExecutionDiagnostics(search))
+	return personalsearch.NewHistoryRecorder(
+		search,
+		assembly.personalLearning,
+		assembly.personalizationEnabled,
+	)
 }
 
 func searchEvidenceSource(index searchindex.SearchIndex) searchindex.SearchEvidenceSource {
@@ -421,6 +449,20 @@ func (d *rootDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func searchAccessPolicy(assembly publicSearchAssembly) tavilyapi.SearchAccessPolicy {
+	authorizer := assembly.searchAuthorizer
+	if assembly.personalAccounts != nil {
+		authorizer = accountSearchScopeAuthorizer{
+			accounts: assembly.personalAccounts,
+			fallback: authorizer,
+		}
+	}
+	return tavilyapi.SearchAccessPolicy{
+		BearerToken: assembly.searchAPIKey,
+		Authorizer:  authorizer,
+	}
+}
+
+func crawlAccessPolicy(assembly publicSearchAssembly) tavilyapi.SearchAccessPolicy {
 	return tavilyapi.SearchAccessPolicy{
 		BearerToken: assembly.searchAPIKey,
 		Authorizer:  assembly.searchAuthorizer,

@@ -41,6 +41,7 @@ type runtimeToggles struct {
 	searchSessionTTL         atomic.Int64
 	searchDemandEnabled      atomic.Bool
 	searchDemandWebDiscovery atomic.Bool
+	personalSearchEnabled    atomic.Bool
 	compaction               atomic.Int64
 	// autosplit gates automatic shard-pool growth; the growth loop reads it each
 	// cycle (ADR-0037).
@@ -91,6 +92,7 @@ func newRuntimeToggles(config nodeConfig) *runtimeToggles {
 	toggles.searchSessionTTL.Store(int64(config.SearchSessionTTL))
 	toggles.searchDemandEnabled.Store(config.SearchDemandEnabled)
 	toggles.searchDemandWebDiscovery.Store(config.SearchDemandWebDiscovery)
+	toggles.personalSearchEnabled.Store(config.PersonalSearchEnabled)
 	toggles.compaction.Store(int64(config.StorageCompaction))
 	toggles.autosplit.Store(config.StorageAutosplit)
 	toggles.storageReservedFree.Store(config.StorageReservedFreeBytes)
@@ -121,6 +123,16 @@ func (t *runtimeToggles) SearchDemandWebDiscoveryEnabled() bool {
 func (t *runtimeToggles) SetSearchDemandWebDiscovery(enabled bool) {
 	if t != nil {
 		t.searchDemandWebDiscovery.Store(enabled)
+	}
+}
+
+func (t *runtimeToggles) PersonalizationEnabled() bool {
+	return t != nil && t.personalSearchEnabled.Load()
+}
+
+func (t *runtimeToggles) SetPersonalizationEnabled(enabled bool) {
+	if t != nil {
+		t.personalSearchEnabled.Store(enabled)
 	}
 }
 

@@ -137,6 +137,7 @@ type nodeConfig struct {
 	SearchSessionTTL             time.Duration
 	SearchDemandEnabled          bool
 	SearchDemandWebDiscovery     bool
+	PersonalSearchEnabled        bool
 	HTTPSRedirect                bool
 	PublicBaseURL                string
 	QueryLogMode                 queryLogMode

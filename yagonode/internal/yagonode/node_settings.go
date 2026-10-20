@@ -37,6 +37,7 @@ const (
 	settingKeyPublicSearchPortal = "portal.enabled"
 	settingKeyHTTPSRedirect      = "https.redirect"
 	settingKeyPublicBaseURL      = "public.base.url"
+	settingKeyPersonalSearch     = "search.personalization.enabled"
 )
 
 const (
@@ -62,6 +63,24 @@ func runtimeSettingDefinitions() []settingDefinition {
 			},
 			applyLive: func(toggles *runtimeToggles, value string) {
 				toggles.SetPortalEnabled(value == settingBoolTrue)
+			},
+		},
+		{
+			key:         settingKeyPersonalSearch,
+			title:       "Personalized search",
+			description: "Allow invited accounts that opted in to use local search and click history for small, explainable result-ordering boosts. Disabled by default.",
+			options:     boolSettingOptions(),
+			defaultValue: func(config nodeConfig) string {
+				return formatSettingBool(config.PersonalSearchEnabled)
+			},
+			normalize: normalizeSettingBool,
+			apply: func(config nodeConfig, value string) nodeConfig {
+				config.PersonalSearchEnabled = value == settingBoolTrue
+
+				return config
+			},
+			applyLive: func(toggles *runtimeToggles, value string) {
+				toggles.SetPersonalizationEnabled(value == settingBoolTrue)
 			},
 		},
 		{

@@ -104,7 +104,7 @@ func (s *stableSearcher) Search(
 	ctx context.Context,
 	req searchcore.Request,
 ) (searchcore.Response, error) {
-	key := sessionKey(req)
+	key := scopedSessionKey(ctx, req)
 	if req.Offset > 0 {
 		if cached, ok := s.lookup(key); ok {
 			if err := s.extend(ctx, cached, req); err != nil {
@@ -127,7 +127,7 @@ func (s *stableSearcher) Search(
 		return uncachedSessionPage(resp, req), fmt.Errorf("session search: %w", cause)
 	}
 	if req.Offset == 0 && incompleteRefresh(resp) {
-		if recent, ok := s.Recent(req); ok {
+		if recent, ok := s.RecentScoped(ctx, req); ok {
 			return responseWithRefreshFailures(recent, resp.PartialFailures), nil
 		}
 
@@ -144,7 +144,14 @@ func (s *stableSearcher) Search(
 }
 
 func (s *stableSearcher) Recent(req searchcore.Request) (searchcore.Response, bool) {
-	entry, ok := s.lookup(sessionKey(req))
+	return s.RecentScoped(context.Background(), req)
+}
+
+func (s *stableSearcher) RecentScoped(
+	ctx context.Context,
+	req searchcore.Request,
+) (searchcore.Response, bool) {
+	entry, ok := s.lookup(scopedSessionKey(ctx, req))
 	if !ok {
 		return searchcore.Response{}, false
 	}
@@ -154,6 +161,16 @@ func (s *stableSearcher) Recent(req searchcore.Request) (searchcore.Response, bo
 	}
 
 	return response, true
+}
+
+func scopedSessionKey(ctx context.Context, req searchcore.Request) string {
+	key := sessionKey(req)
+	scope := searchcore.SessionScope(ctx)
+	if scope == "" {
+		return key
+	}
+
+	return scope + "\x00" + key
 }
 
 func (s *stableSearcher) lookup(key string) (*session, bool) {

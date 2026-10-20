@@ -35,12 +35,17 @@ type searchEndpoint struct {
 	documents       documentstore.DocumentDirectory
 	access          SearchAccessPolicy
 	admission       SearchAdmission
+	feedback        SearchFeedbackRecorder
 	intake          *requestAdmission
 	now             func() time.Time
 	rawWorkDuration time.Duration
 }
 
 type SearchAdmission func(*http.Request) (func(), int, time.Duration)
+
+type SearchFeedbackRecorder interface {
+	PrepareSearchImpression(context.Context, string, []SearchResult) string
+}
 
 type SearchAccessPolicy struct {
 	BearerToken string
@@ -80,15 +85,17 @@ type inclusionMode string
 // images is an array of URL strings unless include_image_descriptions asks for
 // {url, description} objects — real Tavily clients index into both.
 type SearchResponse struct {
-	Query             string            `json:"query"`
-	FollowUpQuestions *[]string         `json:"follow_up_questions"`
-	Answer            *string           `json:"answer"`
-	Images            any               `json:"images"`
-	Results           []SearchResult    `json:"results"`
-	ResponseTime      float64           `json:"response_time"`
-	AutoParameters    map[string]string `json:"auto_parameters,omitempty"`
-	Usage             *SearchUsage      `json:"usage,omitempty"`
-	RequestID         string            `json:"request_id"`
+	Query              string            `json:"query"`
+	FollowUpQuestions  *[]string         `json:"follow_up_questions"`
+	Answer             *string           `json:"answer"`
+	Images             any               `json:"images"`
+	Results            []SearchResult    `json:"results"`
+	ResponseTime       float64           `json:"response_time"`
+	AutoParameters     map[string]string `json:"auto_parameters,omitempty"`
+	Usage              *SearchUsage      `json:"usage,omitempty"`
+	RequestID          string            `json:"request_id"`
+	personalImpression string            `json:"-"`
+	private            bool              `json:"-"`
 }
 
 type SearchResult struct {
@@ -120,6 +127,15 @@ type ErrorDetail struct {
 	Error string `json:"error"`
 }
 
+// SearchEndpointConfig contains the dependencies and access policies for the search endpoint.
+type SearchEndpointConfig struct {
+	Searcher  searchcore.Searcher
+	Documents documentstore.DocumentDirectory
+	Access    SearchAccessPolicy
+	Admission SearchAdmission
+	Feedback  SearchFeedbackRecorder
+}
+
 func Mount(
 	mux *http.ServeMux,
 	search searchcore.Searcher,
@@ -128,6 +144,20 @@ func Mount(
 	admission SearchAdmission,
 ) {
 	mux.Handle(PathSearch, newSearchEndpoint(search, documents, access, admission))
+}
+
+func MountWithSearchFeedback(
+	mux *http.ServeMux,
+	config SearchEndpointConfig,
+) {
+	endpoint := newSearchEndpoint(
+		config.Searcher,
+		config.Documents,
+		config.Access,
+		config.Admission,
+	)
+	endpoint.feedback = config.Feedback
+	mux.Handle(PathSearch, endpoint)
 }
 
 func NewSearchEndpoint(
@@ -145,12 +175,23 @@ func NewSearchEndpointWithAccess(
 	return newSearchEndpoint(search, documents, access, nil)
 }
 
+func NewSearchEndpointWithFeedback(
+	search searchcore.Searcher,
+	documents documentstore.DocumentDirectory,
+	access SearchAccessPolicy,
+	feedback SearchFeedbackRecorder,
+) http.Handler {
+	endpoint := newSearchEndpoint(search, documents, access, nil)
+	endpoint.feedback = feedback
+	return endpoint
+}
+
 func newSearchEndpoint(
 	search searchcore.Searcher,
 	documents documentstore.DocumentDirectory,
 	access SearchAccessPolicy,
 	admission SearchAdmission,
-) http.Handler {
+) searchEndpoint {
 	return searchEndpoint{
 		search:          search,
 		documents:       documents,
@@ -275,6 +316,7 @@ func (e searchEndpoint) searchResponseForCaller(
 			AutoParameters: responseAutoParameters(req),
 			Usage:          searchResponseUsage(req, false),
 			RequestID:      id,
+			private:        searchcore.SessionScope(callerContext) != "",
 		}, nil
 	}
 
@@ -314,7 +356,7 @@ func (e searchEndpoint) searchResponseForCaller(
 	}
 	applyCanonicalRankScores(results)
 
-	return SearchResponse{
+	response := SearchResponse{
 		Query:          coreReq.Query,
 		Answer:         responseAnswer(req, results),
 		Images:         responseImages(req, images),
@@ -323,7 +365,17 @@ func (e searchEndpoint) searchResponseForCaller(
 		AutoParameters: responseAutoParameters(req),
 		Usage:          searchResponseUsage(req, true),
 		RequestID:      id,
-	}, nil
+		private:        searchcore.SessionScope(callerContext) != "",
+	}
+	if e.feedback != nil && response.private {
+		response.personalImpression = e.feedback.PrepareSearchImpression(
+			callerContext,
+			coreReq.Query,
+			results,
+		)
+	}
+
+	return response, nil
 }
 
 func coreRequest(req SearchRequest) (searchcore.Request, error) {

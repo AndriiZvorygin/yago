@@ -33,6 +33,7 @@ import (
 	"github.com/D4rk4/yago/yagonode/internal/peerblock"
 	"github.com/D4rk4/yago/yagonode/internal/peernews"
 	"github.com/D4rk4/yago/yagonode/internal/peerroster"
+	"github.com/D4rk4/yago/yagonode/internal/personalsearch"
 	"github.com/D4rk4/yago/yagonode/internal/portaltheme"
 	"github.com/D4rk4/yago/yagonode/internal/publicratelimit"
 	"github.com/D4rk4/yago/yagonode/internal/rankingmodel"
@@ -55,60 +56,62 @@ import (
 )
 
 type node struct {
-	peerMux         *http.ServeMux
-	publicMux       http.Handler
-	readiness       http.Handler
-	indexStats      http.Handler
-	searchExplain   *searchExplainEndpoint
-	searchRanking   http.Handler
-	searchTune      http.Handler
-	searchModel     http.Handler
-	searchTrain     http.Handler
-	searchRollback  http.Handler
-	safetyModel     http.Handler
-	safetyTrain     http.Handler
-	safetyRollback  http.Handler
-	judgmentsAPI    http.Handler
-	hostTrustAPI    http.Handler
-	rankingConsole  adminui.RankingSource
-	report          nodestatus.Report
-	searcher        searchcore.Searcher
-	suggest         searchcore.Searcher
-	index           searchindex.SearchIndex
-	docScan         documentstore.StoredDocuments
-	redirectPurge   redirectCorpusPurge
-	activity        *searchactivity.Tracker
-	demand          *demandCrawlController
-	schedules       *crawlschedule.Store
-	hostRank        *hostrank.Holder
-	hostTrust       *hosttrust.Catalog
-	spell           *spellcheck.Holder
-	wordForms       *wordforms.Holder
-	swarmMorph      bool
-	corpusPass      *corpusSignalRefresh
-	indexAdmin      *indexAdminController
-	postings        rwi.PostingIndex
-	urlDirectory    urlmeta.URLDirectory
-	roster          peerroster.Roster
-	news            *peernews.Pool
-	sweeper         eviction.Sweeper
-	announcer       peerannouncement.Announcer
-	lanBeacon       *landiscovery.Beacon
-	crawl           crawlProcess
-	dht             dhtOutboundProcess
-	vault           *vault.Vault
-	toggles         *runtimeToggles
-	client          *http.Client
-	peerBlock       *peerblock.Store
-	denylist        *urldenylist.Store
-	clicks          *clickcapture.Store
-	identity        nodeidentity.Identity
-	theme           *portaltheme.Theme
-	peerEvents      *peerReputationObserver
-	peerLifecycle   *nodePeerLifecycle
-	storagePressure *yagocrawlcontract.StoragePressureGate
-	transferTally   *transfertally.Tally
-	peerType        localPeerClassification
+	peerMux          *http.ServeMux
+	publicMux        http.Handler
+	readiness        http.Handler
+	indexStats       http.Handler
+	searchExplain    *searchExplainEndpoint
+	searchRanking    http.Handler
+	searchTune       http.Handler
+	searchModel      http.Handler
+	searchTrain      http.Handler
+	searchRollback   http.Handler
+	safetyModel      http.Handler
+	safetyTrain      http.Handler
+	safetyRollback   http.Handler
+	judgmentsAPI     http.Handler
+	hostTrustAPI     http.Handler
+	rankingConsole   adminui.RankingSource
+	report           nodestatus.Report
+	searcher         searchcore.Searcher
+	suggest          searchcore.Searcher
+	index            searchindex.SearchIndex
+	docScan          documentstore.StoredDocuments
+	redirectPurge    redirectCorpusPurge
+	activity         *searchactivity.Tracker
+	demand           *demandCrawlController
+	schedules        *crawlschedule.Store
+	hostRank         *hostrank.Holder
+	hostTrust        *hosttrust.Catalog
+	spell            *spellcheck.Holder
+	wordForms        *wordforms.Holder
+	swarmMorph       bool
+	corpusPass       *corpusSignalRefresh
+	indexAdmin       *indexAdminController
+	postings         rwi.PostingIndex
+	urlDirectory     urlmeta.URLDirectory
+	roster           peerroster.Roster
+	news             *peernews.Pool
+	sweeper          eviction.Sweeper
+	announcer        peerannouncement.Announcer
+	lanBeacon        *landiscovery.Beacon
+	crawl            crawlProcess
+	dht              dhtOutboundProcess
+	vault            *vault.Vault
+	toggles          *runtimeToggles
+	client           *http.Client
+	peerBlock        *peerblock.Store
+	denylist         *urldenylist.Store
+	clicks           *clickcapture.Store
+	identity         nodeidentity.Identity
+	theme            *portaltheme.Theme
+	peerEvents       *peerReputationObserver
+	peerLifecycle    *nodePeerLifecycle
+	storagePressure  *yagocrawlcontract.StoragePressureGate
+	transferTally    *transfertally.Tally
+	peerType         localPeerClassification
+	personalAccounts *personalsearch.Accounts
+	personalLearning *personalsearch.Learning
 }
 
 type nodeTelemetry struct {
@@ -279,28 +282,30 @@ type assembleSurfacesInput struct {
 }
 
 type nodeSurfaces struct {
-	crawl       crawlProcess
-	dht         dhtOutboundProcess
-	searcher    searchcore.Searcher
-	suggest     searchcore.Searcher
-	explanation searchcore.Searcher
-	publicMux   http.Handler
-	ranking     *rankingprofile.Holder
-	hostRank    *hostrank.Holder
-	spell       *spellcheck.Holder
-	wordForms   *wordforms.Holder
-	denylist    *urldenylist.Store
-	judgments   *judgments.Store
-	clicks      *clickcapture.Store
-	models      *rankingmodel.Catalog
-	safety      *safetymodel.Catalog
-	trust       *hosttrust.Catalog
-	activity    *searchactivity.Tracker
-	demand      *demandCrawlController
-	schedules   *crawlschedule.Store
-	theme       *portaltheme.Theme
-	peerEvents  *peerReputationObserver
-	corpusPass  *corpusSignalRefresh
+	crawl            crawlProcess
+	dht              dhtOutboundProcess
+	searcher         searchcore.Searcher
+	suggest          searchcore.Searcher
+	explanation      searchcore.Searcher
+	publicMux        http.Handler
+	ranking          *rankingprofile.Holder
+	hostRank         *hostrank.Holder
+	spell            *spellcheck.Holder
+	wordForms        *wordforms.Holder
+	denylist         *urldenylist.Store
+	judgments        *judgments.Store
+	clicks           *clickcapture.Store
+	models           *rankingmodel.Catalog
+	safety           *safetymodel.Catalog
+	trust            *hosttrust.Catalog
+	activity         *searchactivity.Tracker
+	demand           *demandCrawlController
+	schedules        *crawlschedule.Store
+	theme            *portaltheme.Theme
+	peerEvents       *peerReputationObserver
+	corpusPass       *corpusSignalRefresh
+	personalAccounts *personalsearch.Accounts
+	personalLearning *personalsearch.Learning
 }
 
 func assembleNodeSurfaces(in assembleSurfacesInput) (nodeSurfaces, error) {
@@ -352,38 +357,42 @@ func assembleNodeSurfaces(in assembleSurfacesInput) (nodeSurfaces, error) {
 	dht := buildSurfaceDHT(in, runtime)
 	closeRuntime = false
 	return nodeSurfaces{
-		crawl:       runtime,
-		dht:         dht,
-		searcher:    search.searcher,
-		suggest:     search.suggest,
-		explanation: search.explanation,
-		publicMux:   search.publicMux,
-		theme:       theme,
-		ranking:     ranking,
-		hostRank:    corpusSignals.authority,
-		spell:       corpusSignals.spelling,
-		wordForms:   corpusSignals.wordForms,
-		denylist:    denylist,
-		activity:    search.activity,
-		demand:      search.demand,
-		schedules:   schedules,
-		judgments:   learning.judgments,
-		clicks:      learning.clicks,
-		models:      learning.models,
-		safety:      learning.safety,
-		trust:       learning.trust,
-		peerEvents:  learning.peerEvents,
-		corpusPass:  corpusSignals.refresh,
+		crawl:            runtime,
+		dht:              dht,
+		searcher:         search.searcher,
+		suggest:          search.suggest,
+		explanation:      search.explanation,
+		publicMux:        search.publicMux,
+		theme:            theme,
+		ranking:          ranking,
+		hostRank:         corpusSignals.authority,
+		spell:            corpusSignals.spelling,
+		wordForms:        corpusSignals.wordForms,
+		denylist:         denylist,
+		activity:         search.activity,
+		demand:           search.demand,
+		schedules:        schedules,
+		judgments:        learning.judgments,
+		clicks:           learning.clicks,
+		models:           learning.models,
+		safety:           learning.safety,
+		trust:            learning.trust,
+		peerEvents:       learning.peerEvents,
+		corpusPass:       corpusSignals.refresh,
+		personalAccounts: search.personalAccounts,
+		personalLearning: search.personalLearning,
 	}, nil
 }
 
 type publicSearchSurfaces struct {
-	searcher    searchcore.Searcher
-	suggest     searchcore.Searcher
-	explanation searchcore.Searcher
-	publicMux   http.Handler
-	activity    *searchactivity.Tracker
-	demand      *demandCrawlController
+	searcher         searchcore.Searcher
+	suggest          searchcore.Searcher
+	explanation      searchcore.Searcher
+	publicMux        http.Handler
+	activity         *searchactivity.Tracker
+	demand           *demandCrawlController
+	personalAccounts *personalsearch.Accounts
+	personalLearning *personalsearch.Learning
 }
 
 type publicSearchSurfacesInput struct {
@@ -401,6 +410,16 @@ func assemblePublicSearchSurfaces(input publicSearchSurfacesInput) (publicSearch
 	publicMux := http.NewServeMux()
 	searchLimiter := publicratelimit.NewLimiter(searchRateTiers(in.config.SearchRate))
 	activity := searchactivity.New(searchactivity.Mode(in.config.QueryLogMode))
+	accounts, err := personalsearch.NewAccounts(in.vault, personalsearch.AccountsConfig{})
+	if err != nil {
+		return publicSearchSurfaces{}, fmt.Errorf("open personal search accounts: %w", err)
+	}
+	personalLearning, err := personalsearch.NewLearning(in.vault, personalsearch.LearningConfig{})
+	if err != nil {
+		return publicSearchSurfaces{}, fmt.Errorf("open personal search history: %w", err)
+	}
+	go personalLearning.RunRetention(in.ctx)
+	go accounts.RunRetention(in.ctx)
 	demandStore, err := searchdemand.Open(in.vault)
 	if err != nil {
 		return publicSearchSurfaces{}, fmt.Errorf("open search demand store: %w", err)
@@ -416,18 +435,28 @@ func assemblePublicSearchSurfaces(input publicSearchSurfacesInput) (publicSearch
 		denylist: input.denylist, activity: activity, signals: input.corpusSignals,
 		theme: input.theme, learning: input.learning,
 		admission: newTavilySearchAdmission(searchLimiter), demand: demand,
+		personalAccounts: accounts, personalLearning: personalLearning,
+		personalizationEnabled: in.toggles.PersonalizationEnabled,
 	})
 	attachSearchDemandObserver(input.runtime, demand)
 	searchAccess := searchAccessPolicy(publicSearchAssembly{
 		searchAuthorizer: in.telemetry.searchAuthorizer,
 		searchAPIKey:     legacySearchAPIKeyFor(in.config),
+		personalAccounts: accounts,
 	})
 	limitedPublic := publicratelimit.Wrap(
 		publicMux,
 		searchLimiter,
 		func(request *http.Request) bool {
 			if identity, ok := demandIdentityFromContext(request.Context()); ok {
-				return identity.authenticated
+				if identity.authenticated {
+					return true
+				}
+			}
+			if _, authenticated := personalsearch.PrincipalFromContext(
+				request.Context(),
+			); authenticated {
+				return true
 			}
 			return searchAccess.AuthenticatedRead(request)
 		},
@@ -438,9 +467,11 @@ func assemblePublicSearchSurfaces(input publicSearchSurfacesInput) (publicSearch
 		in.toggles,
 		searchAccess,
 	)
+	limitedPublic = accounts.Middleware(limitedPublic)
 	return publicSearchSurfaces{
 		searcher: searcher, suggest: suggest, explanation: explanation,
 		publicMux: limitedPublic, activity: activity, demand: demand,
+		personalAccounts: accounts, personalLearning: personalLearning,
 	}, nil
 }
 
@@ -448,20 +479,23 @@ func assemblePublicSearchSurfaces(input publicSearchSurfacesInput) (publicSearch
 // opened into the public-search assembly literal, keeping the function inside
 // its length budget.
 type publicSearchParts struct {
-	runtime    crawlProcess
-	ranking    *rankingprofile.Holder
-	denylist   *urldenylist.Store
-	activity   *searchactivity.Tracker
-	demand     *demandCrawlController
-	hostRank   *hostrank.Holder
-	spell      *spellcheck.Holder
-	words      *wordforms.Holder
-	theme      *portaltheme.Theme
-	clicks     *clickcapture.Store
-	models     *rankingmodel.Catalog
-	reputation *peerReputationObserver
-	peerEvents *peerReputationObserver
-	admission  tavilyapi.SearchAdmission
+	runtime                crawlProcess
+	ranking                *rankingprofile.Holder
+	denylist               *urldenylist.Store
+	activity               *searchactivity.Tracker
+	demand                 *demandCrawlController
+	hostRank               *hostrank.Holder
+	spell                  *spellcheck.Holder
+	words                  *wordforms.Holder
+	theme                  *portaltheme.Theme
+	clicks                 *clickcapture.Store
+	models                 *rankingmodel.Catalog
+	reputation             *peerReputationObserver
+	peerEvents             *peerReputationObserver
+	admission              tavilyapi.SearchAdmission
+	personalAccounts       *personalsearch.Accounts
+	personalLearning       *personalsearch.Learning
+	personalizationEnabled func() bool
 }
 
 func newPublicSearchAssembly(
@@ -512,48 +546,53 @@ func newPublicSearchAssembly(
 		observeRemoteResources: remoteSearchResourceTally(in.tally),
 		theme:                  parts.theme,
 		demand:                 parts.demand,
+		personalAccounts:       parts.personalAccounts,
+		personalLearning:       parts.personalLearning,
+		personalizationEnabled: parts.personalizationEnabled,
 	}
 }
 
 type nodeParts struct {
-	mux           *http.ServeMux
-	publicMux     http.Handler
-	storage       nodeStorage
-	announcer     peerannouncement.Announcer
-	lanBeacon     *landiscovery.Beacon
-	crawl         crawlProcess
-	dht           dhtOutboundProcess
-	report        nodestatus.Report
-	searcher      searchcore.Searcher
-	suggest       searchcore.Searcher
-	explanation   searchcore.Searcher
-	roster        peerroster.Roster
-	news          *peernews.Pool
-	vault         *vault.Vault
-	client        *http.Client
-	peerBlock     *peerblock.Store
-	denylist      *urldenylist.Store
-	activity      *searchactivity.Tracker
-	demand        *demandCrawlController
-	schedules     *crawlschedule.Store
-	identity      nodeidentity.Identity
-	ranking       *rankingprofile.Holder
-	hostRank      *hostrank.Holder
-	hostTrust     *hosttrust.Catalog
-	spell         *spellcheck.Holder
-	wordForms     *wordforms.Holder
-	judgments     *judgments.Store
-	clicks        *clickcapture.Store
-	models        *rankingmodel.Catalog
-	safety        *safetymodel.Catalog
-	swarmMorph    bool
-	theme         *portaltheme.Theme
-	peerEvents    *peerReputationObserver
-	peerLifecycle *nodePeerLifecycle
-	corpusPass    *corpusSignalRefresh
-	tally         *transfertally.Tally
-	events        *events.Recorder
-	peerType      localPeerClassification
+	mux              *http.ServeMux
+	publicMux        http.Handler
+	storage          nodeStorage
+	announcer        peerannouncement.Announcer
+	lanBeacon        *landiscovery.Beacon
+	crawl            crawlProcess
+	dht              dhtOutboundProcess
+	report           nodestatus.Report
+	searcher         searchcore.Searcher
+	suggest          searchcore.Searcher
+	explanation      searchcore.Searcher
+	roster           peerroster.Roster
+	news             *peernews.Pool
+	vault            *vault.Vault
+	client           *http.Client
+	peerBlock        *peerblock.Store
+	denylist         *urldenylist.Store
+	activity         *searchactivity.Tracker
+	demand           *demandCrawlController
+	schedules        *crawlschedule.Store
+	identity         nodeidentity.Identity
+	ranking          *rankingprofile.Holder
+	hostRank         *hostrank.Holder
+	hostTrust        *hosttrust.Catalog
+	spell            *spellcheck.Holder
+	wordForms        *wordforms.Holder
+	judgments        *judgments.Store
+	clicks           *clickcapture.Store
+	models           *rankingmodel.Catalog
+	safety           *safetymodel.Catalog
+	swarmMorph       bool
+	theme            *portaltheme.Theme
+	peerEvents       *peerReputationObserver
+	peerLifecycle    *nodePeerLifecycle
+	corpusPass       *corpusSignalRefresh
+	tally            *transfertally.Tally
+	events           *events.Recorder
+	peerType         localPeerClassification
+	personalAccounts *personalsearch.Accounts
+	personalLearning *personalsearch.Learning
 }
 
 func newAssembledNode(parts nodeParts, toggles *runtimeToggles) node {
@@ -588,43 +627,45 @@ func newAssembledNode(parts nodeParts, toggles *runtimeToggles) node {
 				trainer: rankingRuntime.trainer, models: parts.models, trust: parts.hostTrust,
 			},
 		),
-		report:        parts.report,
-		searcher:      parts.searcher,
-		suggest:       parts.suggest,
-		index:         parts.storage.searchIndex,
-		docScan:       parts.storage.storedDocuments(),
-		redirectPurge: newNodeRedirectPurge(parts.storage, parts.vault),
-		activity:      parts.activity,
-		demand:        parts.demand,
-		schedules:     parts.schedules,
-		hostRank:      parts.hostRank,
-		hostTrust:     parts.hostTrust,
-		spell:         parts.spell,
-		wordForms:     parts.wordForms,
-		swarmMorph:    parts.swarmMorph,
-		corpusPass:    parts.corpusPass,
-		indexAdmin:    newIndexAdminController(parts.storage, parts.vault),
-		postings:      parts.storage.postings,
-		urlDirectory:  parts.storage.urlDirectory,
-		roster:        parts.roster,
-		news:          parts.news,
-		sweeper:       newStorageSweeper(parts.vault, parts.storage),
-		announcer:     parts.announcer,
-		lanBeacon:     parts.lanBeacon,
-		crawl:         parts.crawl,
-		dht:           parts.dht,
-		vault:         parts.vault,
-		toggles:       toggles,
-		client:        parts.client,
-		peerBlock:     parts.peerBlock,
-		denylist:      parts.denylist,
-		clicks:        parts.clicks,
-		identity:      parts.identity,
-		theme:         parts.theme,
-		peerEvents:    parts.peerEvents,
-		peerLifecycle: parts.peerLifecycle,
-		transferTally: parts.tally,
-		peerType:      parts.peerType,
+		report:           parts.report,
+		searcher:         parts.searcher,
+		suggest:          parts.suggest,
+		index:            parts.storage.searchIndex,
+		docScan:          parts.storage.storedDocuments(),
+		redirectPurge:    newNodeRedirectPurge(parts.storage, parts.vault),
+		activity:         parts.activity,
+		demand:           parts.demand,
+		schedules:        parts.schedules,
+		hostRank:         parts.hostRank,
+		hostTrust:        parts.hostTrust,
+		spell:            parts.spell,
+		wordForms:        parts.wordForms,
+		swarmMorph:       parts.swarmMorph,
+		corpusPass:       parts.corpusPass,
+		indexAdmin:       newIndexAdminController(parts.storage, parts.vault),
+		postings:         parts.storage.postings,
+		urlDirectory:     parts.storage.urlDirectory,
+		roster:           parts.roster,
+		news:             parts.news,
+		sweeper:          newStorageSweeper(parts.vault, parts.storage),
+		announcer:        parts.announcer,
+		lanBeacon:        parts.lanBeacon,
+		crawl:            parts.crawl,
+		dht:              parts.dht,
+		vault:            parts.vault,
+		toggles:          toggles,
+		client:           parts.client,
+		peerBlock:        parts.peerBlock,
+		denylist:         parts.denylist,
+		clicks:           parts.clicks,
+		identity:         parts.identity,
+		theme:            parts.theme,
+		peerEvents:       parts.peerEvents,
+		peerLifecycle:    parts.peerLifecycle,
+		transferTally:    parts.tally,
+		peerType:         parts.peerType,
+		personalAccounts: parts.personalAccounts,
+		personalLearning: parts.personalLearning,
 	}
 }
 
