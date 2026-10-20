@@ -14,12 +14,13 @@ const (
 // CrawlRunTally is the cumulative outcome of a run's pages. It is reported as an
 // absolute snapshot, not a delta, so a lost report is corrected by the next one.
 type CrawlRunTally struct {
-	Fetched      uint64
-	Indexed      uint64
-	Failed       uint64
-	RobotsDenied uint64
-	Duplicates   uint64
-	Pending      uint64
+	Fetched       uint64
+	Indexed       uint64
+	Failed        uint64
+	RobotsDenied  uint64
+	Duplicates    uint64
+	Pending       uint64
+	FetchAttempts uint64
 }
 
 type CrawlRunProgress struct {

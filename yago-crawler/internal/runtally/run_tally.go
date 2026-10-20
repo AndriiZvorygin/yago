@@ -41,6 +41,7 @@ func (t *Tally) Commit(provenance []byte, delta yagocrawlcontract.CrawlRunTally)
 	current.Failed += delta.Failed
 	current.RobotsDenied += delta.RobotsDenied
 	current.Duplicates += delta.Duplicates
+	current.FetchAttempts += delta.FetchAttempts
 	t.byRun[key] = current
 }
 

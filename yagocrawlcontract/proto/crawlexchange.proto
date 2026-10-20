@@ -219,6 +219,7 @@ message CrawlRunTally {
   uint64 robots_denied = 4;
   uint64 duplicates = 5;
   uint64 pending = 6;
+  uint64 fetch_attempts = 7;
 }
 
 message CrawlURLOutcome {

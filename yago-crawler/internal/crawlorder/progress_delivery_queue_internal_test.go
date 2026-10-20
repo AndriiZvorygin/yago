@@ -37,12 +37,13 @@ func (c *progressDeliveryClient) ReportProgress(
 		ProfileName:   report.GetProfileName(),
 		State:         report.GetState(),
 		Tally: &crawlrpc.CrawlRunTally{
-			Fetched:      report.GetTally().GetFetched(),
-			Indexed:      report.GetTally().GetIndexed(),
-			Failed:       report.GetTally().GetFailed(),
-			RobotsDenied: report.GetTally().GetRobotsDenied(),
-			Duplicates:   report.GetTally().GetDuplicates(),
-			Pending:      report.GetTally().GetPending(),
+			Fetched:       report.GetTally().GetFetched(),
+			Indexed:       report.GetTally().GetIndexed(),
+			Failed:        report.GetTally().GetFailed(),
+			RobotsDenied:  report.GetTally().GetRobotsDenied(),
+			Duplicates:    report.GetTally().GetDuplicates(),
+			Pending:       report.GetTally().GetPending(),
+			FetchAttempts: report.GetTally().GetFetchAttempts(),
 		},
 	}
 	c.mu.Lock()

@@ -343,6 +343,7 @@ func serve(
 	startPeerPresenceLoops(ctx, &background, assembled)
 	startRedirectPurge(ctx, &background, assembled)
 	startCrawlScheduleLoop(ctx, &background, assembled)
+	startSearchDemandLoop(ctx, &background, assembled)
 	startTransferTallyFlush(ctx, &background, assembled.transferTally)
 	go func() {
 		defer background.Done()

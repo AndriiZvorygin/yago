@@ -38,8 +38,10 @@ type runtimeToggles struct {
 	// the compaction loop reads the current value each cycle.
 	// searchSessionTTL is the live public result-window lifetime, read when a
 	// session is stored.
-	searchSessionTTL atomic.Int64
-	compaction       atomic.Int64
+	searchSessionTTL         atomic.Int64
+	searchDemandEnabled      atomic.Bool
+	searchDemandWebDiscovery atomic.Bool
+	compaction               atomic.Int64
 	// autosplit gates automatic shard-pool growth; the growth loop reads it each
 	// cycle (ADR-0037).
 	autosplit atomic.Bool
@@ -87,6 +89,8 @@ func newRuntimeToggles(config nodeConfig) *runtimeToggles {
 	toggles.swarmSeedDepth.Store(int64(config.SwarmSeed.SeedDepth))
 	toggles.swarmSeedMaxPages.Store(int64(config.SwarmSeed.SeedMaxPages))
 	toggles.searchSessionTTL.Store(int64(config.SearchSessionTTL))
+	toggles.searchDemandEnabled.Store(config.SearchDemandEnabled)
+	toggles.searchDemandWebDiscovery.Store(config.SearchDemandWebDiscovery)
 	toggles.compaction.Store(int64(config.StorageCompaction))
 	toggles.autosplit.Store(config.StorageAutosplit)
 	toggles.storageReservedFree.Store(config.StorageReservedFreeBytes)
@@ -98,6 +102,26 @@ func newRuntimeToggles(config nodeConfig) *runtimeToggles {
 	toggles.loggingLevel.Store(int64(config.LoggingLevel))
 
 	return toggles
+}
+
+func (t *runtimeToggles) SearchDemandEnabled() bool {
+	return t != nil && t.searchDemandEnabled.Load()
+}
+
+func (t *runtimeToggles) SetSearchDemandEnabled(enabled bool) {
+	if t != nil {
+		t.searchDemandEnabled.Store(enabled)
+	}
+}
+
+func (t *runtimeToggles) SearchDemandWebDiscoveryEnabled() bool {
+	return t != nil && t.searchDemandWebDiscovery.Load()
+}
+
+func (t *runtimeToggles) SetSearchDemandWebDiscovery(enabled bool) {
+	if t != nil {
+		t.searchDemandWebDiscovery.Store(enabled)
+	}
 }
 
 func (t *runtimeToggles) SetCrawlerRuntimePolicySink(

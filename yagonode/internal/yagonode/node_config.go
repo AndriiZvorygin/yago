@@ -135,6 +135,8 @@ type nodeConfig struct {
 	SearchLinksNewTab            bool
 	SearchClickCapture           bool
 	SearchSessionTTL             time.Duration
+	SearchDemandEnabled          bool
+	SearchDemandWebDiscovery     bool
 	HTTPSRedirect                bool
 	PublicBaseURL                string
 	QueryLogMode                 queryLogMode

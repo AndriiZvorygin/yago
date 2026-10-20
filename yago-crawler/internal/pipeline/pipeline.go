@@ -218,6 +218,9 @@ func (p *Pipeline) fetchJob(
 		}
 	}
 	p.observer.FetchAttempted()
+	if outcome != nil {
+		outcome.FetchAttempts++
+	}
 	if job.DisableBrowser {
 		ctx = pagefetch.WithoutBrowserFallback(ctx)
 	}

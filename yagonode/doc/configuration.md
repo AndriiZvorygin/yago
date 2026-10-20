@@ -499,6 +499,27 @@ P2P. Terminate TLS at that proxy so the session cookie is marked `Secure`.
 
 The node can drive a crawl fleet over gRPC: it serves a `CrawlExchange` endpoint that crawlers dial. Operators start a crawl by posting seed URLs to `/crawl` on the ops address; the node enqueues orders in a durable, store-backed queue and streams them to connected crawlers, and crawled pages flow back in as bounded ingest batches. Local identity and encoded-size validation stops an invalid payload before RPC. A node-returned `Unavailable` or legacy `ResourceExhausted` saturation status retries with jittered exponential delay capped at five seconds until the crawl context ends. The endpoint defaults to loopback at `127.0.0.1:9091` for a co-located crawler; set `YAGO_CRAWL_RPC_ADDR=off` for a pure peer or an explicit bind such as `:9091` for remote workers.
 
+### Search-demand-guided crawling
+
+Configuration → Search contains two live controls: **Demand-guided crawling**
+(`search.demand.enabled`, off by default) and **External web discovery for
+demand topics** (`search.demand.web_discovery`, also off by default). The first
+counts eligible first-page portal, YaCy-compatible, and Tavily-compatible
+searches as rolling query topics. New topics get a bounded probe; subsequent
+work is divided by a decayed demand score and the observed crawler fetch rate.
+The second control allows the feature to consider results from the separately
+configured web provider; it does not bypass that provider's own consent or
+safe-search behavior.
+
+Queries are retained in normalized form for up to 28 days. Client addresses are
+not stored directly: daily quota accounting uses keyed daily pseudonyms. See
+[`search-demand-crawling.md`](search-demand-crawling.md) for the quota, capacity
+measurement, and allocation rules. Capacity is averaged only over completed
+UTC days with observed fetch attempts; days with no recorded attempts are not
+counted in the average. The ledger aggregates each topic by UTC day and retains
+at most 20,000 topics and 100,000 daily client pseudonyms; reaching either
+limit does not affect search responses.
+
 ### Extraction-generation refresh
 
 Newly parsed documents carry extraction generation `1`; stored payloads that

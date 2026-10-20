@@ -63,11 +63,12 @@ func runStateFromProto(state crawlrpc.CrawlRunState) yagocrawlcontract.CrawlRunS
 
 func tallyFromProto(tally *crawlrpc.CrawlRunTally) yagocrawlcontract.CrawlRunTally {
 	return yagocrawlcontract.CrawlRunTally{
-		Fetched:      tally.GetFetched(),
-		Indexed:      tally.GetIndexed(),
-		Failed:       tally.GetFailed(),
-		RobotsDenied: tally.GetRobotsDenied(),
-		Duplicates:   tally.GetDuplicates(),
-		Pending:      tally.GetPending(),
+		Fetched:       tally.GetFetched(),
+		Indexed:       tally.GetIndexed(),
+		Failed:        tally.GetFailed(),
+		RobotsDenied:  tally.GetRobotsDenied(),
+		Duplicates:    tally.GetDuplicates(),
+		Pending:       tally.GetPending(),
+		FetchAttempts: tally.GetFetchAttempts(),
 	}
 }

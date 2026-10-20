@@ -27,6 +27,17 @@ type ActivityWord struct {
 	Count int
 }
 
+type ActivityDemandTopic struct {
+	Query         string
+	Searches      int
+	Weight        float64
+	FetchAttempts uint64
+	UsefulDocs    uint64
+	LastSearch    string
+	LastScheduled string
+	ProbeOnly     bool
+}
+
 // ActivityView is the Search-activity snapshot.
 type ActivityView struct {
 	// Mode is the effective privacy mode: off, aggregate, or full.
@@ -35,6 +46,11 @@ type ActivityView struct {
 	ConfirmedZeroResults uint64
 	Entries              []ActivityEntry
 	TopWords             []ActivityWord
+	DemandEnabled        bool
+	DemandWebDiscovery   bool
+	DemandCapacity       uint64
+	DemandTopics         []ActivityDemandTopic
+	DemandError          string
 }
 
 // ActivitySource supplies the activity snapshot; nil hides the section body.

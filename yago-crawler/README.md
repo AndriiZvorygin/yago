@@ -532,6 +532,10 @@ status codes when available, and stable operator reasons. They never carry page
 content or raw parser errors. Each retained URL has one terminal class: fetched,
 indexed, failed, robots denied, duplicate, or skipped. These per-URL classes are
 mutually exclusive even though the aggregate fetched and failed counters are not.
+The separate `fetch_attempts` tally increments once after fetch-start admission
+and immediately before the page fetch chain. It includes failed and
+robots-denied attempts and is not the same as accepted fetched bodies or
+successfully indexed documents.
 Stable reasons distinguish URL parsing, fetch and robots rejection, unsupported
 content, parsing, indexing, ingest delivery, page directives, profile policy,
 redirect admission, and document removal without exposing provider errors.

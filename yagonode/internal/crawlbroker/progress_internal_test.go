@@ -72,6 +72,7 @@ func TestReportProgressTranslatesAndForwards(t *testing.T) {
 		State:           crawlrpc.CrawlRunState_CRAWL_RUN_STATE_FINISHED,
 		Tally: &crawlrpc.CrawlRunTally{
 			Fetched: 5, Indexed: 4, Failed: 1, RobotsDenied: 2, Duplicates: 3, Pending: 6,
+			FetchAttempts: 7,
 		},
 		PagesPerMinute:  &pagesPerMinute,
 		MaxPagesPerHost: &maxPagesPerHost,
@@ -95,6 +96,7 @@ func TestReportProgressTranslatesAndForwards(t *testing.T) {
 	}
 	wantTally := yagocrawlcontract.CrawlRunTally{
 		Fetched: 5, Indexed: 4, Failed: 1, RobotsDenied: 2, Duplicates: 3, Pending: 6,
+		FetchAttempts: 7,
 	}
 	if got.Tally != wantTally {
 		t.Fatalf("tally = %+v, want %+v", got.Tally, wantTally)

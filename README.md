@@ -291,6 +291,17 @@ and tested together; use matching releases when upgrading a node and crawler.
   units are not billing, an account balance, external-provider spend, or proof
   that an upstream Tavily service was called.
 
+### Search-demand-guided crawling
+
+An optional, disabled-by-default controller can use recent first-page public
+searches to allocate a bounded share of observed crawler capacity to topics.
+It keeps normalized topics for a rolling retention window, gives new topics a
+small evidence-gathering probe, and follows local or peer-discovered links
+through the ordinary durable crawler. External web-result discovery requires a
+separate opt-in. See
+[search-demand-guided crawling](yagonode/doc/search-demand-crawling.md) for
+retention, quotas, allocation, and privacy details.
+
 ### 🕷️ A crawler built for the hostile web
 
 - Separate `yago-crawler` worker(s) connected over dedicated control and ingest

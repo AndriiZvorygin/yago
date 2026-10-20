@@ -42,6 +42,7 @@ import (
 	"github.com/D4rk4/yago/yagonode/internal/safetymodel"
 	"github.com/D4rk4/yago/yagonode/internal/searchactivity"
 	"github.com/D4rk4/yago/yagonode/internal/searchcore"
+	"github.com/D4rk4/yago/yagonode/internal/searchdemand"
 	"github.com/D4rk4/yago/yagonode/internal/searchindex"
 	"github.com/D4rk4/yago/yagonode/internal/searchlocal"
 	"github.com/D4rk4/yago/yagonode/internal/spellcheck"
@@ -77,6 +78,7 @@ type node struct {
 	docScan         documentstore.StoredDocuments
 	redirectPurge   redirectCorpusPurge
 	activity        *searchactivity.Tracker
+	demand          *demandCrawlController
 	schedules       *crawlschedule.Store
 	hostRank        *hostrank.Holder
 	hostTrust       *hosttrust.Catalog
@@ -294,6 +296,7 @@ type nodeSurfaces struct {
 	safety      *safetymodel.Catalog
 	trust       *hosttrust.Catalog
 	activity    *searchactivity.Tracker
+	demand      *demandCrawlController
 	schedules   *crawlschedule.Store
 	theme       *portaltheme.Theme
 	peerEvents  *peerReputationObserver
@@ -338,37 +341,31 @@ func assembleNodeSurfaces(in assembleSurfacesInput) (nodeSurfaces, error) {
 		learning.peerEvents.Close()
 		return nodeSurfaces{}, fmt.Errorf("open portal theme: %w", err)
 	}
-	publicMux := http.NewServeMux()
-	searchLimiter := publicratelimit.NewLimiter(searchRateTiers(in.config.SearchRate))
-	activityTracker := searchactivity.New(searchactivity.Mode(in.config.QueryLogMode))
 	corpusSignals := newCorpusSignalSet(in, learning)
-	searcher, suggest, explanation := mountSurfacePublicSearch(surfacePublicSearchInput{
-		mux: publicMux, assembly: in, runtime: runtime, ranking: ranking,
-		denylist: denylist, activity: activityTracker, signals: corpusSignals,
-		theme: theme, learning: learning,
-		admission: newTavilySearchAdmission(searchLimiter),
+	search, err := assemblePublicSearchSurfaces(publicSearchSurfacesInput{
+		assembly: in, runtime: runtime, ranking: ranking, denylist: denylist,
+		learning: learning, theme: theme, corpusSignals: corpusSignals,
 	})
+	if err != nil {
+		return nodeSurfaces{}, err
+	}
 	dht := buildSurfaceDHT(in, runtime)
-	searchAccess := searchAccessPolicy(publicSearchAssembly{
-		searchAuthorizer: in.telemetry.searchAuthorizer,
-		searchAPIKey:     legacySearchAPIKeyFor(in.config),
-	})
-	limitedPublic := publicratelimit.Wrap(publicMux, searchLimiter, searchAccess.AuthenticatedRead)
 	closeRuntime = false
 	return nodeSurfaces{
 		crawl:       runtime,
 		dht:         dht,
-		searcher:    searcher,
-		suggest:     suggest,
-		explanation: explanation,
-		publicMux:   limitedPublic,
+		searcher:    search.searcher,
+		suggest:     search.suggest,
+		explanation: search.explanation,
+		publicMux:   search.publicMux,
 		theme:       theme,
 		ranking:     ranking,
 		hostRank:    corpusSignals.authority,
 		spell:       corpusSignals.spelling,
 		wordForms:   corpusSignals.wordForms,
 		denylist:    denylist,
-		activity:    activityTracker,
+		activity:    search.activity,
+		demand:      search.demand,
 		schedules:   schedules,
 		judgments:   learning.judgments,
 		clicks:      learning.clicks,
@@ -380,6 +377,73 @@ func assembleNodeSurfaces(in assembleSurfacesInput) (nodeSurfaces, error) {
 	}, nil
 }
 
+type publicSearchSurfaces struct {
+	searcher    searchcore.Searcher
+	suggest     searchcore.Searcher
+	explanation searchcore.Searcher
+	publicMux   http.Handler
+	activity    *searchactivity.Tracker
+	demand      *demandCrawlController
+}
+
+type publicSearchSurfacesInput struct {
+	assembly      assembleSurfacesInput
+	runtime       crawlProcess
+	ranking       *rankingprofile.Holder
+	denylist      *urldenylist.Store
+	learning      searchLearningStores
+	theme         *portaltheme.Theme
+	corpusSignals corpusSignalSet
+}
+
+func assemblePublicSearchSurfaces(input publicSearchSurfacesInput) (publicSearchSurfaces, error) {
+	in := input.assembly
+	publicMux := http.NewServeMux()
+	searchLimiter := publicratelimit.NewLimiter(searchRateTiers(in.config.SearchRate))
+	activity := searchactivity.New(searchactivity.Mode(in.config.QueryLogMode))
+	demandStore, err := searchdemand.Open(in.vault)
+	if err != nil {
+		return publicSearchSurfaces{}, fmt.Errorf("open search demand store: %w", err)
+	}
+	demand := newDemandCrawlController(demandCrawlControllerInput{
+		store: demandStore, queue: crawlOrderQueue(input.runtime),
+		documents: in.storage.documentDirectory, initiator: in.identity.Hash,
+		toggles: in.toggles, crawl: in.config.AutocrawlerCrawl,
+		maximum: crawlPageBudgetSource(input.runtime),
+	})
+	searcher, suggest, explanation := mountSurfacePublicSearch(surfacePublicSearchInput{
+		mux: publicMux, assembly: in, runtime: input.runtime, ranking: input.ranking,
+		denylist: input.denylist, activity: activity, signals: input.corpusSignals,
+		theme: input.theme, learning: input.learning,
+		admission: newTavilySearchAdmission(searchLimiter), demand: demand,
+	})
+	attachSearchDemandObserver(input.runtime, demand)
+	searchAccess := searchAccessPolicy(publicSearchAssembly{
+		searchAuthorizer: in.telemetry.searchAuthorizer,
+		searchAPIKey:     legacySearchAPIKeyFor(in.config),
+	})
+	limitedPublic := publicratelimit.Wrap(
+		publicMux,
+		searchLimiter,
+		func(request *http.Request) bool {
+			if identity, ok := demandIdentityFromContext(request.Context()); ok {
+				return identity.authenticated
+			}
+			return searchAccess.AuthenticatedRead(request)
+		},
+	)
+	limitedPublic = withSearchDemandRequestContext(
+		limitedPublic,
+		in.config,
+		in.toggles,
+		searchAccess,
+	)
+	return publicSearchSurfaces{
+		searcher: searcher, suggest: suggest, explanation: explanation,
+		publicMux: limitedPublic, activity: activity, demand: demand,
+	}, nil
+}
+
 // publicSearchParts carries the surface stores and runtimes assembleNodeSurfaces
 // opened into the public-search assembly literal, keeping the function inside
 // its length budget.
@@ -388,6 +452,7 @@ type publicSearchParts struct {
 	ranking    *rankingprofile.Holder
 	denylist   *urldenylist.Store
 	activity   *searchactivity.Tracker
+	demand     *demandCrawlController
 	hostRank   *hostrank.Holder
 	spell      *spellcheck.Holder
 	words      *wordforms.Holder
@@ -446,6 +511,7 @@ func newPublicSearchAssembly(
 		selfSeed:               in.report.SelfSeed,
 		observeRemoteResources: remoteSearchResourceTally(in.tally),
 		theme:                  parts.theme,
+		demand:                 parts.demand,
 	}
 }
 
@@ -468,6 +534,7 @@ type nodeParts struct {
 	peerBlock     *peerblock.Store
 	denylist      *urldenylist.Store
 	activity      *searchactivity.Tracker
+	demand        *demandCrawlController
 	schedules     *crawlschedule.Store
 	identity      nodeidentity.Identity
 	ranking       *rankingprofile.Holder
@@ -528,6 +595,7 @@ func newAssembledNode(parts nodeParts, toggles *runtimeToggles) node {
 		docScan:       parts.storage.storedDocuments(),
 		redirectPurge: newNodeRedirectPurge(parts.storage, parts.vault),
 		activity:      parts.activity,
+		demand:        parts.demand,
 		schedules:     parts.schedules,
 		hostRank:      parts.hostRank,
 		hostTrust:     parts.hostTrust,

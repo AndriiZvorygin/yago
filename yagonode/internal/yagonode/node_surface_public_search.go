@@ -18,6 +18,7 @@ type surfacePublicSearchInput struct {
 	ranking   *rankingprofile.Holder
 	denylist  *urldenylist.Store
 	activity  *searchactivity.Tracker
+	demand    *demandCrawlController
 	signals   corpusSignalSet
 	theme     *portaltheme.Theme
 	learning  searchLearningStores
@@ -32,6 +33,7 @@ func mountSurfacePublicSearch(
 		ranking:    input.ranking,
 		denylist:   input.denylist,
 		activity:   input.activity,
+		demand:     input.demand,
 		hostRank:   input.signals.authority,
 		spell:      input.signals.spelling,
 		words:      input.signals.wordForms,

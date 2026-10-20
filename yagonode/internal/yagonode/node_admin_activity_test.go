@@ -12,7 +12,7 @@ import (
 // onto the view newest-first with formatted time and duration, top words
 // appear in full mode, and a nil tracker hides the section.
 func TestActivitySourceRendersTrackerState(t *testing.T) {
-	if newActivitySource(nil) != nil {
+	if newActivitySource(nil, nil) != nil {
 		t.Fatal("nil tracker must yield a nil source (section unavailable)")
 	}
 
@@ -28,7 +28,7 @@ func TestActivitySourceRendersTrackerState(t *testing.T) {
 		Duration: 90 * time.Millisecond, Source: "local",
 	})
 
-	view := newActivitySource(tracker).Activity(context.Background())
+	view := newActivitySource(tracker, nil).Activity(context.Background())
 	if view.Mode != "full" || view.Total != 2 || view.ConfirmedZeroResults != 1 {
 		t.Fatalf("view header = %+v", view)
 	}

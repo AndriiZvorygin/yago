@@ -12,13 +12,13 @@ func TestTallyAccumulatesPerRun(t *testing.T) {
 	tally := runtally.New()
 	tally.Commit([]byte("a"), yagocrawlcontract.CrawlRunTally{Fetched: 1, Indexed: 1})
 	tally.Commit([]byte("a"), yagocrawlcontract.CrawlRunTally{
-		Fetched: 1, Failed: 1, RobotsDenied: 1, Duplicates: 1,
+		Fetched: 1, Failed: 1, RobotsDenied: 1, Duplicates: 1, FetchAttempts: 1,
 	})
 	tally.Commit([]byte("b"), yagocrawlcontract.CrawlRunTally{Fetched: 1})
 
 	a := tally.Snapshot([]byte("a"))
 	if a.Fetched != 2 || a.Indexed != 1 || a.Failed != 1 ||
-		a.RobotsDenied != 1 || a.Duplicates != 1 {
+		a.RobotsDenied != 1 || a.Duplicates != 1 || a.FetchAttempts != 1 {
 		t.Fatalf("run a = %+v", a)
 	}
 	b := tally.Snapshot([]byte("b"))

@@ -46,7 +46,7 @@ func syncSeedingSearcher(
 	inner searchcore.Searcher,
 	seeder urlSeeder,
 ) swarmSeedingSearcher {
-	searcher, ok := withSwarmSeedCrawl(inner, seeder).(swarmSeedingSearcher)
+	searcher, ok := withSwarmSeedCrawl(inner, seeder, nil).(swarmSeedingSearcher)
 	if !ok {
 		panic("unexpected searcher type")
 	}
@@ -163,7 +163,7 @@ func TestSwarmSeedCrawlSpawnsSeedingOffTheRequestPath(t *testing.T) {
 		{URL: "https://remote.example/doc", Source: searchcore.SourceRemote},
 	}}}
 	seeder := &signalingSeeder{done: make(chan struct{})}
-	searcher := withSwarmSeedCrawl(inner, seeder)
+	searcher := withSwarmSeedCrawl(inner, seeder, nil)
 
 	if _, err := searcher.Search(t.Context(), searchcore.Request{Query: "go"}); err != nil {
 		t.Fatalf("Search: %v", err)

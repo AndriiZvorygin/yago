@@ -73,38 +73,10 @@ func buildOpsMux(
 		seedStatus,
 		blocks,
 	).withSelf(assembled.report)
-	options := adminui.Options{
-		Overview: newOverviewSource(assembled.report).
-			withLocalIndex(assembled.index).
-			withPeerType(assembled.peerType).
-			withProcessMemory(newCurrentProcessMemory()),
-		Search:            newSearchSource(assembled.searcher),
-		SearchExplanation: assembled.searchExplain,
-		Activity:          newActivitySource(assembled.activity),
-		IndexExport:       newIndexExporter(assembled.docScan),
-		Index:             opsIndexSource(config, assembled),
-		IndexRebuild:      newIndexRebuildScheduler(config.SearchIndexPath, recorder),
-		Network:           network,
-		NetworkSelfTest:   newNetworkSelfTester(network, recorder),
-		Config:            newConfigSource(config),
-		Settings:          sources.settings,
-		PublicSearch:      newAdminPublicSearchStatusSource(assembled.toggles, config),
-		Binding:           sources.binding,
-		Logs:              newLogsSource(recorder),
-		Security:          sources.security,
-		Terms:             newTermSource(assembled.postings, assembled.urlDirectory),
-		Schema:            indexSchemaGroups(),
-		Ranking:           assembled.rankingConsole,
-		Performance:       newPerformanceSource(assembled.dht.gateStatus),
-		SeedlistRefresh:   seedRefresh,
-		SearchLinksNewTab: config.SearchLinksNewTab,
-		Restart:           sources.restart,
-		SearchSuggest:     adminSearchSuggest(assembled),
-		CrawlFormats:      crawlFormatsAdmin(assembled.crawl),
-		PublicBaseURL:     config.PublicBaseURL,
-		PublicAddr:        config.PublicAddr,
-		Theme:             newPortalThemeAdmin(assembled.theme),
-	}
+	options := newOpsAdminOptions(opsAdminOptionsInput{
+		config: config, assembled: assembled, sources: sources, network: network,
+		seedRefresh: seedRefresh, recorder: recorder,
+	})
 	if importer, ok := assembled.crawl.(adminui.IndexImporter); ok {
 		options.IndexImport = importer
 	}
@@ -130,6 +102,55 @@ func buildOpsMux(
 	recorder.Record(events.SeverityInfo, events.CategoryConfig, "node.started", "node started")
 
 	return opsMux
+}
+
+type opsAdminOptionsInput struct {
+	config      nodeConfig
+	assembled   node
+	sources     consoleAdminSources
+	network     networkSource
+	seedRefresh adminui.SeedlistRefreshSource
+	recorder    *events.Recorder
+}
+
+func newOpsAdminOptions(input opsAdminOptionsInput) adminui.Options {
+	config := input.config
+	assembled := input.assembled
+	sources := input.sources
+	network := input.network
+	recorder := input.recorder
+	return adminui.Options{
+		Overview: newOverviewSource(assembled.report).
+			withLocalIndex(assembled.index).
+			withPeerType(assembled.peerType).
+			withProcessMemory(newCurrentProcessMemory()),
+		Search:            newSearchSource(assembled.searcher),
+		SearchExplanation: assembled.searchExplain,
+		Activity:          newActivitySource(assembled.activity, assembled.demand),
+		IndexExport:       newIndexExporter(assembled.docScan),
+		Index:             opsIndexSource(config, assembled),
+		IndexRebuild:      newIndexRebuildScheduler(config.SearchIndexPath, recorder),
+		Network:           network,
+		NetworkSelfTest:   newNetworkSelfTester(network, recorder),
+		Config:            newConfigSource(config),
+		Settings:          sources.settings,
+		PublicSearch:      newAdminPublicSearchStatusSource(assembled.toggles, config),
+		Binding:           sources.binding,
+		Logs:              newLogsSource(recorder),
+		Security:          sources.security,
+		Terms:             newTermSource(assembled.postings, assembled.urlDirectory),
+		Schema:            indexSchemaGroups(),
+		Ranking:           assembled.rankingConsole,
+		Performance:       newPerformanceSource(assembled.dht.gateStatus),
+		SeedlistRefresh:   input.seedRefresh,
+		SearchLinksNewTab: config.SearchLinksNewTab,
+		Restart:           sources.restart,
+		SearchSuggest:     adminSearchSuggest(assembled),
+		CrawlFormats:      crawlFormatsAdmin(assembled.crawl),
+		PublicBaseURL:     config.PublicBaseURL,
+		PublicAddr:        config.PublicAddr,
+		Theme:             newPortalThemeAdmin(assembled.theme),
+	}
 }
 
 // seedImportSources opens the durable seed-import status store and, when a roster

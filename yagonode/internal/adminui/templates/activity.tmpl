@@ -2,9 +2,13 @@
 <nav class="cds-breadcrumb" aria-label="Breadcrumb"><a href="/admin/overview">Admin</a> / Activity</nav>
 <h1 class="cds-h1">Search activity</h1>
 {{if eq .Activity.Mode "aggregate"}}
-<p class="cds-muted">Privacy mode <strong>aggregate</strong>: only query shapes are recorded — never the text. Switch <code>search.query.log</code> to <code>full</code> for query text and top words.</p>
+<p class="cds-muted">Activity-log privacy mode <strong>aggregate</strong>: that log keeps query shapes only. Demand-guided crawling is a separate opt-in and, when enabled, stores normalized query topics locally for up to 28 days.</p>
 {{else}}
-<p class="cds-muted">Privacy mode <strong>full</strong>: query text is recorded in memory only and wiped on restart.</p>
+{{if eq .Activity.Mode "full"}}
+<p class="cds-muted">Privacy mode <strong>full</strong>: the activity log keeps query text in memory only and wipes it on restart. Demand-topic retention is separate and applies only when demand-guided crawling is enabled.</p>
+{{else}}
+<p class="cds-muted">Search activity logging is off. Demand-guided topic storage is controlled separately in Configuration.</p>
+{{end}}
 {{end}}
 <div class="cds-tile-grid" role="group" aria-label="Search activity totals">
   <section class="cds-tile">
@@ -16,6 +20,20 @@
     <div class="cds-metric__value">{{.Activity.ConfirmedZeroResults}}</div>
   </section>
 </div>
+<h2 class="cds-h2">Demand-guided crawling</h2>
+<p class="cds-muted">{{if .Activity.DemandEnabled}}Enabled{{else}}Disabled{{end}} · external web discovery {{if .Activity.DemandWebDiscovery}}enabled{{else}}disabled{{end}} · observed daily capacity {{.Activity.DemandCapacity}} fetch attempts.</p>
+<p class="cds-muted">The measured capacity is based on completed daily observations. Demand topics share at most half of it, with a 7-day half-life and 28-day retention. New topics receive only a 25-page probe until useful indexed-document evidence appears. Client addresses are stored only as keyed daily pseudonyms.</p>
+{{if .Activity.DemandError}}<p class="cds-error">Demand status unavailable: {{.Activity.DemandError}}</p>{{end}}
+{{if .Activity.DemandTopics}}
+<div class="cds-scroll-x">
+  <table class="cds-table">
+    <thead><tr><th scope="col">Topic</th><th scope="col">Recent searches</th><th scope="col">Decayed weight</th><th scope="col">Attempts today</th><th scope="col">Useful documents</th><th scope="col">Last searched</th><th scope="col">Last scheduling attempt</th><th scope="col">State</th></tr></thead>
+    <tbody>{{range .Activity.DemandTopics}}<tr><td>{{.Query}}</td><td>{{.Searches}}</td><td>{{printf "%.2f" .Weight}}</td><td>{{.FetchAttempts}}</td><td>{{.UsefulDocs}}</td><td>{{.LastSearch}}</td><td>{{.LastScheduled}}</td><td>{{if .ProbeOnly}}probe{{else}}evidence-backed{{end}}</td></tr>{{end}}</tbody>
+  </table>
+</div>
+{{else}}
+<p class="cds-muted">No retained search-demand topics.</p>
+{{end}}
 {{if .Activity.TopWords}}
 <h2 class="cds-h2">Top query words from up to 200 retained recent search attempts</h2>
 <div class="cds-scroll-x">

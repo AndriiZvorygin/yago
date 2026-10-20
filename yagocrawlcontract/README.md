@@ -30,6 +30,13 @@ does not derive priority from a profile name. A current crawler retains that
 metadata on its run and gives at most three due automatic-discovery pages to its
 fetch workers before a due normal page. Selection remains work-conserving, and
 existing run fairness and value scoring apply within each class.
+
+Run progress carries cumulative absolute tallies. `fetch_attempts` increments
+once after fetch-start admission and immediately before the page fetch chain,
+including attempts that fail or are denied by robots. It is separate from
+accepted response bodies, failures, and successfully indexed documents; older
+peers ignore the additive field.
+
 Each seed request has a mode. Empty mode and `url` mean a normal page URL.
 `sitemap` means an XML sitemap or sitemap index. `sitelist` means a plain text
 URL list. Crawlers expand sitemap and sitelist starts into normal URL requests

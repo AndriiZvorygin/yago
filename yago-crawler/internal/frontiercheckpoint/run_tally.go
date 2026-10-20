@@ -17,6 +17,7 @@ func addRunTally(
 		&current.Failed,
 		&current.RobotsDenied,
 		&current.Duplicates,
+		&current.FetchAttempts,
 	}
 	deltas := []uint64{
 		delta.Fetched,
@@ -24,6 +25,7 @@ func addRunTally(
 		delta.Failed,
 		delta.RobotsDenied,
 		delta.Duplicates,
+		delta.FetchAttempts,
 	}
 	for index, value := range values {
 		if math.MaxUint64-*value < deltas[index] {

@@ -27,21 +27,23 @@ type urlSeeder interface {
 // silently switching greedy learning off once it fills up. It runs off the
 // request path.
 type swarmSeedingSearcher struct {
-	inner  searchcore.Searcher
-	seeder urlSeeder
-	spawn  func(func()) bool
+	inner    searchcore.Searcher
+	seeder   urlSeeder
+	spawn    func(func()) bool
+	disabled func() bool
 }
 
 func withSwarmSeedCrawl(
 	inner searchcore.Searcher,
 	seeder urlSeeder,
+	disabled func() bool,
 ) searchcore.Searcher {
 	admission := newSwarmSeedAdmission(swarmSeedConcurrentWrites)
-
 	return swarmSeedingSearcher{
-		inner:  inner,
-		seeder: seeder,
-		spawn:  admission.try,
+		inner:    inner,
+		seeder:   seeder,
+		spawn:    admission.try,
+		disabled: disabled,
 	}
 }
 
@@ -53,6 +55,9 @@ func (s swarmSeedingSearcher) Search(
 	if err != nil {
 		//nolint:wrapcheck // pass the wrapped searcher's error through unchanged.
 		return resp, err
+	}
+	if s.disabled != nil && s.disabled() {
+		return resp, nil
 	}
 	remote := remoteResults(resp.Results)
 	if len(remote) == 0 {

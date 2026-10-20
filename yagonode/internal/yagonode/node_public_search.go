@@ -83,7 +83,8 @@ type publicSearchAssembly struct {
 	observeRemoteResources func(context.Context, int)
 	// theme carries the operator portal theme (ADR-0033) into the portal
 	// mount; nil keeps the built-in render only.
-	theme *portaltheme.Theme
+	theme  *portaltheme.Theme
+	demand *demandCrawlController
 }
 
 // remoteSearchTimeouts carries the swarm fan-out budgets into the assembly.
@@ -332,11 +333,15 @@ func assembleConfiguredPublicSearcher(
 				seeder,
 				swarmSeedCrawlAdmission(assembly.toggles, assembly.swarmSeed),
 			),
+			assembly.toggles.SearchDemandEnabled,
 		)
 	}
 
 	search = withInteractiveSearchBudget(search)
 	search = searchsession.WithRecentSuccessOnIncompleteRefresh(search, stable)
+	if assembly.demand != nil {
+		search = assembly.demand.Wrap(search)
+	}
 	search = withQueryLogging(search, assembly.queryLogMode, assembly.activity)
 	search = withSearchMetrics(search, assembly.searchMetrics)
 	search = withEffectiveWebFallbackRequest(search, assembly.webFallback)

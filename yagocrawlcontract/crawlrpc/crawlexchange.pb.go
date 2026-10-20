@@ -1487,6 +1487,7 @@ type CrawlRunTally struct {
 	RobotsDenied  uint64                 `protobuf:"varint,4,opt,name=robots_denied,json=robotsDenied,proto3" json:"robots_denied,omitempty"`
 	Duplicates    uint64                 `protobuf:"varint,5,opt,name=duplicates,proto3" json:"duplicates,omitempty"`
 	Pending       uint64                 `protobuf:"varint,6,opt,name=pending,proto3" json:"pending,omitempty"`
+	FetchAttempts uint64                 `protobuf:"varint,7,opt,name=fetch_attempts,json=fetchAttempts,proto3" json:"fetch_attempts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1559,6 +1560,13 @@ func (x *CrawlRunTally) GetDuplicates() uint64 {
 func (x *CrawlRunTally) GetPending() uint64 {
 	if x != nil {
 		return x.Pending
+	}
+	return 0
+}
+
+func (x *CrawlRunTally) GetFetchAttempts() uint64 {
+	if x != nil {
+		return x.FetchAttempts
 	}
 	return 0
 }
@@ -1956,7 +1964,7 @@ const file_crawlexchange_proto_rawDesc = "" +
 	"\x11worker_session_id\x18\x04 \x01(\tR\x0fworkerSessionId\"N\n" +
 	"\tIngestAck\x12\x1a\n" +
 	"\brejected\x18\x01 \x01(\bR\brejected\x12%\n" +
-	"\x0erejection_rule\x18\x02 \x01(\tR\rrejectionRule\"\xba\x01\n" +
+	"\x0erejection_rule\x18\x02 \x01(\tR\rrejectionRule\"\xe1\x01\n" +
 	"\rCrawlRunTally\x12\x18\n" +
 	"\afetched\x18\x01 \x01(\x04R\afetched\x12\x18\n" +
 	"\aindexed\x18\x02 \x01(\x04R\aindexed\x12\x16\n" +
@@ -1965,7 +1973,8 @@ const file_crawlexchange_proto_rawDesc = "" +
 	"\n" +
 	"duplicates\x18\x05 \x01(\x04R\n" +
 	"duplicates\x12\x18\n" +
-	"\apending\x18\x06 \x01(\x04R\apending\"\xe0\x01\n" +
+	"\apending\x18\x06 \x01(\x04R\apending\x12%\n" +
+	"\x0efetch_attempts\x18\a \x01(\x04R\rfetchAttempts\"\xe0\x01\n" +
 	"\x0fCrawlURLOutcome\x12\x1a\n" +
 	"\bsequence\x18\x01 \x01(\x04R\bsequence\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12#\n" +

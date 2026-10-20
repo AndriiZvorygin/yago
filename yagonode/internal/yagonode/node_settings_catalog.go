@@ -87,11 +87,47 @@ func extendedSettingDefinitions() []settingDefinition {
 
 	definitions = append(definitions, autocrawlerDefinitions()...)
 	definitions = append(definitions, webDiscoveryDefinitions()...)
+	definitions = append(definitions, searchDemandDefinitions()...)
 	definitions = append(definitions, autocrawlerCrawlOptionDefinitions()...)
 	definitions = append(definitions, crawlerRuntimeDefinitions()...)
 	definitions = append(definitions, crawlerRuntimePolicyDefinitions()...)
 
 	return append(definitions, parityGapDefinitions()...)
+}
+
+func searchDemandDefinitions() []settingDefinition {
+	return []settingDefinition{
+		{
+			key:          "search.demand.enabled",
+			title:        "Demand-guided crawling",
+			description:  "Persist search topics and use a share of measured crawl capacity to explore them. New topics start with a 25-page probe; disabled by default.",
+			options:      boolSettingOptions(),
+			defaultValue: func(config nodeConfig) string { return formatSettingBool(config.SearchDemandEnabled) },
+			normalize:    normalizeSettingBool,
+			apply: func(config nodeConfig, value string) nodeConfig {
+				config.SearchDemandEnabled = value == settingBoolTrue
+				return config
+			},
+			applyLive: func(toggles *runtimeToggles, value string) {
+				toggles.SetSearchDemandEnabled(value == settingBoolTrue)
+			},
+		},
+		{
+			key:          "search.demand.web_discovery",
+			title:        "External web discovery for demand topics",
+			description:  "Allow demand-guided searches to use results from the already-configured external web provider. Requires demand-guided crawling and remains off by default.",
+			options:      boolSettingOptions(),
+			defaultValue: func(config nodeConfig) string { return formatSettingBool(config.SearchDemandWebDiscovery) },
+			normalize:    normalizeSettingBool,
+			apply: func(config nodeConfig, value string) nodeConfig {
+				config.SearchDemandWebDiscovery = value == settingBoolTrue
+				return config
+			},
+			applyLive: func(toggles *runtimeToggles, value string) {
+				toggles.SetSearchDemandWebDiscovery(value == settingBoolTrue)
+			},
+		},
+	}
 }
 
 // searchSurfaceDefinitions groups the result-link behavior toggles on the public
