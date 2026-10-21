@@ -1,6 +1,7 @@
 package yagocrawlcontract
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/D4rk4/yago/yagomodel"
@@ -19,7 +20,18 @@ type CrawlRequest struct {
 	// SourceMetadata preserves adapter-specific crawl-state fields that Yago
 	// does not interpret. It is carried with the durable order for audit and
 	// future migrations; ordinary crawl behavior ignores it.
-	SourceMetadata map[string]string `json:",omitempty"`
+	SourceMetadata *CrawlSourceMetadata `json:",omitempty"`
+}
+
+// ParseCrawlInitiator validates the raw hash representation used by a crawl
+// request. It lets protocol adapters use the crawl contract without importing
+// the model package directly.
+func ParseCrawlInitiator(raw []byte) (yagomodel.Hash, error) {
+	initiator, err := yagomodel.ParseHash(string(raw))
+	if err != nil {
+		return "", fmt.Errorf("parse crawl initiator: %w", err)
+	}
+	return initiator, nil
 }
 
 type CrawlRequestMode string

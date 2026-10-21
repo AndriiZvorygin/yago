@@ -21,12 +21,37 @@ const UnlimitedPagesPerHost = -1
 
 const DefaultMaxPagesPerRun = 50_000
 
+// CrawlSourceMetadata carries adapter-specific fields as a JSON object while
+// keeping crawl-profile and crawl-request values comparable for callers.
+type CrawlSourceMetadata map[string]string
+
+// NewCrawlSourceMetadata copies values into the pointer-backed metadata form.
+// A nil or empty map is represented as nil and omitted from JSON.
+func NewCrawlSourceMetadata(values map[string]string) *CrawlSourceMetadata {
+	if len(values) == 0 {
+		return nil
+	}
+	copied := make(CrawlSourceMetadata, len(values))
+	for key, value := range values {
+		copied[key] = value
+	}
+	return &copied
+}
+
+// Get returns the value for key, or the empty string when metadata is absent.
+func (metadata *CrawlSourceMetadata) Get(key string) string {
+	if metadata == nil {
+		return ""
+	}
+	return (*metadata)[key]
+}
+
 type CrawlProfile struct {
 	Handle string
 	Name   string
 	// SourceMetadata preserves adapter-specific profile fields without making
 	// them part of Yago's deterministic rule or profile-handle calculation.
-	SourceMetadata       map[string]string `json:",omitempty"`
+	SourceMetadata       *CrawlSourceMetadata `json:",omitempty"`
 	Scope                CrawlScope
 	URLMustMatch         string
 	URLMustNotMatch      string

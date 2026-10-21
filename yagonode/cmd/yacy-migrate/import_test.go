@@ -145,6 +145,54 @@ func TestImportCorpusFollowsOnlyCommittedExportBytesUntilComplete(t *testing.T) 
 	if err := saveCheckpoint(exportStatePath, checkpoint); err != nil {
 		t.Fatal(err)
 	}
+	server, requests := newFollowImportTestServer(t)
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- importCorpus(ctx, importOptions{
+			Input: input, Endpoint: server.URL, APIKey: "fixture-token", State: importStatePath,
+			FollowExportCheckpoint: exportStatePath,
+		}, io.Discard)
+	}()
+
+	// Bytes not yet committed by the exporter must remain invisible to the importer.
+	appendTestExportRecord(t, input, cliTestRecord("fixture-a", "https://a.example.test/"))
+	time.Sleep(40 * time.Millisecond)
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("importer read uncommitted export bytes: requests=%d", got)
+	}
+	info, err := os.Stat(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint = advanceTestExportCheckpoint(t, exportCheckpointAdvance{
+		path: exportStatePath, state: checkpoint, offset: info.Size(),
+		cursor: "cursor-a", records: 1,
+	})
+	waitForImportRequests(t, requests, 1)
+	assertImportStillRunning(t, done)
+
+	info = appendTestExportRecord(t, input, cliTestRecord("fixture-b", "https://b.example.test/"))
+	checkpoint = advanceTestExportCheckpoint(t, exportCheckpointAdvance{
+		path: exportStatePath, state: checkpoint, offset: info.Size(),
+		cursor: "cursor-b", records: 2, complete: true,
+	})
+	assertFollowImportCompletes(t, ctx, done)
+	state, found, err := loadImportCheckpoint(importStatePath)
+	if err != nil || !found || !state.Complete || state.Records != 2 ||
+		state.Offset != checkpoint.Offset || state.FollowExportOffset != checkpoint.Offset {
+		t.Fatalf("final follow checkpoint = %+v found=%t err=%v", state, found, err)
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("import requests=%d, want one committed batch per export page", got)
+	}
+}
+
+func newFollowImportTestServer(t *testing.T) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request documentimport.Request
@@ -159,88 +207,69 @@ func TestImportCorpusFollowsOnlyCommittedExportBytesUntilComplete(t *testing.T) 
 		}
 		_ = json.NewEncoder(w).Encode(importResponse{Results: results})
 	}))
-	defer server.Close()
+	return server, &requests
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	done := make(chan error, 1)
-	go func() {
-		done <- importCorpus(ctx, importOptions{
-			Input: input, Endpoint: server.URL, APIKey: "fixture-token", State: importStatePath,
-			FollowExportCheckpoint: exportStatePath,
-		}, io.Discard)
-	}()
-
-	appendExportRecord := func(record documentimport.Record, cursor string, complete bool) {
-		t.Helper()
-		file, err := os.OpenFile(input, os.O_WRONLY|os.O_APPEND, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := json.NewEncoder(file).Encode(
-			interchangeRecord{Type: "document", Version: 1, Record: record},
-		); err != nil {
-			_ = file.Close()
-			t.Fatal(err)
-		}
-		if err := file.Sync(); err != nil {
-			_ = file.Close()
-			t.Fatal(err)
-		}
-		info, err := file.Stat()
-		if closeErr := file.Close(); err != nil || closeErr != nil {
-			t.Fatalf("inspect or close append file: stat=%v close=%v", err, closeErr)
-		}
-		checkpoint.Cursor = cursor
-		checkpoint.Offset = info.Size()
-		checkpoint.Records++
-		checkpoint.Complete = complete
-		if err := saveCheckpoint(exportStatePath, checkpoint); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// Bytes not yet committed by the exporter must remain invisible to the importer.
-	first := cliTestRecord("fixture-a", "https://a.example.test/")
+func appendTestExportRecord(
+	t *testing.T,
+	input string,
+	record documentimport.Record,
+) os.FileInfo {
+	t.Helper()
 	file, err := os.OpenFile(input, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := json.NewEncoder(file).Encode(
-		interchangeRecord{Type: "document", Version: 1, Record: first},
+		interchangeRecord{Type: "document", Version: 1, Record: record},
 	); err != nil {
+		_ = file.Close()
 		t.Fatal(err)
 	}
 	if err := file.Sync(); err != nil {
+		_ = file.Close()
 		t.Fatal(err)
 	}
-	if err := file.Close(); err != nil {
+	info, statErr := file.Stat()
+	closeErr := file.Close()
+	if statErr != nil || closeErr != nil {
+		t.Fatalf("inspect or close append file: stat=%v close=%v", statErr, closeErr)
+	}
+	return info
+}
+
+type exportCheckpointAdvance struct {
+	path     string
+	state    exportCheckpoint
+	offset   int64
+	cursor   string
+	records  int64
+	complete bool
+}
+
+func advanceTestExportCheckpoint(t *testing.T, change exportCheckpointAdvance) exportCheckpoint {
+	t.Helper()
+	change.state.Cursor = change.cursor
+	change.state.Offset = change.offset
+	change.state.Records = change.records
+	change.state.Complete = change.complete
+	if err := saveCheckpoint(change.path, change.state); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(40 * time.Millisecond)
-	if got := requests.Load(); got != 0 {
-		t.Fatalf("importer read uncommitted export bytes: requests=%d", got)
-	}
-	info, err := os.Stat(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkpoint.Cursor = "cursor-a"
-	checkpoint.Offset = info.Size()
-	checkpoint.Records = 1
-	if err := saveCheckpoint(exportStatePath, checkpoint); err != nil {
-		t.Fatal(err)
-	}
-	waitForImportRequests(t, &requests, 1)
+	return change.state
+}
+
+func assertImportStillRunning(t *testing.T, done <-chan error) {
+	t.Helper()
 	select {
 	case err := <-done:
 		t.Fatalf("import finished before export completed: %v", err)
 	default:
 	}
+}
 
-	appendExportRecord(
-		cliTestRecord("fixture-b", "https://b.example.test/"), "cursor-b", true,
-	)
+func assertFollowImportCompletes(t *testing.T, ctx context.Context, done <-chan error) {
+	t.Helper()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -248,14 +277,6 @@ func TestImportCorpusFollowsOnlyCommittedExportBytesUntilComplete(t *testing.T) 
 		}
 	case <-ctx.Done():
 		t.Fatal("follow import did not finish after exporter marked complete")
-	}
-	state, found, err := loadImportCheckpoint(importStatePath)
-	if err != nil || !found || !state.Complete || state.Records != 2 ||
-		state.Offset != checkpoint.Offset || state.FollowExportOffset != checkpoint.Offset {
-		t.Fatalf("final follow checkpoint = %+v found=%t err=%v", state, found, err)
-	}
-	if got := requests.Load(); got != 2 {
-		t.Fatalf("import requests=%d, want one committed batch per export page", got)
 	}
 }
 

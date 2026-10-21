@@ -52,28 +52,7 @@ func TestImportFrontierIsResumableAndDeduplicatesURLProfilePairs(t *testing.T) {
 		},
 	})
 	var received []yagocrawlcontract.CrawlOrderImportBatch
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/admin/crawl/frontier/import" || r.Method != http.MethodPost {
-			t.Errorf("endpoint = %s %s", r.Method, r.URL.Path)
-		}
-		if r.Header.Get("Authorization") != "Bearer test-key" {
-			t.Error("request did not carry the admin API key")
-		}
-		var batch yagocrawlcontract.CrawlOrderImportBatch
-		if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
-			t.Errorf("decode batch: %v", err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if err := batch.Validate(); err != nil {
-			t.Errorf("invalid posted batch: %v", err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		received = append(received, batch)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(frontierImportResponse{EnqueuedRequests: len(batch.Requests)})
-	}))
+	server := newFrontierImportRecordingServer(t, &received)
 	defer server.Close()
 
 	state := filepath.Join(t.TempDir(), "frontier-state.json")
@@ -114,6 +93,35 @@ func TestImportFrontierIsResumableAndDeduplicatesURLProfilePairs(t *testing.T) {
 	if len(received) != 2 {
 		t.Fatalf("completed rerun submitted %d additional batches", len(received)-2)
 	}
+}
+
+func newFrontierImportRecordingServer(
+	t *testing.T,
+	received *[]yagocrawlcontract.CrawlOrderImportBatch,
+) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/admin/crawl/frontier/import" || r.Method != http.MethodPost {
+			t.Errorf("endpoint = %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer test-key" {
+			t.Error("request did not carry the admin API key")
+		}
+		var batch yagocrawlcontract.CrawlOrderImportBatch
+		if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
+			t.Errorf("decode batch: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if err := batch.Validate(); err != nil {
+			t.Errorf("invalid posted batch: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		*received = append(*received, batch)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(frontierImportResponse{EnqueuedRequests: len(batch.Requests)})
+	}))
 }
 
 func TestImportFrontierDryRunDoesNotCallDestinationOrWriteCheckpoint(t *testing.T) {
@@ -294,7 +302,7 @@ func TestMapYaCyProfileAndFrontierRequestPreserveSourceFields(t *testing.T) {
 		profile.FollowNoFollowLinks {
 		t.Fatalf("mapped profile = %+v", profile)
 	}
-	if profile.SourceMetadata["yacy.profile.collections"] != "fixture-collection" {
+	if profile.SourceMetadata.Get("yacy.profile.collections") != "fixture-collection" {
 		t.Fatal("source collection assignment was not retained in profile metadata")
 	}
 	request, err := mapYaCyFrontierRequest(yaCyFrontierRecord{
@@ -306,8 +314,8 @@ func TestMapYaCyProfileAndFrontierRequestPreserveSourceFields(t *testing.T) {
 		t.Fatalf("map frontier request: %v", err)
 	}
 	if request.Depth != 4 || request.AnchorName != "example anchor" || request.AppDate.IsZero() ||
-		request.SourceMetadata["yacy.stack"] != "LOCAL" ||
-		request.SourceMetadata["yacy.source_profile_handle"] != record.Handle {
+		request.SourceMetadata.Get("yacy.stack") != "LOCAL" ||
+		request.SourceMetadata.Get("yacy.source_profile_handle") != record.Handle {
 		t.Fatalf("mapped request = %+v", request)
 	}
 }
@@ -329,7 +337,7 @@ func TestMapYaCyRecrawlCutoffRemainsSourceMetadata(t *testing.T) {
 					profile.RecrawlIfOlder,
 				)
 			}
-			if got := profile.SourceMetadata["yacy.profile.recrawlIfOlder"]; got != cutoff {
+			if got := profile.SourceMetadata.Get("yacy.profile.recrawlIfOlder"); got != cutoff {
 				t.Fatalf("source recrawl cutoff metadata = %q, want %q", got, cutoff)
 			}
 		})

@@ -125,11 +125,15 @@ func buildOpsMux(
 	}
 	applyCrawlAdminOptions(&options, assembled, crawlDepth)
 	applySavedCrawlProfileAdminOptions(&options, assembled, recorder)
+	mountOpsConsole(opsMux, options, recorder)
+
+	return opsMux
+}
+
+func mountOpsConsole(opsMux *http.ServeMux, options adminui.Options, recorder *events.Recorder) {
 	opsMux.Handle(adminui.BasePath, adminui.New(options))
 	opsMux.Handle("/{$}", http.RedirectHandler(adminui.BasePath, http.StatusFound))
 	recorder.Record(events.SeverityInfo, events.CategoryConfig, "node.started", "node started")
-
-	return opsMux
 }
 
 // seedImportSources opens the durable seed-import status store and, when a roster

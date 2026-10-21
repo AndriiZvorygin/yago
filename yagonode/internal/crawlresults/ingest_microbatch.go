@@ -46,15 +46,7 @@ func (c *IngestConsumer) absorbGroup(ctx context.Context, group []IngestDelivery
 		}
 	}
 	admitted = coalesceIngestDeliveries(admitted)
-	regular := make([]IngestDelivery, 0, len(admitted))
-	removals := make([]IngestDelivery, 0, len(admitted))
-	for _, delivery := range admitted {
-		if delivery.Batch.Removed {
-			removals = append(removals, delivery)
-			continue
-		}
-		regular = append(regular, delivery)
-	}
+	regular, removals := splitIngestRemovals(admitted)
 	for _, delivery := range c.beginObservations(ctx, removals) {
 		c.purgeRemoval(ctx, delivery)
 	}
@@ -94,6 +86,19 @@ func (c *IngestConsumer) absorbGroup(ctx context.Context, group []IngestDelivery
 		withDocs = nil
 	}
 	c.absorbReservedTailGroup(ctx, append(tail, withDocs...), reservation)
+}
+
+func splitIngestRemovals(group []IngestDelivery) ([]IngestDelivery, []IngestDelivery) {
+	regular := make([]IngestDelivery, 0, len(group))
+	removals := make([]IngestDelivery, 0, len(group))
+	for _, delivery := range group {
+		if delivery.Batch.Removed {
+			removals = append(removals, delivery)
+		} else {
+			regular = append(regular, delivery)
+		}
+	}
+	return regular, removals
 }
 
 func splitIngestGroupByImportMode(group []IngestDelivery) [][]IngestDelivery {
