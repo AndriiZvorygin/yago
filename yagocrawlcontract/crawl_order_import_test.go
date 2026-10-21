@@ -7,15 +7,17 @@ func TestCrawlOrderImportBatchIdentityIsStableAndContentBound(t *testing.T) {
 		Version:  1,
 		SourceID: "source-a",
 		Profile: CrawlProfile{
-			Handle:         "profile-a",
-			SourceMetadata: map[string]string{"yacy.depth": "2", "yacy.name": "source"},
+			Handle: "profile-a",
+			SourceMetadata: NewCrawlSourceMetadata(map[string]string{
+				"yacy.depth": "2", "yacy.name": "source",
+			}),
 		},
 		Requests: []CrawlRequest{{
 			URL:           "https://example.test/a",
 			ProfileHandle: "profile-a",
-			SourceMetadata: map[string]string{
+			SourceMetadata: NewCrawlSourceMetadata(map[string]string{
 				"yacy.stack": "LOCAL",
-			},
+			}),
 		}},
 	}
 	first, err := base.ComputeBatchID()
@@ -25,10 +27,10 @@ func TestCrawlOrderImportBatchIdentityIsStableAndContentBound(t *testing.T) {
 	base.BatchID = first
 
 	mapOrderChanged := base
-	mapOrderChanged.Profile.SourceMetadata = map[string]string{
+	mapOrderChanged.Profile.SourceMetadata = NewCrawlSourceMetadata(map[string]string{
 		"yacy.name":  "source",
 		"yacy.depth": "2",
-	}
+	})
 	mapOrderChanged.SourceID = "source-b"
 	mapOrderChanged.DryRun = true
 	second, err := mapOrderChanged.ComputeBatchID()

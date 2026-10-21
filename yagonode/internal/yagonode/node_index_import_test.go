@@ -27,6 +27,26 @@ func (d importDocumentDirectory) Document(
 
 func (importDocumentDirectory) Count(context.Context) (int, error) { return 0, nil }
 
+func TestImportWorkerForURLHandlesWorkerCountBounds(t *testing.T) {
+	for _, workerCount := range []int{
+		-1, 0, 1, yagocrawlcontract.MaximumIngestBatchRecords + 1,
+	} {
+		if got := importWorkerForURL("https://example.test/", workerCount); got != 0 {
+			t.Fatalf("worker index with count %d = %d, want 0", workerCount, got)
+		}
+	}
+	for index := range 128 {
+		url := fmt.Sprintf("https://example.test/%d", index)
+		got := importWorkerForURL(url, 4)
+		if got < 0 || got >= 4 {
+			t.Fatalf("worker index for %q = %d, outside [0,4)", url, got)
+		}
+		if repeated := importWorkerForURL(url, 4); repeated != got {
+			t.Fatalf("worker assignment for %q changed from %d to %d", url, got, repeated)
+		}
+	}
+}
+
 type failingImportDocumentDirectory struct{ err error }
 
 func (d failingImportDocumentDirectory) Document(

@@ -59,6 +59,26 @@ func (b CrawlOrderImportBatch) IdempotencyKey() string {
 // Validate checks the bounded, versioned frontier-import envelope before it
 // can be persisted as a crawl order.
 func (b CrawlOrderImportBatch) Validate() error {
+	if err := validateCrawlOrderImportEnvelope(b); err != nil {
+		return err
+	}
+	if err := validateCrawlOrderImportProfile(b.Profile); err != nil {
+		return err
+	}
+	if err := validateCrawlOrderImportRequests(b); err != nil {
+		return err
+	}
+	computed, err := b.ComputeBatchID()
+	if err != nil {
+		return err
+	}
+	if computed != b.BatchID {
+		return fmt.Errorf("frontier batch ID does not match payload")
+	}
+	return nil
+}
+
+func validateCrawlOrderImportEnvelope(b CrawlOrderImportBatch) error {
 	if b.Version != 1 || len(b.Requests) == 0 ||
 		len(b.Requests) > MaximumCrawlOrderImportBatchRecords {
 		return fmt.Errorf("unsupported frontier version or request count")
@@ -76,62 +96,91 @@ func (b CrawlOrderImportBatch) Validate() error {
 		strings.ToLower(b.BatchID) != b.BatchID {
 		return fmt.Errorf("invalid frontier batch ID")
 	}
-	if len(b.Profile.Handle) == 0 || len(b.Profile.Handle) > MaximumProfileHandleBytes ||
-		!utf8.ValidString(b.Profile.Name) || len(b.Profile.Name) > 512 {
+	return nil
+}
+
+func validateCrawlOrderImportProfile(profile CrawlProfile) error {
+	if len(profile.Handle) == 0 || len(profile.Handle) > MaximumProfileHandleBytes ||
+		!utf8.ValidString(profile.Name) || len(profile.Name) > 512 {
 		return fmt.Errorf("invalid frontier crawl profile")
 	}
-	if err := b.Profile.Validate(); err != nil {
+	if err := profile.Validate(); err != nil {
 		return fmt.Errorf("invalid frontier crawl profile: %w", err)
 	}
-	if err := validateImportMetadata(b.Profile.SourceMetadata); err != nil {
+	if err := validateOptionalImportMetadata(profile.SourceMetadata); err != nil {
 		return fmt.Errorf("invalid frontier profile metadata: %w", err)
 	}
-	seen := make(map[string]struct{}, len(b.Requests))
-	for _, request := range b.Requests {
-		if request.URL == "" || len(request.URL) > MaximumCrawlURLBytes ||
-			!utf8.ValidString(request.URL) {
-			return fmt.Errorf("invalid frontier URL")
-		}
-		parsed, err := url.Parse(request.URL)
-		if err != nil || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" ||
-			!importableCrawlScheme(parsed.Scheme) {
-			return fmt.Errorf("frontier URL must be an absolute HTTP, HTTPS, FTP, or SMB URL")
-		}
-		if request.ProfileHandle != b.Profile.Handle || request.Depth < 0 ||
-			request.Depth > MaxCrawlDepth || len(request.AnchorName) > MaximumCrawlOrderImportAnchorBytes ||
-			!utf8.ValidString(request.AnchorName) {
-			return fmt.Errorf("invalid frontier request metadata")
-		}
-		if request.Mode != "" {
-			if _, ok := NormalizeCrawlRequestMode(request.Mode); !ok {
-				return fmt.Errorf("invalid frontier request mode")
-			}
-		}
-		if request.ReferrerURL != "" {
-			referrer, err := url.Parse(request.ReferrerURL)
-			if err != nil || referrer.Host == "" || referrer.User != nil ||
-				referrer.Fragment != "" || !importableCrawlScheme(referrer.Scheme) {
-				return fmt.Errorf("invalid frontier referrer URL")
-			}
-		}
-		if request.Initiator != "" && !request.Initiator.Valid() {
-			return fmt.Errorf("invalid frontier initiator")
-		}
-		identity := request.ProfileHandle + "\x00" + request.URL
-		if _, duplicate := seen[identity]; duplicate {
-			return fmt.Errorf("frontier batch contains duplicate URL/profile pairs")
-		}
-		seen[identity] = struct{}{}
-		if err := validateImportMetadata(request.SourceMetadata); err != nil {
-			return fmt.Errorf("invalid frontier request metadata: %w", err)
+	return nil
+}
+
+func validateCrawlOrderImportRequests(batch CrawlOrderImportBatch) error {
+	seen := make(map[string]struct{}, len(batch.Requests))
+	for _, request := range batch.Requests {
+		if err := validateCrawlOrderImportRequest(batch.Profile, request, seen); err != nil {
+			return err
 		}
 	}
-	computed, err := b.ComputeBatchID()
-	if err != nil {
+	return nil
+}
+
+func validateCrawlOrderImportRequest(
+	profile CrawlProfile,
+	request CrawlRequest,
+	seen map[string]struct{},
+) error {
+	if err := validateCrawlOrderImportURL(
+		request.URL,
+		"frontier URL must be an absolute HTTP, HTTPS, FTP, or SMB URL",
+	); err != nil {
 		return err
 	}
-	if computed != b.BatchID {
-		return fmt.Errorf("frontier batch ID does not match payload")
+	if request.ProfileHandle != profile.Handle || request.Depth < 0 ||
+		request.Depth > MaxCrawlDepth || len(request.AnchorName) > MaximumCrawlOrderImportAnchorBytes ||
+		!utf8.ValidString(request.AnchorName) {
+		return fmt.Errorf("invalid frontier request metadata")
+	}
+	if request.Mode != "" {
+		if _, ok := NormalizeCrawlRequestMode(request.Mode); !ok {
+			return fmt.Errorf("invalid frontier request mode")
+		}
+	}
+	if request.ReferrerURL != "" {
+		if err := validateCrawlOrderImportURL(
+			request.ReferrerURL,
+			"invalid frontier referrer URL",
+		); err != nil {
+			return err
+		}
+	}
+	if request.Initiator != "" && !request.Initiator.Valid() {
+		return fmt.Errorf("invalid frontier initiator")
+	}
+	identity := request.ProfileHandle + "\x00" + request.URL
+	if _, duplicate := seen[identity]; duplicate {
+		return fmt.Errorf("frontier batch contains duplicate URL/profile pairs")
+	}
+	seen[identity] = struct{}{}
+	if err := validateOptionalImportMetadata(request.SourceMetadata); err != nil {
+		return fmt.Errorf("invalid frontier request metadata: %w", err)
+	}
+	return nil
+}
+
+func validateOptionalImportMetadata(metadata *CrawlSourceMetadata) error {
+	if metadata == nil {
+		return nil
+	}
+	return validateImportMetadata(map[string]string(*metadata))
+}
+
+func validateCrawlOrderImportURL(rawURL, errorMessage string) error {
+	if rawURL == "" || len(rawURL) > MaximumCrawlURLBytes || !utf8.ValidString(rawURL) {
+		return fmt.Errorf("invalid frontier URL")
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" ||
+		!importableCrawlScheme(parsed.Scheme) {
+		return fmt.Errorf("%s", errorMessage)
 	}
 	return nil
 }

@@ -417,35 +417,40 @@ func TestMapSolrDocumentPreservesOtherInvalidHostWithoutRecrawl(t *testing.T) {
 		"https://legacy host.example.test/document#stored-fragment",
 	} {
 		t.Run(rawURL, func(t *testing.T) {
-			encoded, err := json.Marshal(rawURL)
-			if err != nil {
-				t.Fatal(err)
-			}
-			row := map[string]json.RawMessage{
-				"sku": encoded, "canonical_s": encoded,
-				"fresh_date_dt": json.RawMessage(`"2026-10-03T10:00:00Z"`),
-			}
-			record, err := mapSolrDocument(row, "fixture-export")
-			if err != nil {
-				t.Fatalf("map invalid-host YaCy identity: %v", err)
-			}
-			if record.Document.NormalizedURL != rawURL || record.Document.CanonicalURL != rawURL {
-				t.Fatal("migration changed the invalid-host source identity")
-			}
-			if record.NextVisitAt != nil {
-				t.Fatal("invalid-host legacy identity was scheduled for recrawl")
-			}
-			if record.Document.Metadata[documentimport.LegacyURLStatusMetadataKey] !=
-				documentimport.LegacyURLStatusInvalidHostCharacter {
-				t.Fatalf(
-					"invalid-host marker = %q",
-					record.Document.Metadata[documentimport.LegacyURLStatusMetadataKey],
-				)
-			}
-			if err := validateImportRecord(record); err != nil {
-				t.Fatalf("validate invalid-host record: %v", err)
-			}
+			assertInvalidHostIdentityPreserved(t, rawURL)
 		})
+	}
+}
+
+func assertInvalidHostIdentityPreserved(t *testing.T, rawURL string) {
+	t.Helper()
+	encoded, err := json.Marshal(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := map[string]json.RawMessage{
+		"sku": encoded, "canonical_s": encoded,
+		"fresh_date_dt": json.RawMessage(`"2026-10-03T10:00:00Z"`),
+	}
+	record, err := mapSolrDocument(row, "fixture-export")
+	if err != nil {
+		t.Fatalf("map invalid-host YaCy identity: %v", err)
+	}
+	if record.Document.NormalizedURL != rawURL || record.Document.CanonicalURL != rawURL {
+		t.Fatal("migration changed the invalid-host source identity")
+	}
+	if record.NextVisitAt != nil {
+		t.Fatal("invalid-host legacy identity was scheduled for recrawl")
+	}
+	if record.Document.Metadata[documentimport.LegacyURLStatusMetadataKey] !=
+		documentimport.LegacyURLStatusInvalidHostCharacter {
+		t.Fatalf(
+			"invalid-host marker = %q",
+			record.Document.Metadata[documentimport.LegacyURLStatusMetadataKey],
+		)
+	}
+	if err := validateImportRecord(record); err != nil {
+		t.Fatalf("validate invalid-host record: %v", err)
 	}
 }
 
@@ -572,7 +577,8 @@ func TestMapSolrDocumentPreservesFTPAndSMBWithoutHTTPRecrawl(t *testing.T) {
 		"ftp://archive.example.test/pub/item.pdf",
 		"smb://archive.example.test/share/item.pdf",
 	} {
-		t.Run(rawURL[:strings.Index(rawURL, ":")], func(t *testing.T) {
+		protocol, _, _ := strings.Cut(rawURL, ":")
+		t.Run(protocol, func(t *testing.T) {
 			freshDate := json.RawMessage(`"2026-10-03T10:00:00Z"`)
 			protocol, stub, separator := strings.Cut(rawURL, "://")
 			stub = strings.TrimPrefix(stub, "archive.example.test/")
