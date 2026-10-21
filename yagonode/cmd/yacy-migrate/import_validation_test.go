@@ -411,7 +411,11 @@ func TestImportSessionUsesExactEncodedRequestByteLimit(t *testing.T) {
 		t.Fatalf("marshal one-record request: %v", err)
 	}
 	if len(exactRequest) <= len(requestOne) {
-		t.Fatalf("two-record request size %d is not larger than one-record size %d", len(exactRequest), len(requestOne))
+		t.Fatalf(
+			"two-record request size %d is not larger than one-record size %d",
+			len(exactRequest),
+			len(requestOne),
+		)
 	}
 
 	for _, test := range []struct {
