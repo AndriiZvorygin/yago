@@ -52,7 +52,8 @@ func (s pseudoRelevanceSearcher) Search(
 	if err != nil {
 		return Response{}, fmt.Errorf("pseudo-relevance first pass: %w", err)
 	}
-	if len(first.Results) == 0 || len(first.Results) >= pseudoRelevanceActivationLimit(req.Limit) {
+	if len(first.Results) == 0 || len(first.Results) >= pseudoRelevanceActivationLimit(req.Limit) ||
+		hasLocalSearchFailure(first) {
 		return first, nil
 	}
 	expansion := minePseudoRelevanceTerms(
@@ -81,4 +82,14 @@ func (s pseudoRelevanceSearcher) Search(
 	first.Results = FuseByReciprocalRank(first.Results, second.Results)
 
 	return first, nil
+}
+
+func hasLocalSearchFailure(response Response) bool {
+	for _, failure := range response.PartialFailures {
+		if failure.Source == PartialFailureSourceLocalSearch {
+			return true
+		}
+	}
+
+	return false
 }

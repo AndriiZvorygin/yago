@@ -84,6 +84,28 @@ func TestSearcherTranslatesAndFiltersResults(t *testing.T) {
 	assertTranslatedResult(t, resp.Results[0])
 }
 
+func TestTitleOnlySearcherMarksBodyEvidenceAsUnavailable(t *testing.T) {
+	index := &fakeIndex{response: searchindex.SearchResultSet{
+		Total: 1,
+		Results: []searchindex.SearchResult{{
+			DocumentID: "title-result",
+			Title:      "Needle Observatory",
+			URL:        "https://observatory.example/",
+		}},
+	}}
+	response, err := NewTitleOnlySearcherWithRanking(index, nil, nil).Search(
+		t.Context(),
+		searchcore.Request{
+			Query: "Needle", Terms: []string{"Needle"}, Limit: 10,
+		},
+	)
+	if err != nil || !index.got.TitleOnly || !index.got.CandidateOnly ||
+		len(response.Results) != 1 ||
+		response.Results[0].BodyQueryMatches == nil {
+		t.Fatalf("response=%#v request=%#v err=%v", response, index.got, err)
+	}
+}
+
 func translatedSearchIndex(published time.Time) *fakeIndex {
 	return &fakeIndex{response: searchindex.SearchResultSet{
 		Total: 3,

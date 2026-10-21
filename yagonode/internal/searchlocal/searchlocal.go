@@ -17,9 +17,10 @@ import (
 )
 
 type localSearcher struct {
-	index    searchindex.SearchIndex
-	weights  func() searchindex.RankingWeights
-	hostRank func() hostrank.AuthorityTable
+	index     searchindex.SearchIndex
+	weights   func() searchindex.RankingWeights
+	hostRank  func() hostrank.AuthorityTable
+	titleOnly bool
 }
 
 func NewSearcher(index searchindex.SearchIndex) searchcore.Searcher {
@@ -48,6 +49,19 @@ func NewSearcherWithRanking(
 	return localSearcher{index: index, weights: weights, hostRank: hostRank}
 }
 
+func NewTitleOnlySearcherWithRanking(
+	index searchindex.SearchIndex,
+	weights func() searchindex.RankingWeights,
+	hostRank func() hostrank.AuthorityTable,
+) searchcore.Searcher {
+	return localSearcher{
+		index:     index,
+		weights:   weights,
+		hostRank:  hostRank,
+		titleOnly: true,
+	}
+}
+
 func (s localSearcher) Search(
 	ctx context.Context,
 	req searchcore.Request,
@@ -65,6 +79,11 @@ func (s localSearcher) Search(
 	results, err := coreResults(req, resultSet.Results, s.hostRankScorer(req, weights))
 	if err != nil {
 		return searchcore.Response{}, err
+	}
+	if s.titleOnly {
+		for index := range results {
+			results[index].BodyQueryMatches = []searchcore.QueryMatch{}
+		}
 	}
 
 	response := searchcore.Response{
@@ -110,6 +129,8 @@ func (s localSearcher) indexRequestWithWeights(
 
 	return searchindex.SearchRequest{
 		Query:              query,
+		TitleOnly:          s.titleOnly,
+		CandidateOnly:      s.titleOnly,
 		ExcludeTerms:       append([]string(nil), req.ExcludedTerms...),
 		Phrases:            append([]string(nil), req.Phrases...),
 		MaxResults:         req.Offset + requestLimit(req),

@@ -85,7 +85,16 @@ OpenSearch suggestions JSON array shape from bounded in-memory recent queries.
 the same suggestion source.
 
 For public search, `resource=local` searches the local full-text index over
-stored documents. `resource=global` searches the local node and performs bounded YaCy
+stored documents. An unconstrained first-page request containing up to four
+plain words first uses the full-text search path. If that stage reaches its
+bounded search deadline, the node reserves the final 500 milliseconds of the
+same interactive budget for a title-only query against that same Bleve index. The response
+retains the existing YaCy-compatible shape and carries a `local-search` entry
+in `partialFailures` explaining that the result set is incomplete. The result
+count then describes the title-only match set, not a complete full-text count.
+This fallback does not apply to constrained, faceted, explained, or later-page
+searches. The end-to-end interactive deadline is unchanged.
+`resource=global` searches the local node and performs bounded YaCy
 `/yacy/search.html` fanout to reachable peers selected by the query term hashes'
 YaCy DHT positions, configured redundancy, and configured vertical partition
 exponent. Every outbound search carries the node's current compact seed in

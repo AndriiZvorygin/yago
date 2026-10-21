@@ -218,10 +218,11 @@ func mountNodePublicSearchWithExplanation(
 		)
 	}
 	passages, _ := local.(searchcore.DocumentPassageSearcher)
+	localRetrieval := publicLocalSearchRetrieval(assembly, local)
 	remoteConfig := publicRemoteSearchConfig(assembly)
 	remote := searchremote.NewSearcher(remoteConfig)
 	diagnosticRemote := searchremote.NewSearcher(publicDiagnosticRemoteSearchConfig(assembly))
-	search := assemblePublicSearcher(local, remote, assembly)
+	search := assemblePublicSearcher(localRetrieval, remote, assembly)
 	explanation := assemblePublicExplanationSearcher(local, diagnosticRemote, assembly)
 	access := searchAccessPolicy(assembly)
 	// Autocomplete suggestions come from the local index alone (denylist applied,
@@ -273,6 +274,24 @@ func mountNodePublicSearchWithExplanation(
 	)
 
 	return search, suggestSource, explanation
+}
+
+func publicLocalSearchRetrieval(
+	assembly publicSearchAssembly,
+	primary searchcore.Searcher,
+) searchcore.Searcher {
+	if assembly.storage.searchIndex == nil {
+		return primary
+	}
+
+	return withLocalSearchDeadlineFallback(
+		primary,
+		searchlocal.NewTitleOnlySearcherWithRanking(
+			assembly.storage.searchIndex,
+			assembly.rankingWeights,
+			assembly.hostRank,
+		),
+	)
 }
 
 // swarmMorphologyExpander builds the single-word expansion function for the

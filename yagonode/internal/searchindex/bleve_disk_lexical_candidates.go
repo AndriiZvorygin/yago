@@ -17,7 +17,7 @@ func (b *BleveDiskIndex) searchLexicalCandidateHitPage(
 	size int,
 ) (*bleve.SearchResult, error) {
 	query := bleveSearchQuery(req, b.multilingual, b.analyzerScope)
-	if b.analyzerScope && !req.Explain {
+	if b.analyzerScope && !req.Explain && !req.TitleOnly {
 		query = bleveLexicalCandidateScoringQuery{bleve.NewConjunctionQuery(
 			query,
 			newBleveLexicalCandidateSnapshotQuery(req, b.multilingual),

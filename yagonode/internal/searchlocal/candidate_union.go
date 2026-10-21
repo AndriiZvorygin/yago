@@ -18,6 +18,14 @@ func (s localSearcher) searchCandidates(
 	ctx context.Context,
 	req searchindex.SearchRequest,
 ) (searchindex.SearchResultSet, error) {
+	if s.titleOnly {
+		result, err := s.index.Search(ctx, req)
+		if err != nil {
+			return searchindex.SearchResultSet{}, fmt.Errorf("title-only candidates: %w", err)
+		}
+
+		return result, nil
+	}
 	originalLimit := req.MaxResults
 	evidence, deferredEvidence := s.index.(searchindex.SearchEvidenceSource)
 	if deferredEvidence {

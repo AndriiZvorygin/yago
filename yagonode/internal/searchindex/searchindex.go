@@ -51,6 +51,7 @@ type SearchRequest struct {
 	// rather than the truncated snippet.
 	IncludePositions bool
 	CandidateOnly    bool
+	TitleOnly        bool
 	Fuzzy            bool
 	Relaxed          bool
 	// Author keeps only documents whose extracted author metadata contains this

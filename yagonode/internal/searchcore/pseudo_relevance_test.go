@@ -139,6 +139,33 @@ func TestPseudoRelevanceKeepsFirstWhenExpansionFails(t *testing.T) {
 	}
 }
 
+func TestPseudoRelevanceDoesNotExpandIncompleteLocalResults(t *testing.T) {
+	first := Response{
+		Results: []Result{
+			{URL: "1", Snippet: "montenegro balkan"},
+			{URL: "2", Snippet: "montenegro coast"},
+		},
+		PartialFailures: []PartialFailure{{
+			Source: PartialFailureSourceLocalSearch,
+			Reason: "title-only fallback",
+		}},
+	}
+	inner := &scriptedSearcher{responses: []Response{first, {}}}
+	response, err := NewPseudoRelevanceSearcher(inner).Search(
+		context.Background(),
+		Request{Query: "alpha", Limit: 10},
+	)
+	if err != nil || inner.calls != 1 || len(response.Results) != len(first.Results) ||
+		len(response.PartialFailures) != 1 {
+		t.Fatalf(
+			"incomplete result was expanded: response=%#v calls=%d err=%v",
+			response,
+			inner.calls,
+			err,
+		)
+	}
+}
+
 func TestPseudoRelevanceFirstPassErrorPropagates(t *testing.T) {
 	inner := &scriptedSearcher{
 		responses: []Response{{}},

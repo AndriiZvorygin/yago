@@ -229,6 +229,9 @@ func bleveSearchQuery(
 	analyzerScope bool,
 ) blevequery.Query {
 	weights := req.Weights.orDefault()
+	if req.TitleOnly {
+		return bleveTitleOnlyQuery(req, multilingual, analyzerScope, weights)
+	}
 	// Interpret the query with the analyzers that serve its script (documents
 	// were routed to a per-language analyzer at index time). Each candidate
 	// contributes its own field matches; a document in language L matches only

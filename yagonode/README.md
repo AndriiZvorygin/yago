@@ -17,3 +17,8 @@ the signed-in user's retrieved results and keeps personal history on this node.
 The public listener root provides a responsive search home with local-index and
 YaCy-network scope choices. Search results use the same accessible light/dark
 theme and remain available through `/yacysearch.html` without JavaScript.
+For an unconstrained first-page local search of up to four plain words that
+reaches the interactive deadline, the node can return title-only matches from
+the same Bleve index. Such a response is explicitly marked incomplete; it is
+not a complete full-text result set. The normal full-text search remains
+primary.
