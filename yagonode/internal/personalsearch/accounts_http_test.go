@@ -9,6 +9,23 @@ import (
 	"time"
 )
 
+func TestInvitationFormUsesAdminGuardCSRFField(t *testing.T) {
+	t.Parallel()
+
+	response := httptest.NewRecorder()
+	renderAccountPage(response, http.StatusOK, accountPageData{
+		Title: "Personal search invitations", CSRFToken: "admin-csrf-token",
+	})
+
+	body := response.Body.String()
+	if !strings.Contains(body, `name="csrf_token" value="admin-csrf-token"`) {
+		t.Fatal("invitation form does not submit the admin guard CSRF field")
+	}
+	if strings.Contains(body, `name="csrf" value="admin-csrf-token"`) {
+		t.Fatal("invitation form still submits the account-page CSRF field")
+	}
+}
+
 func TestHistoryExportAndClearAreOwnerBoundAndCSRFProtected(t *testing.T) {
 	learning := openLearning(t, time.Now)
 	owner := Principal{AccountID: "history-owner", Personalization: true, CSRFToken: "owner-csrf"}
