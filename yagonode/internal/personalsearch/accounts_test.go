@@ -198,6 +198,47 @@ func TestAccountLoginSessionAndAccountOwnedAPIKey(t *testing.T) {
 	}
 }
 
+func TestAdministrativePasswordResetRevokesBrowserSessions(t *testing.T) {
+	accounts := openAccounts(t, time.Now)
+	account := claimTestAccount(t, accounts)
+	session, _, err := accounts.Login(
+		t.Context(), account.LoginName, "a sufficiently long test password",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPassword := "a different sufficiently long password"
+	if err := accounts.ResetPassword(t.Context(), account.LoginName, newPassword); err != nil {
+		t.Fatal(err)
+	}
+	if _, authenticated, err := accounts.AuthenticateSession(
+		t.Context(),
+		session.Token,
+	); err != nil ||
+		authenticated {
+		t.Fatalf("pre-reset session authenticated = %v, %v", authenticated, err)
+	}
+	if _, _, err := accounts.Login(
+		t.Context(), account.LoginName, "a sufficiently long test password",
+	); !errors.Is(err, ErrLoginRejected) {
+		t.Fatalf("old password login error = %v", err)
+	}
+	if _, loggedIn, err := accounts.Login(
+		t.Context(),
+		account.LoginName,
+		newPassword,
+	); err != nil ||
+		loggedIn.ID != account.ID {
+		t.Fatalf("new password login = %+v, %v", loggedIn, err)
+	}
+	if err := accounts.ResetPassword(t.Context(), "missing-user", newPassword); !errors.Is(
+		err,
+		ErrAccountUnavailable,
+	) {
+		t.Fatalf("unknown account reset error = %v", err)
+	}
+}
+
 func TestMalformedAndUnknownAccountCredentialsFailClosed(t *testing.T) {
 	accounts := openAccounts(t, time.Now)
 	if _, _, err := accounts.Login(

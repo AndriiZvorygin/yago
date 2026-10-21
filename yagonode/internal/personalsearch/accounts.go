@@ -391,6 +391,65 @@ func (a *Accounts) Login(
 	return session, publicAccount(record), nil
 }
 
+// ResetPassword changes an active account's password and invalidates its
+// existing browser sessions in the same durable transaction.
+func (a *Accounts) ResetPassword(ctx context.Context, loginName, password string) error {
+	loginName = normalizedLoginName(loginName)
+	if !validLoginName(loginName) || len(password) < minimumPasswordBytes ||
+		len(password) > maximumPasswordBytes {
+		return ErrCredentialInvalid
+	}
+	if !a.acquirePasswordWork(ctx) {
+		return wrapPersonalError("wait to hash reset account password", ctx.Err())
+	}
+	hash, err := passwordHash(password)
+	a.releasePasswordWork()
+	if err != nil {
+		return fmt.Errorf("hash reset account password: %w", err)
+	}
+	if err := a.resetPasswordHash(ctx, loginName, hash); err != nil {
+		return fmt.Errorf("reset personal account password: %w", err)
+	}
+
+	return nil
+}
+
+func (a *Accounts) resetPasswordHash(ctx context.Context, loginName, hash string) error {
+	if err := a.vault.Update(ctx, func(tx *vault.Txn) error {
+		return a.resetPasswordInTransaction(tx, loginName, hash)
+	}); err != nil {
+		return fmt.Errorf("persist password reset: %w", err)
+	}
+
+	return nil
+}
+
+func (a *Accounts) resetPasswordInTransaction(
+	tx *vault.Txn,
+	loginName, hash string,
+) error {
+	accountID, found, err := a.loginNames.Get(tx, vault.Key(loginName))
+	if err != nil {
+		return wrapPersonalError("find account for password reset", err)
+	}
+	if !found {
+		return ErrAccountUnavailable
+	}
+	record, found, err := a.accounts.Get(tx, vault.Key(accountID))
+	if err != nil {
+		return wrapPersonalError("read account for password reset", err)
+	}
+	if !found || !record.Active {
+		return ErrAccountUnavailable
+	}
+	record.PasswordHash = hash
+	if err := a.accounts.Put(tx, vault.Key(accountID), record); err != nil {
+		return wrapPersonalError("store reset account password", err)
+	}
+
+	return a.revokeAccountSessionsInTransaction(tx, accountID)
+}
+
 func (a *Accounts) createSession(ctx context.Context, accountID string) (AccountSession, error) {
 	secret, err := randomSecret(32)
 	if err != nil {
@@ -754,37 +813,63 @@ func (a *Accounts) RevokeAPIKey(ctx context.Context, accountID, id string) error
 
 func (a *Accounts) revokeAccountSessions(ctx context.Context, accountID string) error {
 	if err := a.vault.Update(ctx, func(tx *vault.Txn) error {
-		var keys []vault.Key
-		if err := a.sessions.Scan(
-			tx,
-			vault.Key(accountID+":"),
-			func(key vault.Key, _ browserSessionRecord) (bool, error) {
-				keys = append(keys, key)
-				return true, nil
-			},
-		); err != nil {
-			return wrapPersonalError("scan account sessions to revoke", err)
-		}
-		for _, key := range keys {
-			record, found, err := a.sessions.Get(tx, key)
-			if err != nil {
-				return wrapPersonalError("read account session to revoke", err)
-			}
-			if found {
-				if _, err := a.sessionExpiry.Delete(
-					tx,
-					vault.Key(accountExpiryKey(record.ExpiresAt, string(key))),
-				); err != nil {
-					return wrapPersonalError("remove account session expiry", err)
-				}
-			}
-			if _, err := a.sessions.Delete(tx, key); err != nil {
-				return wrapPersonalError("delete account session", err)
-			}
-		}
-		return nil
+		return a.revokeAccountSessionsInTransaction(tx, accountID)
 	}); err != nil {
 		return fmt.Errorf("revoke personal account sessions: %w", err)
+	}
+
+	return nil
+}
+
+func (a *Accounts) revokeAccountSessionsInTransaction(
+	tx *vault.Txn,
+	accountID string,
+) error {
+	keys, err := a.accountSessionKeys(tx, accountID)
+	if err != nil {
+		return err
+	}
+	for _, key := range keys {
+		if err := a.revokeAccountSessionInTransaction(tx, key); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (a *Accounts) accountSessionKeys(tx *vault.Txn, accountID string) ([]vault.Key, error) {
+	var keys []vault.Key
+	err := a.sessions.Scan(
+		tx,
+		vault.Key(accountID+":"),
+		func(key vault.Key, _ browserSessionRecord) (bool, error) {
+			keys = append(keys, key)
+			return true, nil
+		},
+	)
+	if err != nil {
+		return nil, wrapPersonalError("scan account sessions to revoke", err)
+	}
+
+	return keys, nil
+}
+
+func (a *Accounts) revokeAccountSessionInTransaction(tx *vault.Txn, key vault.Key) error {
+	record, found, err := a.sessions.Get(tx, key)
+	if err != nil {
+		return wrapPersonalError("read account session to revoke", err)
+	}
+	if found {
+		if _, err := a.sessionExpiry.Delete(
+			tx,
+			vault.Key(accountExpiryKey(record.ExpiresAt, string(key))),
+		); err != nil {
+			return wrapPersonalError("remove account session expiry", err)
+		}
+	}
+	if _, err := a.sessions.Delete(tx, key); err != nil {
+		return wrapPersonalError("delete account session", err)
 	}
 
 	return nil

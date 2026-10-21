@@ -1,6 +1,7 @@
 package personalsearch
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -23,6 +24,36 @@ func TestInvitationFormUsesAdminGuardCSRFField(t *testing.T) {
 	}
 	if strings.Contains(body, `name="csrf" value="admin-csrf-token"`) {
 		t.Fatal("invitation form still submits the account-page CSRF field")
+	}
+}
+
+func TestAdminPasswordResetRouteUsesAccountsService(t *testing.T) {
+	accounts := openAccounts(t, time.Now)
+	account := claimTestAccount(t, accounts)
+	mux := http.NewServeMux()
+	accounts.MountAdminPages(mux, nil)
+	body, err := json.Marshal(passwordResetRequest{
+		LoginName: account.LoginName,
+		Password:  "a reset password long enough",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequestWithContext(
+		t.Context(), http.MethodPost, PathPersonalPasswordReset, strings.NewReader(string(body)),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("password reset status = %d, body=%s", response.Code, response.Body.String())
+	}
+	if _, _, err := accounts.Login(
+		t.Context(),
+		account.LoginName,
+		"a reset password long enough",
+	); err != nil {
+		t.Fatalf("login with reset password: %v", err)
 	}
 }
 

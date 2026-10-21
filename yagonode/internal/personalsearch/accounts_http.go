@@ -16,19 +16,20 @@ import (
 )
 
 const (
-	PathAccountLogin        = "/account/login"
-	PathAccountClaim        = "/account/claim"
-	PathAccountHome         = "/account"
-	PathAccountLogout       = "/account/logout"
-	PathAccountPreference   = "/account/preference"
-	PathAccountHistory      = "/account/history"
-	PathAccountHistoryClear = "/account/history/clear"
-	PathAccountAPIKeys      = "/account/api-keys"
-	PathPersonalSearchAdmin = "/admin/personal-search"
-	PathPersonalInvitations = "/api/admin/v1/personal-search/invitations"
-	pathPersonalAccount     = "/api/admin/v1/personal-search/accounts/{id}"
-	accountEnrollmentCookie = "__Host-yago_account_enrollment"
-	accountCSRFCookie       = "__Host-yago_account_csrf"
+	PathAccountLogin          = "/account/login"
+	PathAccountClaim          = "/account/claim"
+	PathAccountHome           = "/account"
+	PathAccountLogout         = "/account/logout"
+	PathAccountPreference     = "/account/preference"
+	PathAccountHistory        = "/account/history"
+	PathAccountHistoryClear   = "/account/history/clear"
+	PathAccountAPIKeys        = "/account/api-keys"
+	PathPersonalSearchAdmin   = "/admin/personal-search"
+	PathPersonalInvitations   = "/api/admin/v1/personal-search/invitations"
+	PathPersonalPasswordReset = "/api/admin/v1/personal-search/password-reset"
+	pathPersonalAccount       = "/api/admin/v1/personal-search/accounts/{id}"
+	accountEnrollmentCookie   = "__Host-yago_account_enrollment"
+	accountCSRFCookie         = "__Host-yago_account_csrf"
 )
 
 type loginAttempt struct {
@@ -52,6 +53,11 @@ type accountPageData struct {
 
 type invitationRequest struct {
 	ExpiresInHours int `json:"expiresInHours"`
+}
+
+type passwordResetRequest struct {
+	LoginName string `json:"loginName"`
+	Password  string `json:"password"`
 }
 
 type invitationResponse struct {
@@ -154,6 +160,7 @@ func (a *Accounts) MountAdminPages(mux *http.ServeMux, learning *Learning) {
 	mux.HandleFunc("GET "+PathPersonalSearchAdmin, admin.page)
 	mux.HandleFunc("POST "+PathPersonalSearchAdmin, admin.create)
 	mux.HandleFunc("POST "+PathPersonalInvitations, admin.createJSON)
+	mux.HandleFunc("POST "+PathPersonalPasswordReset, admin.resetPasswordJSON)
 	mux.HandleFunc("DELETE "+pathPersonalAccount, admin.disableAccount)
 }
 
@@ -527,6 +534,33 @@ func (h accountAdminPages) createJSON(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).
 		Encode(invitationResponse(invitation))
+}
+
+func (h accountAdminPages) resetPasswordJSON(w http.ResponseWriter, r *http.Request) {
+	var request passwordResetRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 2048)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := h.accounts.ResetPassword(
+		r.Context(),
+		request.LoginName,
+		request.Password,
+	); err != nil {
+		switch {
+		case errors.Is(err, ErrCredentialInvalid):
+			http.Error(w, "invalid account credentials", http.StatusBadRequest)
+		case errors.Is(err, ErrAccountUnavailable):
+			http.Error(w, "account not found", http.StatusNotFound)
+		default:
+			http.Error(w, "could not reset account password", http.StatusServiceUnavailable)
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h accountAdminPages) disableAccount(w http.ResponseWriter, r *http.Request) {

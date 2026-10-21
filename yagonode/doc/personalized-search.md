@@ -23,6 +23,13 @@ Account and invitation pages require HTTPS because their host-only cookies are
 marked `Secure`. Enrollment is invitation-only; there is no public account
 creation endpoint.
 
+An operator can recover an existing account through the admin-authenticated
+`POST /api/admin/v1/personal-search/password-reset` endpoint with a JSON body
+containing `loginName` and `password`. The password must be at least 12
+characters. The request requires a valid operator session and its CSRF token;
+the reset invalidates that account's active browser sessions. Never include the
+password in URLs, logs, or shell history.
+
 ## Personal use and agent API
 
 At `/account`, an owner can inspect recent history, download it as JSON, clear
