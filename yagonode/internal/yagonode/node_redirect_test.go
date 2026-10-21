@@ -117,7 +117,7 @@ func TestRootDispatcherServesPortalWhenEnabled(t *testing.T) {
 	dispatcher := &rootDispatcher{
 		toggles: toggles,
 		portal:  passThrough(&portalHit),
-		landing: http.HandlerFunc(
+		home: http.HandlerFunc(
 			func(http.ResponseWriter, *http.Request) { t.Error("landing served") },
 		),
 	}
@@ -131,24 +131,24 @@ func TestRootDispatcherServesPortalWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestRootDispatcherServesLandingWhenDisabled(t *testing.T) {
+func TestRootDispatcherServesSearchHomeWhenPortalIsDisabled(t *testing.T) {
 	t.Parallel()
 
 	toggles := &runtimeToggles{}
-	landingHit := false
+	homeHit := false
 	dispatcher := &rootDispatcher{
 		toggles: toggles,
 		portal: http.HandlerFunc(
 			func(http.ResponseWriter, *http.Request) { t.Error("portal served") },
 		),
-		landing: passThrough(&landingHit),
+		home: passThrough(&homeHit),
 	}
 
 	dispatcher.ServeHTTP(
 		httptest.NewRecorder(),
 		httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil),
 	)
-	if !landingHit {
-		t.Fatal("landing not served while portal disabled")
+	if !homeHit {
+		t.Fatal("search home not served while portal disabled")
 	}
 }

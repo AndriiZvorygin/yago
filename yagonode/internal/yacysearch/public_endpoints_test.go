@@ -322,7 +322,7 @@ func TestHTMLEndpointReturnsSearchPage(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, expected := range []string{
-		`<title>Search for golang</title>`,
+		`<title>Search for golang · YagoSeek</title>`,
 		`href="http://node.test/opensearchdescription.xml"`,
 		`href="http://node.test/yacysearch.rss?query=golang&amp;resource=global&amp;contentdom=text"`,
 		`peer: timeout`,

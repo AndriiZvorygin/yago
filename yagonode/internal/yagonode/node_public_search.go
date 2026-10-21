@@ -421,21 +421,19 @@ func portalGate(toggles *runtimeToggles, next http.Handler) http.Handler {
 	})
 }
 
-// rootDispatcher serves the public search portal at the site root when the
-// operator has enabled it, and the static landing page otherwise. The portal can
-// be toggled live because the choice is made per request rather than at mount
-// time.
+// rootDispatcher serves the configured search portal or the built-in search
+// home at the public listener root.
 type rootDispatcher struct {
 	toggles *runtimeToggles
 	portal  http.Handler
-	landing http.Handler
+	home    http.Handler
 }
 
 func newRootDispatcher(toggles *runtimeToggles, portal http.Handler) *rootDispatcher {
 	return &rootDispatcher{
 		toggles: toggles,
 		portal:  portal,
-		landing: landing.NewEndpoint(buildVersion),
+		home:    yacysearch.NewHomeEndpoint(buildVersion),
 	}
 }
 
@@ -445,7 +443,7 @@ func (d *rootDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	d.landing.ServeHTTP(w, r)
+	d.home.ServeHTTP(w, r)
 }
 
 func searchAccessPolicy(assembly publicSearchAssembly) tavilyapi.SearchAccessPolicy {

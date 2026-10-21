@@ -53,8 +53,9 @@ func TestAssembledNodeSplitsPeerAndPublicSurfaces(t *testing.T) {
 		t.Fatal("public /yacysearch.json = 404, want the search surface served")
 	}
 	if code, body := serveGet(t, assembled.publicMux, "/"); code != http.StatusOK ||
-		!strings.Contains(body, "YagoSeek") {
-		t.Fatalf("public root = %d body=%q, want 200 landing", code, body)
+		!strings.Contains(body, `action="/yacysearch.html"`) ||
+		!strings.Contains(body, `href="/account/login"`) {
+		t.Fatalf("public root = %d body=%q, want 200 searchable home", code, body)
 	}
 }
 

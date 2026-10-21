@@ -13,3 +13,7 @@ is disabled by default and does not replace ordinary crawl profiles.
 Invitation-only account personalization is disabled by default and described
 in [`doc/personalized-search.md`](doc/personalized-search.md). It reranks only
 the signed-in user's retrieved results and keeps personal history on this node.
+
+The public listener root provides a responsive search home with local-index and
+YaCy-network scope choices. Search results use the same accessible light/dark
+theme and remain available through `/yacysearch.html` without JavaScript.

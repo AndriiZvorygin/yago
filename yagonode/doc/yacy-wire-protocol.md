@@ -74,8 +74,10 @@ The public search endpoints `/yacysearch.json`, `/yacysearch.rss`, and
 `/yacysearch.json` returns JSON with `channels`, `items`, `navigation`, and
 `totalResults` fields following the original YaCy template shape.
 `/yacysearch.rss` returns OpenSearch-flavored RSS 2.0 with YaCy item metadata.
-`/yacysearch.html` returns a simple HTML search form and result list. Local
-results come from the document-backed full-text `SearchIndex` path.
+`/yacysearch.html` returns a responsive search form and result list. The public
+listener root serves a search-first home with local-index and YaCy-network scope
+choices; the peer listener root remains an identity page. Local results come
+from the document-backed full-text `SearchIndex` path.
 `/opensearchdescription.xml` advertises the HTML, RSS, JSON suggestion, and XML
 suggestion URLs for the current public base URL. `/suggest.json` returns the
 OpenSearch suggestions JSON array shape from bounded in-memory recent queries.

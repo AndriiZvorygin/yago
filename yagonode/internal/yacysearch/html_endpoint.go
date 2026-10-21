@@ -25,6 +25,7 @@ type htmlEndpoint struct {
 
 type htmlSearchPage struct {
 	Query              string
+	ThemeCSS           template.CSS
 	Resource           string
 	ContentDomain      string
 	SearchURL          string
@@ -94,26 +95,37 @@ var htmlSearchTemplate = template.Must(template.New("yacysearch").Parse(`<!docty
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>{{if .Query}}Search for {{.Query}}{{else}}YaCy Search{{end}}</title>
-<link rel="search" type="application/opensearchdescription+xml" title="YaCy Search" href="{{.OpenSearchURL}}">
+<title>{{if .Query}}Search for {{.Query}} · YagoSeek{{else}}YagoSeek Search{{end}}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="search" type="application/opensearchdescription+xml" title="YagoSeek" href="{{.OpenSearchURL}}">
 <link rel="alternate" type="application/rss+xml" title="Search for {{.Query}}" href="{{.RSSURL}}">
+<style>{{.ThemeCSS}}</style>
 </head>
 <body>
-<a href="#results" style="position:absolute;left:-999px;top:0;background:#00f;color:#fff;padding:0.5rem">Skip to results</a>
-<main>
-<form method="get" action="{{.SearchURL}}">
+<a class="skip-link" href="#results">Skip to results</a>
+<header class="site-header">
+<a class="site-brand" href="/" aria-label="YagoSeek home"><span class="site-mark" aria-hidden="true">Y</span><span>YagoSeek</span></a>
+<a class="site-account" href="/account/login">Sign in</a>
+</header>
+<main id="main-content">
+<form class="search-form" method="get" action="{{.SearchURL}}" role="search">
 <span style="position:relative;display:inline-block">
-<input id="query" name="query" type="search" value="{{.Query}}" maxlength="200"
+<label class="visually-hidden" for="query">Search terms</label>
+<input class="query" id="query" name="query" type="search" value="{{.Query}}" maxlength="200"
  role="combobox" aria-autocomplete="list" aria-expanded="false"
  aria-controls="ac-list" autocomplete="off" autofocus>
 <ul id="ac-list" role="listbox" aria-label="Search suggestions" hidden
  style="position:absolute;left:0;right:0;top:100%;margin:0;padding:0;list-style:none;background:#fff;border:1px solid #ccc;z-index:10"></ul>
 </span>
-<input name="resource" type="hidden" value="{{.Resource}}">
+<label class="visually-hidden" for="result-resource">Search scope</label>
+<select class="scope" id="result-resource" name="resource">
+<option value="local" {{if or (eq .Resource "") (eq .Resource "local")}}selected{{end}}>This node</option>
+<option value="global" {{if eq .Resource "global"}}selected{{end}}>YaCy network</option>
+</select>
 <input name="contentdom" type="hidden" value="{{.ContentDomain}}">
-<button type="submit">search</button>
+<button class="search-button" type="submit">Search</button>
 </form>
-<details>
+<details class="search-operators">
 <summary>Search operators</summary>
 <ul>
 <li><code>"quoted phrase"</code> — prefer results where the words appear adjacently</li>
@@ -130,9 +142,9 @@ var htmlSearchTemplate = template.Must(template.New("yacysearch").Parse(`<!docty
 </details>
 {{if .ShowResults}}
 <section id="results" tabindex="-1">
-<h1>Search for {{.Query}}</h1>
+<h1 class="results-heading">Search for {{.Query}}</h1>
 {{if .Recovered}}<p role="status">No exact matches — showing close matches instead.{{if .DidYouMean}} Did you mean <a href="{{.DidYouMeanURL}}">{{.DidYouMean}}</a>?{{end}}</p>{{else if .DidYouMean}}<p role="status">No results matched. Did you mean <a href="{{.DidYouMeanURL}}">{{.DidYouMean}}</a>?</p>{{end}}
-<p role="status">{{.TotalResults}} results{{if .Elapsed}} ({{.Elapsed}}){{end}}</p>
+<p role="status" class="result-count">{{.TotalResults}} results{{if .Elapsed}} ({{.Elapsed}}){{end}}</p>
 {{if .NavGroups}}
 <nav aria-label="Refine results">
 {{range .NavGroups}}<details>
@@ -144,7 +156,7 @@ var htmlSearchTemplate = template.Must(template.New("yacysearch").Parse(`<!docty
 {{end}}</nav>
 {{end}}
 {{if .ShowPartialFailure}}
-<ul>
+<ul class="partial-failure">
 {{range .PartialFailures}}<li>{{.SourceLabel}}: {{.Reason}}</li>{{end}}
 </ul>
 {{end}}
@@ -158,7 +170,7 @@ var htmlSearchTemplate = template.Must(template.New("yacysearch").Parse(`<!docty
 </li>
 {{end}}
 </ol>
-<p>Get these results as <a href="{{.RSSURL}}">RSS</a> · <a href="{{.JSONURL}}">JSON</a></p>
+<p class="result-footer">Get these results as <a href="{{.RSSURL}}">RSS</a> · <a href="{{.JSONURL}}">JSON</a></p>
 {{if or .HasPrev .HasNext .PageLinks}}
 <nav aria-label="Result pages">
 {{if .HasPrev}}<a rel="prev" href="{{.PrevURL}}">&lsaquo; Previous</a>{{end}}
@@ -290,6 +302,7 @@ func responseHTML(r *http.Request, resp searchcore.Response) htmlSearchPage {
 
 	page := htmlSearchPage{
 		Query:         query,
+		ThemeCSS:      htmlSearchThemeCSS,
 		Resource:      string(resp.Request.Source),
 		ContentDomain: string(resp.Request.ContentDomain),
 		SearchURL:     searchBaseURL(r),
