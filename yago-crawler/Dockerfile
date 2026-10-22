@@ -38,7 +38,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM docker.io/library/alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 
 RUN apk add --no-cache \
-    ca-certificates=20260909-r0 \
+    ca-certificates=20261020-r0 \
     firefox-esr=140.12.0-r0 \
     font-liberation=2.1.5-r2 \
     libblkid=2.42.3-r1 \
@@ -46,6 +46,9 @@ RUN apk add --no-cache \
     libexpat=2.9.0-r0 \
     libmount=2.42.3-r1 \
     libssl3=3.5.9-r0 \
+    libx11=1.8.14-r0 \
+    libxrender=0.9.13-r0 \
+    libxtst=1.2.6-r0 \
     pcre2=10.49-r0
 
 ENV HOME=/tmp \
