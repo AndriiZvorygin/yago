@@ -286,7 +286,7 @@ func publicLocalSearchRetrieval(
 
 	return withLocalSearchDeadlineFallback(
 		primary,
-		searchlocal.NewTitleOnlySearcherWithRanking(
+		searchlocal.NewProgressiveSearcherWithRanking(
 			assembly.storage.searchIndex,
 			assembly.rankingWeights,
 			assembly.hostRank,

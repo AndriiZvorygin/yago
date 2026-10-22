@@ -18,6 +18,25 @@ type fakeIndex struct {
 	got      searchindex.SearchRequest
 }
 
+type fakeProgressiveIndex struct {
+	*fakeIndex
+	progress searchindex.SearchProgress
+	result   searchindex.SearchResultSet
+	err      error
+}
+
+func (i *fakeProgressiveIndex) SearchProgressively(
+	_ context.Context,
+	_ searchindex.SearchRequest,
+	notify func(searchindex.SearchProgress),
+) (searchindex.SearchResultSet, error) {
+	if notify != nil {
+		notify(i.progress)
+	}
+
+	return i.result, i.err
+}
+
 func (i *fakeIndex) Index(context.Context, documentstore.Document) error { return nil }
 
 func (i *fakeIndex) Delete(context.Context, string) error { return nil }
@@ -82,6 +101,44 @@ func TestSearcherTranslatesAndFiltersResults(t *testing.T) {
 		t.Fatalf("response = %#v", resp)
 	}
 	assertTranslatedResult(t, resp.Results[0])
+}
+
+func TestProgressiveSearcherReportsIncompleteCoverageUntilAllShardsFinish(t *testing.T) {
+	partial := searchindex.SearchResultSet{
+		Total: 1,
+		Results: []searchindex.SearchResult{{
+			DocumentID: "result", Title: "Sample result", URL: "https://example.test/page",
+		}},
+		Incomplete: true, CompletedShards: 1, TotalShards: 8,
+	}
+	index := &fakeProgressiveIndex{
+		fakeIndex: &fakeIndex{},
+		progress: searchindex.SearchProgress{
+			Results: partial, CompletedShards: 1, TotalShards: 8,
+		},
+		result: partial,
+		err:    context.DeadlineExceeded,
+	}
+	var progress searchcore.SearchProgress
+	ctx := searchcore.WithSearchProgressObserver(
+		t.Context(),
+		func(update searchcore.SearchProgress) {
+			progress = update
+		},
+	)
+	response, err := NewProgressiveSearcherWithRanking(index, nil, nil).Search(
+		ctx,
+		searchcore.Request{
+			Query: "Sample", Terms: []string{"Sample"}, Limit: 10,
+		},
+	)
+	if err != nil || progress.Response.Coverage == nil || progress.Response.Coverage.Complete ||
+		progress.Response.Coverage.CompletedShards != 1 || len(progress.Response.PartialFailures) == 0 ||
+		response.Coverage == nil || response.Coverage.Complete ||
+		response.Coverage.CompletedShards != 1 || len(response.PartialFailures) == 0 ||
+		len(response.Results) != 1 {
+		t.Fatalf("progress=%+v response=%+v err=%v", progress, response, err)
+	}
 }
 
 func TestTitleOnlySearcherMarksBodyEvidenceAsUnavailable(t *testing.T) {

@@ -17,8 +17,10 @@ the signed-in user's retrieved results and keeps personal history on this node.
 The public listener root provides a responsive search home with local-index and
 YaCy-network scope choices. Search results use the same accessible light/dark
 theme and remain available through `/yacysearch.html` without JavaScript.
-For an unconstrained first-page local search of up to four plain words that
-reaches the interactive deadline, the node can return title-only matches from
-the same Bleve index. Such a response is explicitly marked incomplete; it is
-not a complete full-text result set. The normal full-text search remains
-primary.
+When an eligible first-page plain query reaches the primary full-text deadline,
+the node uses the reserved final portion of the same request budget to search
+shards in a per-request OS-cryptographic-random order. The browser can render
+shard progress as it arrives; agents can consume NDJSON from `/search/stream`
+or `/yacysearch.ndjson`. Responses expose completeness and shard coverage so a
+partial result is not mistaken for an exact empty answer. The ordinary full-text
+alias search remains the primary path.

@@ -169,6 +169,7 @@ type Response struct {
 	Availability    ResultAvailability
 	Results         []Result
 	PartialFailures []PartialFailure
+	Coverage        *SearchCoverage
 	// Recovered names the zero-result recovery step that produced these results
 	// ("fuzzy") so surfaces can say "no exact matches; showing close matches";
 	// empty for a normal answer.
@@ -178,6 +179,12 @@ type Response struct {
 	DidYouMean string
 	// Facets carries the local facet groups when the request asked for them.
 	Facets []FacetGroup
+}
+
+type SearchCoverage struct {
+	CompletedShards int  `json:"completed_shards"`
+	TotalShards     int  `json:"total_shards"`
+	Complete        bool `json:"complete"`
 }
 
 // FacetGroup is one facet dimension with its most frequent terms among the

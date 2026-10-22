@@ -69,10 +69,15 @@ The peer query endpoint `/yacy/query.html` requires the called peer hash in
 `lurlcount`, and the upstream `wanted*` probe names with numeric `response`
 values.
 
-The public search endpoints `/yacysearch.json`, `/yacysearch.rss`, and
-`/yacysearch.html` share the same request parsing and search backend.
-`/yacysearch.json` returns JSON with `channels`, `items`, `navigation`, and
-`totalResults` fields following the original YaCy template shape.
+The public search endpoints `/yacysearch.json`, `/yacysearch.rss`,
+`/yacysearch.html`, and `/yacysearch.ndjson` share the same request parsing and
+search backend. `/yacysearch.json` returns the original YaCy-shaped
+`channels`, `items`, `navigation`, and `totalResults` fields, plus additive
+`complete` and optional `coverage` metadata. The NDJSON endpoint emits
+`started`, cumulative `progress`, and `final` events; its result payload uses
+the same JSON channel shape. The HTML page progressively renders this stream
+when browser streaming is available and otherwise retains normal form
+submission.
 `/yacysearch.rss` returns OpenSearch-flavored RSS 2.0 with YaCy item metadata.
 `/yacysearch.html` returns a responsive search form and result list. The public
 listener root serves a search-first home with local-index and YaCy-network scope
@@ -86,14 +91,18 @@ the same suggestion source.
 
 For public search, `resource=local` searches the local full-text index over
 stored documents. An unconstrained first-page request containing up to four
-plain words first uses the full-text search path. If that stage reaches its
+plain words first uses the ordinary full-text alias. If that stage reaches its
 bounded search deadline, the node reserves the final 500 milliseconds of the
-same interactive budget for a title-only query against that same Bleve index. The response
-retains the existing YaCy-compatible shape and carries a `local-search` entry
-in `partialFailures` explaining that the result set is incomplete. The result
-count then describes the title-only match set, not a complete full-text count.
-This fallback does not apply to constrained, faceted, explained, or later-page
-searches. The end-to-end interactive deadline is unchanged.
+same interactive budget for progressive retrieval. It queries each shard at
+most once in a per-request order shuffled with the operating system's
+cryptographic random source, preventing repeated requests from always starting
+with the same shards. Candidate work is bounded per shard. Completed work is
+returned even when the request budget ends early; `complete` and `coverage`
+distinguish complete shard coverage from lower-bound totals. The result stream
+can be consumed through `/yacysearch.ndjson`; the HTML page uses that stream
+when the browser supports it. This fallback does not apply to constrained,
+faceted, explained, or later-page searches. The end-to-end interactive deadline
+is unchanged.
 `resource=global` searches the local node and performs bounded YaCy
 `/yacy/search.html` fanout to reachable peers selected by the query term hashes'
 YaCy DHT positions, configured redundancy, and configured vertical partition

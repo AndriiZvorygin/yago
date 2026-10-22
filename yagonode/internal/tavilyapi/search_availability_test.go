@@ -39,11 +39,16 @@ func searchAvailabilityEndpointCases() []searchAvailabilityEndpointCase {
 		},
 		{
 			name: "incomplete miss",
-			response: searchcore.Response{PartialFailures: []searchcore.PartialFailure{{
-				Source: searchcore.PartialFailureSourceLocalSearch,
-				Reason: "deadline",
-			}}},
-			status: http.StatusConflict,
+			response: searchcore.Response{
+				Coverage: &searchcore.SearchCoverage{
+					CompletedShards: 2, TotalShards: 8, Complete: false,
+				},
+				PartialFailures: []searchcore.PartialFailure{{
+					Source: searchcore.PartialFailureSourceLocalSearch,
+					Reason: "deadline",
+				}},
+			},
+			status: http.StatusOK,
 		},
 		{
 			name: "incomplete miss with source error",
@@ -52,7 +57,7 @@ func searchAvailabilityEndpointCases() []searchAvailabilityEndpointCase {
 				Reason: "unavailable",
 			}}},
 			err:    errors.New("source unavailable"),
-			status: http.StatusConflict,
+			status: http.StatusOK,
 		},
 		{
 			name: "source deadline incomplete miss",
@@ -61,7 +66,7 @@ func searchAvailabilityEndpointCases() []searchAvailabilityEndpointCase {
 				Reason: "deadline",
 			}}},
 			err:    context.DeadlineExceeded,
-			status: http.StatusConflict,
+			status: http.StatusOK,
 		},
 		{
 			name: "expired caller incomplete miss",
@@ -140,5 +145,22 @@ func assertSearchAvailabilityEndpointCase(
 	if test.status == http.StatusConflict &&
 		rec.Header().Get("Retry-After") != "1" {
 		t.Fatalf("Retry-After = %q", rec.Header().Get("Retry-After"))
+	}
+	if test.status == http.StatusOK && hasLocalSearchPartialFailure(test.response.PartialFailures) {
+		response := decodeSearchResponse(t, rec)
+		if response.Complete || len(response.PartialFailures) == 0 {
+			t.Fatalf("partial empty response = %+v", response)
+		}
+		if test.response.Coverage != nil &&
+			(response.Coverage == nil || response.Coverage.CompletedShards != 2 ||
+				response.Coverage.TotalShards != 8) {
+			t.Fatalf("partial coverage was lost: %+v", response)
+		}
+	} else if test.status == http.StatusOK && len(test.response.Results) == 0 &&
+		len(test.response.PartialFailures) == 0 {
+		response := decodeSearchResponse(t, rec)
+		if !response.Complete || len(response.PartialFailures) != 0 {
+			t.Fatalf("honest empty response = %+v", response)
+		}
 	}
 }

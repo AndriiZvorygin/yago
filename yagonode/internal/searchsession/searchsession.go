@@ -42,6 +42,7 @@ type session struct {
 	recovered   string
 	didYouMean  string
 	facets      []searchcore.FacetGroup
+	coverage    *searchcore.SearchCoverage
 	expires     time.Time
 	element     *list.Element
 	retained    int
@@ -210,6 +211,7 @@ func (s *stableSearcher) store(key string, resp searchcore.Response, searchDepth
 		recovered:   strings.Clone(resp.Recovered),
 		didYouMean:  strings.Clone(resp.DidYouMean),
 		facets:      cloneSessionFacets(resp.Facets),
+		coverage:    cloneSessionCoverage(resp.Coverage),
 		expires:     now.Add(s.retention()),
 	}
 	entry.retained = retainedSessionBytes(entry)

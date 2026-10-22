@@ -66,6 +66,9 @@ func TestStableWindowDetachesAndIsolatesCompletePayload(t *testing.T) {
 		Facets: []searchcore.FacetGroup{{
 			Name: "host", Terms: []searchcore.FacetTerm{{Term: "example.test", Count: 1}},
 		}},
+		Coverage: &searchcore.SearchCoverage{
+			CompletedShards: 2, TotalShards: 8, Complete: false,
+		},
 	}}
 	stable := WithStableWindow(inner).(*stableSearcher)
 	req := searchcore.Request{Query: "go", Limit: 1}
@@ -85,6 +88,7 @@ func TestStableWindowDetachesAndIsolatesCompletePayload(t *testing.T) {
 	first.Results[0].FieldTermPositions["body"]["term"][0] = 9
 	first.PartialFailures[0].Reason = "changed"
 	first.Facets[0].Terms[0].Term = "changed"
+	first.Coverage.CompletedShards = 7
 	inner.response.Results[0].Images[0].Alt = "changed"
 	inner.response.Results[0].QueryMatches[0].End = 9
 	inner.response.Results[0].BodyQueryMatches[0].End = 9
@@ -92,6 +96,7 @@ func TestStableWindowDetachesAndIsolatesCompletePayload(t *testing.T) {
 	inner.response.Results[0].FieldTermPositions["body"]["term"][1] = 7
 	inner.response.PartialFailures[0].Source = "changed"
 	inner.response.Facets[0].Name = "changed"
+	inner.response.Coverage.TotalShards = 99
 
 	cached := entry.respond(req)
 	result := cached.Results[0]
@@ -110,7 +115,10 @@ func TestStableWindowDetachesAndIsolatesCompletePayload(t *testing.T) {
 				Cause: searchcore.FailureCauseDeadline,
 			},
 		}) || cached.Facets[0].Name != "host" ||
-		cached.Facets[0].Terms[0].Term != "example.test" {
+		cached.Facets[0].Terms[0].Term != "example.test" || cached.Coverage == nil ||
+		*cached.Coverage != (searchcore.SearchCoverage{
+			CompletedShards: 2, TotalShards: 8, Complete: false,
+		}) {
 		t.Fatalf("cached payload changed: %#v", cached)
 	}
 }
@@ -152,7 +160,8 @@ func TestSessionPayloadClonePreservesNilCollections(t *testing.T) {
 	})
 	facets := cloneSessionFacets([]searchcore.FacetGroup{{Name: "host"}})
 	if cloneSessionResults(nil) != nil || cloneSessionFailures(nil) != nil ||
-		cloneSessionFacets(nil) != nil || result.Images != nil || result.QueryMatches != nil ||
+		cloneSessionFacets(nil) != nil || cloneSessionCoverage(nil) != nil ||
+		result.Images != nil || result.QueryMatches != nil ||
 		result.BodyQueryMatches != nil ||
 		result.FieldScores != nil ||
 		result.FieldTermPositions["title"] != nil ||

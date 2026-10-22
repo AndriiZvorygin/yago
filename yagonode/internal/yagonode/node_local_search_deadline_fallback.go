@@ -13,7 +13,7 @@ import (
 
 const (
 	localSearchFallbackReserve = 500 * time.Millisecond
-	localSearchFallbackReason  = "title-only fallback used after full-text search exceeded its budget"
+	localSearchFallbackReason  = "randomized shard fallback used after full-text search exceeded its budget"
 )
 
 type localSearchDeadlineFallback struct {
@@ -37,7 +37,7 @@ func (s localSearchDeadlineFallback) Search(
 	ctx context.Context,
 	req searchcore.Request,
 ) (searchcore.Response, error) {
-	if s.fallback == nil || !titleOnlyFallbackEligible(req) {
+	if s.fallback == nil || !progressiveFallbackEligible(req) {
 		return s.searchPrimary(ctx, req)
 	}
 	deadline, found := ctx.Deadline()
@@ -52,6 +52,9 @@ func (s localSearchDeadlineFallback) Search(
 		if err == nil {
 			return response, nil
 		}
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			return s.runFallback(ctx, req, response), nil
+		}
 		if len(response.Results) > 0 {
 			response.PartialFailures = append(
 				response.PartialFailures,
@@ -60,10 +63,7 @@ func (s localSearchDeadlineFallback) Search(
 
 			return response, nil
 		}
-		if !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
-			return response, err
-		}
-		return s.runFallback(ctx, req, response, err)
+		return response, err
 	}
 	if ctx.Err() != nil {
 		return searchcore.Response{}, fmt.Errorf(
@@ -71,7 +71,7 @@ func (s localSearchDeadlineFallback) Search(
 			context.Cause(ctx),
 		)
 	}
-	return s.runFallback(ctx, req, searchcore.Response{}, context.DeadlineExceeded)
+	return s.runFallback(ctx, req, searchcore.Response{}), nil
 }
 
 func (s localSearchDeadlineFallback) searchPrimary(
@@ -90,19 +90,33 @@ func (s localSearchDeadlineFallback) runFallback(
 	ctx context.Context,
 	req searchcore.Request,
 	primaryResponse searchcore.Response,
-	primaryErr error,
-) (searchcore.Response, error) {
+) searchcore.Response {
 	response, err := s.fallback.Search(ctx, req)
 	if err != nil {
-		return primaryResponse, fmt.Errorf("local search incomplete: %w", primaryErr)
+		return incompleteAfterFallbackFailure(req, primaryResponse)
 	}
+	response.Request = req
+	if response.Coverage == nil || !response.Coverage.Complete {
+		response.PartialFailures = append(
+			response.PartialFailures,
+			localSearchDeadlinePartialFailure(),
+		)
+	}
+
+	return response
+}
+
+func incompleteAfterFallbackFailure(
+	req searchcore.Request,
+	response searchcore.Response,
+) searchcore.Response {
 	response.Request = req
 	response.PartialFailures = append(
 		response.PartialFailures,
 		localSearchDeadlinePartialFailure(),
 	)
 
-	return response, nil
+	return response
 }
 
 func localSearchDeadlinePartialFailure() searchcore.PartialFailure {
@@ -116,7 +130,7 @@ func localSearchDeadlinePartialFailure() searchcore.PartialFailure {
 	}
 }
 
-func titleOnlyFallbackEligible(req searchcore.Request) bool {
+func progressiveFallbackEligible(req searchcore.Request) bool {
 	if len(req.Terms) == 0 || len(req.Terms) > 4 || req.Offset != 0 ||
 		!plainFallbackQuery(req.Query, len(req.Terms)) ||
 		(req.SubmittedQuery != "" && !plainFallbackQuery(req.SubmittedQuery, len(req.Terms))) ||

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"sync/atomic"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/mapping"
@@ -21,15 +22,21 @@ const diskLexicalCandidateMaximumDocumentsPerShard = diskLexicalCandidateMaximum
 type bleveLexicalCandidateSnapshotQuery struct {
 	candidate        blevequery.Query
 	maximumDocuments int
+	allowIncomplete  bool
+	incomplete       *atomic.Bool
 }
 
 func newBleveLexicalCandidateSnapshotQuery(
 	req SearchRequest,
 	multilingual bool,
+	allowIncomplete bool,
+	incomplete *atomic.Bool,
 ) blevequery.Query {
 	return &bleveLexicalCandidateSnapshotQuery{
 		candidate:        bleveLexicalCandidateQuery(req, multilingual),
 		maximumDocuments: diskLexicalCandidateMaximumDocumentsPerShard,
+		allowIncomplete:  allowIncomplete,
+		incomplete:       incomplete,
 	}
 }
 
@@ -50,6 +57,13 @@ func (query *bleveLexicalCandidateSnapshotQuery) Searcher(
 		return nil, err
 	}
 	if !complete {
+		if query.allowIncomplete {
+			if query.incomplete != nil {
+				query.incomplete.Store(true)
+			}
+
+			return newBleveLexicalCandidateInternalSearcher(identities, options), nil
+		}
 		allDocuments, err := searcher.NewMatchAllSearcher(ctx, reader, 0, options)
 		if err != nil {
 			return nil, fmt.Errorf("retain complete lexical search: %w", err)
@@ -113,12 +127,12 @@ func collectBleveLexicalCandidateSnapshot(
 	if collectionErr != nil || closeErr != nil {
 		return nil, false, errors.Join(collectionErr, closeErr)
 	}
-	if len(identities) > maximumDocuments {
-		return nil, false, nil
-	}
 	sort.Slice(identities, func(first, second int) bool {
 		return identities[first].Compare(identities[second]) < 0
 	})
+	if len(identities) > maximumDocuments {
+		return identities[:maximumDocuments], false, nil
+	}
 
 	return identities, true, nil
 }

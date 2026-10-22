@@ -22,6 +22,9 @@ func (completion searchCompletion) errorForCaller(callerCause error) error {
 	if completion.err == nil {
 		return nil
 	}
+	if callerCause == nil && hasLocalSearchPartialFailure(completion.response.PartialFailures) {
+		return nil
+	}
 	if availabilityErr := searchAvailabilityError(
 		len(completion.response.Results),
 		completion.response.LostSourceFailures(),

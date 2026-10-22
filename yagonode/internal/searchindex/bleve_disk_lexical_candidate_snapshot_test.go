@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync/atomic"
 	"testing"
 
 	"github.com/blevesearch/bleve/v2"
@@ -242,7 +243,7 @@ func TestCollectBleveLexicalCandidateSnapshotBoundsAndCopies(t *testing.T) {
 		&bleveLexicalCandidateQueryProbe{searcher: overflowProbe},
 		2,
 	)
-	if err != nil || complete || overflow != nil || !overflowProbe.closed {
+	if err != nil || complete || len(overflow) != 2 || !overflowProbe.closed {
 		t.Fatalf(
 			"overflow=%v complete=%t error=%v closed=%t",
 			overflow,
@@ -490,6 +491,40 @@ func TestBleveLexicalCandidateSnapshotQueryReturnsEmptyAndOverflowFilters(t *tes
 	}
 }
 
+func TestBleveLexicalCandidateSnapshotAllowsBoundedIncompleteWindow(t *testing.T) {
+	reader := &bleveLexicalCandidateIndexReaderProbe{}
+	incomplete := &atomic.Bool{}
+	query := &bleveLexicalCandidateSnapshotQuery{
+		candidate: &bleveLexicalCandidateQueryProbe{
+			searcher: newBleveLexicalCandidateSearcherProbe(
+				bleveindex.NewIndexInternalID(nil, 1),
+				bleveindex.NewIndexInternalID(nil, 2),
+			),
+		},
+		maximumDocuments: 1,
+		allowIncomplete:  true,
+		incomplete:       incomplete,
+	}
+	window, err := query.Searcher(
+		t.Context(), reader, mapping.NewIndexMapping(), search.SearcherOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := window.(*bleveLexicalCandidateInternalSearcher); !ok ||
+		window.Count() != 1 || !incomplete.Load() {
+		t.Fatalf(
+			"bounded window=%T count=%d incomplete=%t",
+			window,
+			window.Count(),
+			incomplete.Load(),
+		)
+	}
+	if err := window.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestBleveLexicalCandidateSnapshotQueryReturnsOverflowReaderFailures(t *testing.T) {
 	sentinel := errors.New("all documents failed")
 	failedCandidate := &bleveLexicalCandidateSnapshotQuery{
@@ -538,6 +573,8 @@ func TestNewBleveLexicalCandidateSnapshotQueryUsesPerShardBound(t *testing.T) {
 	query, ok := newBleveLexicalCandidateSnapshotQuery(
 		SearchRequest{Query: "needle"},
 		true,
+		false,
+		nil,
 	).(*bleveLexicalCandidateSnapshotQuery)
 	if !ok || query.candidate == nil ||
 		query.maximumDocuments != diskLexicalCandidateMaximumDocumentsPerShard ||

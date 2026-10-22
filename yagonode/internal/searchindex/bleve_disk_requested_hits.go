@@ -12,7 +12,7 @@ func (b *BleveDiskIndex) searchRequestedHits(
 	indexedDocuments int,
 ) (SearchResultSet, []string, error) {
 	requestedSize := diskRequestedSearchSize(req.MaxResults, indexedDocuments)
-	result, err := b.searchRequestedHitPage(ctx, req, requestedSize)
+	result, sampled, err := b.searchRequestedHitPageWithStatus(ctx, req, requestedSize)
 	if err != nil {
 		return SearchResultSet{}, nil, err
 	}
@@ -20,6 +20,7 @@ func (b *BleveDiskIndex) searchRequestedHits(
 	if err != nil {
 		return SearchResultSet{}, nil, err
 	}
+	set.Incomplete = sampled
 	expandedSize := diskSearchSize(req.MaxResults, indexedDocuments)
 	if len(orphans) == 0 ||
 		result.Total <= uint64(len(result.Hits)) ||
@@ -27,12 +28,14 @@ func (b *BleveDiskIndex) searchRequestedHits(
 		return set, orphans, nil
 	}
 
-	result, err = b.searchRequestedHitPage(ctx, req, expandedSize)
+	result, expandedSampled, err := b.searchRequestedHitPageWithStatus(ctx, req, expandedSize)
 	if err != nil {
 		return SearchResultSet{}, nil, err
 	}
+	set, orphans, err = b.collectHits(ctx, req, result)
+	set.Incomplete = sampled || expandedSampled
 
-	return b.collectHits(ctx, req, result)
+	return set, orphans, err
 }
 
 func (b *BleveDiskIndex) searchRequestedHitPage(
@@ -40,5 +43,15 @@ func (b *BleveDiskIndex) searchRequestedHitPage(
 	req SearchRequest,
 	size int,
 ) (*bleve.SearchResult, error) {
-	return b.searchLexicalCandidateHitPage(ctx, req, size)
+	result, _, err := b.searchRequestedHitPageWithStatus(ctx, req, size)
+
+	return result, err
+}
+
+func (b *BleveDiskIndex) searchRequestedHitPageWithStatus(
+	ctx context.Context,
+	req SearchRequest,
+	size int,
+) (*bleve.SearchResult, bool, error) {
+	return b.searchLexicalCandidateHitPageWithStatus(ctx, req, size)
 }
