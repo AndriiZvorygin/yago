@@ -1,6 +1,6 @@
 module github.com/D4rk4/yago/yagonode
 
-go 1.26.6
+go 1.26.10
 
 require (
 	github.com/D4rk4/yago/yagocrawlcontract v0.0.0
