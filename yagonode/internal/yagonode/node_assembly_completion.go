@@ -8,6 +8,7 @@ import (
 	"github.com/D4rk4/yago/yagonode/internal/peerblock"
 	"github.com/D4rk4/yago/yagonode/internal/peernews"
 	"github.com/D4rk4/yago/yagonode/internal/peerroster"
+	"github.com/D4rk4/yago/yagonode/internal/rwibackfill"
 	"github.com/D4rk4/yago/yagonode/internal/transfertally"
 	"github.com/D4rk4/yago/yagonode/internal/vault"
 )
@@ -28,6 +29,7 @@ type nodeAssemblyCompletion struct {
 	client        *http.Client
 	tally         *transfertally.Tally
 	peerLifecycle *nodePeerLifecycle
+	rwiBackfill   *rwibackfill.Backfill
 }
 
 func completeNodeAssembly(in nodeAssemblyCompletion) node {
@@ -72,5 +74,6 @@ func completeNodeAssembly(in nodeAssemblyCompletion) node {
 		peerType:         in.exchange.externalReachabilityEvidence,
 		personalAccounts: in.surfaces.personalAccounts,
 		personalLearning: in.surfaces.personalLearning,
+		rwiBackfill:      in.rwiBackfill,
 	}, in.telemetry.toggles)
 }

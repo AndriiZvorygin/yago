@@ -55,6 +55,7 @@ const (
 	blacklistImportPath = "/admin/index/blacklist/import"
 	indexExportPath     = "/admin/index/export"
 	indexImportPath     = "/admin/index/import"
+	rwiBackfillPath     = "/admin/index/rwi-backfill"
 	networkPath         = "/admin/network"
 	networkSelfTestPath = "/admin/network/public-endpoint/test"
 	networkPeerPath     = "/admin/network/peer"
@@ -133,6 +134,7 @@ type Options struct {
 	Blacklist            BlacklistSource
 	IndexExport          IndexExporter
 	IndexImport          IndexImporter
+	RWIBackfill          RWIBackfillController
 	CrawlOrderImport     CrawlOrderImporter
 	Compactor            Compactor
 	Network              NetworkSource
@@ -470,6 +472,7 @@ type Console struct {
 	blacklist            BlacklistSource
 	indexExport          IndexExporter
 	indexImport          IndexImporter
+	rwiBackfill          RWIBackfillController
 	crawlOrderImport     CrawlOrderImporter
 	compactor            Compactor
 	network              NetworkSource
@@ -534,6 +537,7 @@ func New(opts Options) *Console {
 		blacklist:            opts.Blacklist,
 		indexExport:          opts.IndexExport,
 		indexImport:          opts.IndexImport,
+		rwiBackfill:          opts.RWIBackfill,
 		crawlOrderImport:     opts.CrawlOrderImport,
 		compactor:            opts.Compactor,
 		network:              opts.Network,
