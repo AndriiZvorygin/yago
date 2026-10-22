@@ -114,6 +114,8 @@ components:
     in: internal/urlreferences/**
   rwi:
     in: internal/rwi/**
+  rwibackfill:
+    in: internal/rwibackfill/**
   documentstore:
     in: internal/documentstore/**
   documentsearch:
@@ -564,6 +566,19 @@ deps:
     canUse:
       - yagomodel
       - yagoproto
+  rwibackfill:
+    mayDependOn:
+      - rwibackfill
+      - documentstore
+      - rwi
+      - urlmeta
+      - stopwords
+      - vault
+      - memvault
+      - shardvault
+    canUse:
+      - yagomodel
+      - yagocrawlcontract
   documentstore:
     mayDependOn:
       - documentstore
@@ -1023,6 +1038,7 @@ deps:
       - urlmeta
       - documentstore
       - rwi
+      - rwibackfill
       - documentsearch
       - eviction
       - metrics

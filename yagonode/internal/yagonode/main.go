@@ -352,6 +352,7 @@ func serve(
 		defer background.Done()
 		runCorpusSignalRefreshLoop(ctx, corpusSignalRefreshForNode(ctx, assembled))
 	}()
+	startRWIBackfillWorker(ctx, &background, assembled)
 	startMaintenanceLoops(ctx, &background, assembled)
 	if assembled.crawl != nil {
 		defer assembled.crawl.Close()
@@ -385,6 +386,17 @@ func serve(
 	case <-ctx.Done():
 		return shutdown(servers)
 	}
+}
+
+func startRWIBackfillWorker(ctx context.Context, background *sync.WaitGroup, assembled node) {
+	if assembled.rwiBackfill == nil {
+		return
+	}
+	background.Add(1)
+	go func() {
+		defer background.Done()
+		assembled.rwiBackfill.Run(ctx)
+	}()
 }
 
 // startPeerPresenceLoops runs the DHT announcer and the LAN discovery beacon;

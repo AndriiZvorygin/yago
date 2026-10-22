@@ -44,6 +44,8 @@ func (c *Console) registerIndexAndNetworkRoutes() {
 	c.mux.HandleFunc("POST "+blacklistImportPath, c.handleBlacklistImport)
 	c.mux.HandleFunc("GET "+indexExportPath, c.handleIndexExport)
 	c.mux.HandleFunc("POST "+indexImportPath, c.handleIndexImport)
+	c.mux.HandleFunc("GET "+rwiBackfillPath, c.handleRWIBackfillStatus)
+	c.mux.HandleFunc("POST "+rwiBackfillPath, c.handleRWIBackfillControl)
 	c.mux.HandleFunc("GET "+networkPath, c.handleNetwork)
 	c.mux.HandleFunc("POST "+networkSelfTestPath, c.handleNetworkSelfTest)
 	c.mux.HandleFunc("GET "+networkPeerPath, c.handleNetworkPeer)
