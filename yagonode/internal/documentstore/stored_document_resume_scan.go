@@ -56,11 +56,6 @@ func (d documentVault) ScanStoredDocumentPagesFrom(
 	cursor string,
 	visit func(*Document, string, bool) (bool, error),
 ) error {
-	release, err := d.enterStoredDocumentScan(ctx)
-	if err != nil {
-		return fmt.Errorf("enter resumable document scan: %w", err)
-	}
-	defer release()
 	state, err := d.decodeStoredDocumentResumeCursor(ctx, cursor)
 	if err != nil {
 		return err
@@ -110,6 +105,11 @@ func (d documentVault) scanResumableStoredDocumentPartition(
 		state.After = nil
 		return state, false, nil
 	}
+	release, err := d.enterStoredDocumentScan(ctx)
+	if err != nil {
+		return state, false, fmt.Errorf("enter resumable document scan: %w", err)
+	}
+	defer release()
 	page, err := d.readStoredDocumentRawPage(
 		ctx,
 		boundary,
