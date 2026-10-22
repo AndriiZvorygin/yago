@@ -35,7 +35,9 @@ func execute() int {
 
 func run(ctx context.Context, args []string, progress io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: yacy-migrate export|import [options]")
+		return errors.New(
+			"usage: yacy-migrate export|import|import-frontier|rwi-backfill [options]",
+		)
 	}
 	switch args[0] {
 	case "export":
@@ -44,8 +46,13 @@ func run(ctx context.Context, args []string, progress io.Writer) error {
 		return runImport(ctx, args[1:], progress)
 	case "import-frontier":
 		return runFrontierImportCommand(ctx, args[1:], progress)
+	case "rwi-backfill":
+		return runRWIBackfillCommand(ctx, args[1:], progress)
 	default:
-		return fmt.Errorf("unknown command %q; use export, import, or import-frontier", args[0])
+		return fmt.Errorf(
+			"unknown command %q; use export, import, import-frontier, or rwi-backfill",
+			args[0],
+		)
 	}
 }
 

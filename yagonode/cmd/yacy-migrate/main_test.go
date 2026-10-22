@@ -93,6 +93,11 @@ func TestRunValidatesCommandsAndFlags(t *testing.T) {
 			args: []string{"import", "--unknown"},
 			want: "parse import options",
 		},
+		{
+			name: "invalid frontier-import flag",
+			args: []string{"import-frontier", "--unknown"},
+			want: "parse frontier import options",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -102,6 +107,22 @@ func TestRunValidatesCommandsAndFlags(t *testing.T) {
 				t.Fatalf("run error = %v, want substring %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestRunFrontierImportDryRun(t *testing.T) {
+	input, profiles := writeFrontierFixtures(t, []yaCyFrontierRecord{
+		{
+			Type: "crawlRequest", Version: 1, Stack: "LOCAL",
+			URL: "https://example.test/one", ProfileHandle: "source-profile",
+		},
+	})
+	var output bytes.Buffer
+	err := run(t.Context(), []string{
+		"import-frontier", "--input", input, "--profiles", profiles, "--dry-run",
+	}, &output)
+	if err != nil || !strings.Contains(output.String(), "dry-run: validated 1 queue records") {
+		t.Fatalf("run frontier dry-run = %v, output=%q", err, output.String())
 	}
 }
 

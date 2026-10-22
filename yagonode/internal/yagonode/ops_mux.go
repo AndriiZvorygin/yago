@@ -111,6 +111,7 @@ func buildOpsMux(
 	if importer, ok := assembled.crawl.(adminui.CrawlOrderImporter); ok {
 		options.CrawlOrderImport = importer
 	}
+	options.RWIBackfill = newNodeRWIBackfillAdmin(assembled.rwiBackfill)
 	applyOpsPageOptions(&options, config, assembled, sources)
 	applyIndexAdminOptions(&options, assembled)
 	applyExtractionRecrawlOption(&options, assembled)

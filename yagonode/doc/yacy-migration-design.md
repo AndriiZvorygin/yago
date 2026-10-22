@@ -116,10 +116,11 @@ metadata value stops export rather than silently discarding heading content.
 - Webgraph records are stored separately. Only links present in the full-text
   document export can be migrated in this first slice.
 - YaCy does not provide full inbound/outbound anchor text in the selected
-  stored fields, so link URLs are preserved but link text is not. Yago's
-  peer-facing RWI postings and YaCy URLDB wire metadata are engine-specific;
-  this slice does not synthesize peer postings. Imported documents are locally
-  stored and searchable, but this is not a complete P2P-index migration.
+  stored fields, so link URLs are preserved but link text is not. The document
+  importer does not carry YaCy's original peer postings or URLDB state. Yago's
+  optional RWI backfill can reconstruct local postings and URL metadata from
+  imported text, but it cannot reproduce the original YaCy posting bytes or
+  scheduler state. See `yacy-rwi-backfill-design.md`.
 - Yago's current document model has no typed collection or alias fields. The
   adapter preserves those source values as namespaced document metadata rather
   than silently dropping them or changing search semantics.

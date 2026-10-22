@@ -5,6 +5,23 @@ YaCy documents into a Yago node. It uses YaCy's read-only Solr `select` cursor
 API and Yago's authenticated `POST /admin/index/import` route. It does not read
 or write either engine's on-disk index files.
 
+## Migration stages
+
+1. **Documents first.** Export and import indexed page content, metadata, links,
+   and source status into Yago's document store and local search index. Reconcile
+   counts and representative searches before proceeding.
+2. **Peer-index records second.** Rebuild local RWI postings and URL metadata
+   from the imported documents using the resumable backfill below. This restores
+   Yago's peer-exchange data without another fetch, but is a reconstruction, not
+   a copy of YaCy's original posting files.
+3. **Crawl state separately.** Import only a verified pending-queue snapshot and
+   explicit due schedules. Do not replay broad or completed seed lists. The
+   current queue snapshot importer does not recover the focused-crawler sidecar
+   or exact per-URL next-visit state.
+4. **Cutover only after validation.** Confirm document counts, searches, RWI and
+   URL metadata, queue state, storage headroom, and peer behavior. Keep the
+   source data and existing DHT controls unchanged until that gate passes.
+
 HTTP(S), FTP, and SMB indexed identities are retained. Only HTTP(S) records can
 carry an active Yago recrawl schedule; other source freshness values remain
 metadata because Yago's recrawl worker is HTTP(S)-only.
@@ -57,9 +74,12 @@ migration. The pending frontier can be imported into Yago's durable crawl-order
 queue after document import and reconciliation; the focused-crawler sidecar,
 full URLDB outcomes, and exact per-URL next-visit schedule are not available
 through these interfaces. Imported documents are locally stored and searchable
-through Yago's normal document/index owners, but this adapter does not generate
-peer RWI postings. Do not cut over or stop YaCy based only on a successful
-document/frontier import. See [the design and field-gap note](yacy-migration-design.md).
+through Yago's normal document/index owners. The optional RWI backfill described
+below rebuilds local YaCy-compatible postings from the imported text; it does
+not copy YaCy's original postings or establish complete peer-index equivalence.
+Do not cut over or stop YaCy based only on document import, frontier recovery,
+or a generated RWI pass. See [the design and field-gap note](yacy-migration-design.md)
+and [the RWI backfill design](yacy-rwi-backfill-design.md).
 
 ## Export
 
@@ -169,6 +189,44 @@ aliases and link evidence are not discarded. Source rows without a supported
 required field or beyond Yago's existing document limits stop the pass with an
 error; the tool does not truncate or silently skip them.
 
+## Rebuild local RWI from imported documents
+
+YaCy's document export does not include its original peer postings. Yago can
+recreate its own YaCy-compatible RWI postings and URL metadata from the
+already-imported document store. This is a bounded, resumable derived-data pass;
+it does not run a crawler, re-fetch URLs, modify stored documents, update Bleve,
+or create recrawl work. It uses the crawler's tokenizer and common artifact
+builder, so regenerated postings follow Yago's current rules rather than
+claiming byte-for-byte reconstruction of YaCy's index.
+
+Create an API key with `admin:read` and `admin:write` scopes for status and
+control. Start with status and a bounded real pilot after backing up and
+verifying the Yago data directory:
+
+```sh
+cd yagonode
+YAGO_API_KEY='admin-read-write-key' go run ./cmd/yacy-migrate rwi-backfill \
+  --endpoint 'https://yago.example/admin/index/rwi-backfill' --action status
+YAGO_API_KEY='admin-read-write-key' go run ./cmd/yacy-migrate rwi-backfill \
+  --endpoint 'https://yago.example/admin/index/rwi-backfill' \
+  --action start --maximum-documents 1000
+```
+
+Poll `--action status` and inspect generated row counts, estimated encoded row
+bytes, local search latency, storage growth, and the node's RWI and URL-metadata
+counts. The estimate is not actual disk growth. A pilot stops at its document
+limit and leaves a resumable checkpoint. Continue it with `--action resume`; a
+zero maximum means continue without a per-run document limit. The node also
+resumes a persisted running pass after restart. A completed pass can be
+explicitly started again to include documents that arrived during the previous
+scan; receiver writes are idempotent.
+
+Do not enable or modify DHT transfer as part of this operation. Rebuilt local
+RWI data is peer-exchange material, but network distribution remains governed
+by the node's existing DHT controls. Preserve YaCy and its data until a separate
+reconciliation verifies imported document counts, searches, metadata, queue
+state, and the required peer behavior.
+
 YaCy's current Solr export has no exact next-visit schedule. A versioned JSONL
 record may carry `nextVisitAt` when an operator has a separately verified
 source for it. Only such an explicit value creates a durable Yago recrawl
@@ -187,7 +245,8 @@ available export does not provide full aliases, URLDB status, pending crawl
 work, focused sidecar state, anchor text, or exact next-visit times. Yago's
 current document model has no typed collections, so YaCy collection and focused
 policy values are retained as namespaced document metadata. Peer-facing RWI
-postings are engine-specific and are not synthesized by this first slice.
+postings are engine-specific; the optional derived-data backfill is described
+in [`yacy-rwi-backfill-design.md`](yacy-rwi-backfill-design.md).
 
 The current count from a live Solr probe is not a migration guarantee. Verify
 destination counts, representative local searches, metadata, URLs and any
