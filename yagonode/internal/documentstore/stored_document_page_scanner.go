@@ -45,12 +45,6 @@ func (d documentVault) ScanStoredDocumentPages(
 	ctx context.Context,
 	visit func(Document) (bool, error),
 ) error {
-	release, err := d.enterStoredDocumentScan(ctx)
-	if err != nil {
-		return err
-	}
-	defer release()
-
 	if err := d.scanStoredDocumentPages(ctx, storedDocumentPageSize, visit); err != nil {
 		return fmt.Errorf("scan stored document pages: %w", err)
 	}
@@ -129,31 +123,9 @@ func (d documentVault) scanStoredDocumentPartition(
 ) error {
 	var after vault.Key
 	for {
-		page, err := d.readStoredDocumentRawPage(ctx, boundary, after, pageSize)
-		if err != nil {
-			return err
-		}
-		authoritative, err := d.authoritativeStoredDocumentRawPage(
-			ctx,
-			boundary.partition,
-			page.entries,
+		page, keep, err := d.visitStoredDocumentBucketPage(
+			ctx, boundary, after, pageSize, visit,
 		)
-		if err != nil {
-			return err
-		}
-		entries, err := decodeStoredDocumentRawPage(ctx, authoritative)
-		if err != nil {
-			return err
-		}
-		documents, err := visibleStoredDocumentPage(
-			ctx,
-			boundary.partition,
-			entries,
-		)
-		if err != nil {
-			return err
-		}
-		keep, err := visitStoredDocumentPage(ctx, documents, visit)
 		if err != nil || !keep {
 			return err
 		}
@@ -162,6 +134,49 @@ func (d documentVault) scanStoredDocumentPartition(
 		}
 		after = page.cursor
 	}
+}
+
+func (d documentVault) visitStoredDocumentBucketPage(
+	ctx context.Context,
+	boundary storedDocumentPartitionBoundary,
+	after vault.Key,
+	pageSize int,
+	visit func(Document) (bool, error),
+) (storedDocumentRawPage, bool, error) {
+	release, err := d.enterStoredDocumentScan(ctx)
+	if err != nil {
+		return storedDocumentRawPage{}, false, err
+	}
+	defer release()
+	page, err := d.readStoredDocumentRawPage(ctx, boundary, after, pageSize)
+	if err != nil {
+		return storedDocumentRawPage{}, false, err
+	}
+	authoritative, err := d.authoritativeStoredDocumentRawPage(
+		ctx,
+		boundary.partition,
+		page.entries,
+	)
+	if err != nil {
+		return storedDocumentRawPage{}, false, err
+	}
+	entries, err := decodeStoredDocumentRawPage(ctx, authoritative)
+	if err != nil {
+		return storedDocumentRawPage{}, false, err
+	}
+	documents, err := visibleStoredDocumentPage(
+		ctx,
+		boundary.partition,
+		entries,
+	)
+	if err != nil {
+		return storedDocumentRawPage{}, false, err
+	}
+	keep, err := visitStoredDocumentPage(ctx, documents, visit)
+	if err != nil {
+		return storedDocumentRawPage{}, false, err
+	}
+	return page, keep, nil
 }
 
 func (d documentVault) readStoredDocumentRawPage(

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/D4rk4/yago/yagonode/internal/vault"
 )
@@ -261,12 +262,6 @@ func scanStoredDocumentPagesForTest(
 	visit func(Document) (bool, error),
 ) error {
 	documents := directory.(documentVault)
-	release, err := documents.enterStoredDocumentScan(ctx)
-	if err != nil {
-		return err
-	}
-	defer release()
-
 	return documents.scanStoredDocumentPages(ctx, pageSize, visit)
 }
 
@@ -332,6 +327,129 @@ func TestStoredDocumentPageScannerFixesRawPageLimit(t *testing.T) {
 			engine.pageReads.Load(),
 		)
 	}
+}
+
+func TestStoredDocumentScansYieldAdmissionBetweenPages(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		scan func(
+			documentVault,
+			context.Context,
+			func(Document) (bool, error),
+		) error
+	}{
+		{
+			name: "complete scan",
+			scan: func(
+				documents documentVault,
+				ctx context.Context,
+				visit func(Document) (bool, error),
+			) error {
+				return documents.ScanStoredDocumentPages(ctx, visit)
+			},
+		},
+		{
+			name: "resumable scan",
+			scan: func(
+				documents documentVault,
+				ctx context.Context,
+				visit func(Document) (bool, error),
+			) error {
+				return documents.ScanStoredDocumentPagesFrom(
+					ctx,
+					"",
+					func(document *Document, _ string, _ bool) (bool, error) {
+						if document == nil {
+							return true, nil
+						}
+						return visit(*document)
+					},
+				)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory, receiver, _ := openPagedDocuments(t)
+			urls := make([]string, storedDocumentPageSize+1)
+			for index := range urls {
+				urls[index] = fmt.Sprintf("https://admission-yield.example/%02d", index)
+			}
+			receivePagedDocuments(t, receiver, urls...)
+			documentStore := directory.(documentVault)
+			assertStoredDocumentScanYieldsAdmission(t, documentStore, test.scan)
+		})
+	}
+}
+
+func assertStoredDocumentScanYieldsAdmission(
+	t *testing.T,
+	documents documentVault,
+	scan func(documentVault, context.Context, func(Document) (bool, error)) error,
+) {
+	t.Helper()
+	firstPageReached := make(chan struct{})
+	continueFirstScan := make(chan struct{})
+	firstScanDone := make(chan error, 1)
+	go func() {
+		visited := 0
+		firstScanDone <- scan(documents, t.Context(), func(Document) (bool, error) {
+			visited++
+			if visited == storedDocumentPageSize {
+				close(firstPageReached)
+				<-continueFirstScan
+			}
+			return true, nil
+		})
+	}()
+	<-firstPageReached
+	if len(documents.scanAdmission) != 1 {
+		t.Fatal("first page visitor ran without scan admission")
+	}
+	waiterAttempted := make(chan struct{})
+	waiterAcquired := make(chan struct{})
+	releaseWaiter := make(chan struct{})
+	waiterDone := make(chan struct{})
+	waiterReleased := false
+	releaseAcquiredWaiter := func() {
+		if !waiterReleased {
+			close(releaseWaiter)
+			waiterReleased = true
+		}
+	}
+	defer releaseAcquiredWaiter()
+	go func() {
+		defer close(waiterDone)
+		close(waiterAttempted)
+		release, err := documents.enterStoredDocumentScan(t.Context())
+		if err != nil {
+			return
+		}
+		close(waiterAcquired)
+		<-releaseWaiter
+		release()
+	}()
+	<-waiterAttempted
+	time.Sleep(25 * time.Millisecond)
+	close(continueFirstScan)
+	select {
+	case <-waiterAcquired:
+		select {
+		case err := <-firstScanDone:
+			t.Fatalf("scan completed before the waiting scan acquired admission: %v", err)
+		default:
+		}
+		releaseAcquiredWaiter()
+	case <-time.After(time.Second):
+		if err := <-firstScanDone; err != nil {
+			t.Fatal(err)
+		}
+		<-waiterAcquired
+		t.Fatal("waiting scan did not acquire admission between document pages")
+	}
+	if err := <-firstScanDone; err != nil {
+		t.Fatal(err)
+	}
+	<-waiterDone
 }
 
 func TestResumableStoredDocumentScanContinuesAfterSavedDocument(t *testing.T) {

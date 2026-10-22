@@ -199,6 +199,10 @@ or create recrawl work. It uses the crawler's tokenizer and common artifact
 builder, so regenerated postings follow Yago's current rules rather than
 claiming byte-for-byte reconstruction of YaCy's index.
 
+Document scans yield the scan gate between bounded pages. This lets backfill
+advance alongside startup corpus-maintenance scans instead of waiting for one
+full-corpus pass to finish.
+
 Create an API key with `admin:read` and `admin:write` scopes for status and
 control. Start with status and a bounded real pilot after backing up and
 verifying the Yago data directory:
