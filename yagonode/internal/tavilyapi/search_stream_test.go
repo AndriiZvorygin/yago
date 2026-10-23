@@ -24,9 +24,13 @@ func (progressiveAPISearcher) Search(
 ) (searchcore.Response, error) {
 	partial := searchcore.Response{
 		Request: request,
-		Results: []searchcore.Result{{
-			Title: "Partial result", URL: "https://example.test/page", Snippet: "partial text",
-		}},
+		Results: []searchcore.Result{
+			{
+				Title:   `["Partial result", "Alternate"]`,
+				URL:     "https://example.test/page",
+				Snippet: `["Partial result"]`,
+			},
+		},
 		PartialFailures: []searchcore.PartialFailure{{
 			Source: searchcore.PartialFailureSourceLocalSearch,
 			Reason: "incomplete shard coverage",
@@ -198,8 +202,11 @@ func TestSearchStreamReturnsProgressAndExplicitPartialFinal(t *testing.T) {
 	}
 	if events[1].RequestID != "stream-request" || events[1].Complete ||
 		events[1].Coverage == nil || events[1].Coverage.CompletedShards != 2 ||
-		events[1].Coverage.SampledShards != 1 ||
-		len(events[1].Results) != 1 {
+		events[1].Coverage.SampledShards != 1 || len(events[1].Results) != 1 ||
+		events[1].Results[0].Title != "Partial result" ||
+		events[1].Results[0].Content != "Partial result" ||
+		len(events[2].Results) != 1 || events[2].Results[0].Title != "Partial result" ||
+		events[2].Results[0].Content != "Partial result" {
 		t.Fatalf("progress event=%+v", events[1])
 	}
 	if events[2].Complete || events[2].Response == nil ||

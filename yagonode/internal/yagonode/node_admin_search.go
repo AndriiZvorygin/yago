@@ -60,6 +60,8 @@ func adminSearchResults(
 ) []adminui.SearchResult {
 	rendered := make([]adminui.SearchResult, 0, len(results))
 	for _, result := range results {
+		result.Title = searchcore.DisplayTitle(result.Title)
+		result.Snippet = searchcore.DisplayDescription(result.Title, result.Snippet)
 		rendered = append(rendered, adminui.SearchResult{
 			Title:       result.Title,
 			URL:         result.URL,

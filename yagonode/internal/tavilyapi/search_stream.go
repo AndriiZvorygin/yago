@@ -34,9 +34,9 @@ func progressStreamEvent(requestID string, progress searchcore.SearchProgress) s
 	results := make([]SearchResult, 0, len(progress.Response.Results))
 	for _, result := range progress.Response.Results {
 		results = append(results, SearchResult{
-			Title:   result.Title,
+			Title:   searchcore.DisplayTitle(result.Title),
 			URL:     result.URL,
-			Content: result.Snippet,
+			Content: searchcore.DisplayDescription(result.Title, result.Snippet),
 			Score:   result.Score,
 		})
 	}

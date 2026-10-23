@@ -199,7 +199,7 @@ func richSearchEndpoint() (searchEndpoint, *fakeSearcher, *fakeDocuments) {
 	}}
 	documents := &fakeDocuments{rows: map[string]documentstore.Document{
 		"https://example.org/doc": {
-			Title:         "Document title",
+			Title:         `["Document title", "Alternate title"]`,
 			ExtractedText: "Document text with enough local content for an agent response.",
 			Images: []documentstore.ImageMetadata{{
 				URL:     "https://example.org/image.png",

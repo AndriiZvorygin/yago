@@ -201,7 +201,8 @@ func TestResponseRSSItemRendersDublinCoreMetadata(t *testing.T) {
 		TotalResults: 1,
 		Request:      searchcore.Request{Query: "golang", Limit: 10},
 		Results: []searchcore.Result{{
-			Title:     "Doc",
+			Title:     `["Doc", "Alternate"]`,
+			Snippet:   `["Doc"]`,
 			URL:       "https://example.org/doc",
 			Author:    "Ada Lovelace",
 			Keywords:  "go, search",
@@ -214,7 +215,8 @@ func TestResponseRSSItemRendersDublinCoreMetadata(t *testing.T) {
 		t.Fatalf("items = %+v", feed.Channel.Items)
 	}
 	item := feed.Channel.Items[0]
-	if item.Creator != "Ada Lovelace" || item.Publisher != "Example Press" ||
+	if item.Title != "Doc" || item.Description != "Doc" ||
+		item.Creator != "Ada Lovelace" || item.Publisher != "Example Press" ||
 		item.Subject != "go, search" {
 		t.Fatalf("item = %+v", item)
 	}

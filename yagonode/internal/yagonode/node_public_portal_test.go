@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/D4rk4/yago/yagonode/internal/publicportal"
@@ -38,7 +39,8 @@ func TestPortalSourceMapsAndMarksResults(t *testing.T) {
 			{
 				DocumentID: "http://a/1",
 				Analyzer:   "en",
-				Title:      "local",
+				Title:      `["local", "alternate"]`,
+				Snippet:    `["local"]`,
 				URL:        "http://a/1",
 				DisplayURL: "a/1",
 				Host:       "a",
@@ -67,6 +69,10 @@ func TestPortalSourceMapsAndMarksResults(t *testing.T) {
 	assertPortalSearchWindow(t, searcher, results)
 	assertPortalSearchProvenance(t, results)
 	assertPortalSearchCachedLinks(t, results)
+	if results.Results[0].Title != "local" || results.Results[0].Snippet != "local" ||
+		strings.Contains(string(results.Results[0].SnippetHTML), `["local"]`) {
+		t.Fatalf("portal result retained serialized title values: %+v", results.Results[0])
+	}
 }
 
 func assertPortalSearchWindow(

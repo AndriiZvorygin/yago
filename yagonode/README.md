@@ -25,3 +25,8 @@ and
 for the design and resource bounds.
 
 Run the browser scenarios from [`ui-tests`](ui-tests/README.md).
+
+Search result adapters normalize imported title arrays for the public portal,
+agent search APIs, and YaCy HTML, JSON, RSS, and streaming results without
+rewriting the index. A duplicated array-valued description is replaced only
+when its first value matches the displayed title.

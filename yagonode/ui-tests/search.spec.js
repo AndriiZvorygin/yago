@@ -75,3 +75,18 @@ test('does not claim an incomplete empty search is complete', async ({ page }, t
   }
   await page.screenshot({ path: testInfo.outputPath('empty-search.png'), fullPage: true });
 });
+
+test('renders imported array-form titles as plain portal result titles', async ({ page }, testInfo) => {
+  const response = await page.goto('/?q=love');
+  expect(response?.status()).toBe(200);
+
+  const titles = page.locator('ul.results > li.result a.title');
+  await expect(titles.first()).toBeVisible({ timeout: 60_000 });
+  const values = await titles.allTextContents();
+  expect(values.length).toBeGreaterThan(0);
+  for (const title of values) {
+    expect(title.trim()).not.toMatch(/^\[\s*"/);
+  }
+
+  await page.screenshot({ path: testInfo.outputPath('plain-result-titles.png'), fullPage: true });
+});

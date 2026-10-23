@@ -112,7 +112,7 @@ func (s portalSource) Search(
 	out.Results = make([]publicportal.SearchResult, 0, len(response.Results))
 	lexicalPositions := searchcore.LexicalPositions(response.Results, response.Request.Offset)
 	for index, result := range response.Results {
-		provenance := resultProvenance(result)
+		result, provenance := portalResultForDisplay(result)
 		switch provenance {
 		case "web":
 			out.WebCount++
@@ -152,6 +152,13 @@ func (s portalSource) Search(
 	out.Facets = portalFacetGroups(query, response)
 
 	return out, nil
+}
+
+func portalResultForDisplay(result searchcore.Result) (searchcore.Result, string) {
+	result.Title = searchcore.DisplayTitle(result.Title)
+	result.Snippet = searchcore.DisplayDescription(result.Title, result.Snippet)
+
+	return result, resultProvenance(result)
 }
 
 func portalFacetGroups(

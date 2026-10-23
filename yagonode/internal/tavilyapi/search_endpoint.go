@@ -681,6 +681,8 @@ func (e searchEndpoint) responseResult(
 			resultImages, imageDetails = resultImagesFromDocument(req, doc)
 		}
 	}
+	result.Title = searchcore.DisplayTitle(result.Title)
+	content = searchcore.DisplayDescription(result.Title, content)
 	if content == "" {
 		content = result.Title
 	}
