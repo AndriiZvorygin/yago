@@ -103,6 +103,7 @@ func (s localSearcher) Search(
 				searchcore.ReportSearchProgress(ctx, searchcore.SearchProgress{
 					Response:        response,
 					CompletedShards: progress.CompletedShards,
+					SampledShards:   progress.SampledShards,
 					TotalShards:     progress.TotalShards,
 					Complete:        progress.Complete,
 				})
@@ -150,6 +151,7 @@ func (s localSearcher) responseFromSet(
 			resultSet.CompletedShards == resultSet.TotalShards
 		response.Coverage = &searchcore.SearchCoverage{
 			CompletedShards: resultSet.CompletedShards,
+			SampledShards:   resultSet.SampledShards,
 			TotalShards:     resultSet.TotalShards,
 			Complete:        coverageComplete,
 		}

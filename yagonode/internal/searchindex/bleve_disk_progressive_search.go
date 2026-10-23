@@ -88,11 +88,15 @@ func (b *BleveDiskIndex) searchProgressivelyInOrder(
 
 		completed++
 		combined = mergeProgressiveShardResult(combined, result, req.MaxResults, completed)
+		if result.Incomplete {
+			combined.SampledShards++
+		}
 		if notify != nil {
 			notify(SearchProgress{
 				Results: combined, CompletedShards: completed,
-				TotalShards: len(b.shards),
-				Complete:    completed == len(b.shards) && !combined.Incomplete,
+				SampledShards: combined.SampledShards,
+				TotalShards:   len(b.shards),
+				Complete:      completed == len(b.shards) && !combined.Incomplete,
 			})
 		}
 	}
@@ -187,6 +191,18 @@ func cryptographicSearchRandomIndex(maximum int) (int, error) {
 	}
 
 	return int(value.Int64()), nil
+}
+
+func cryptographicSearchRandomDocumentID(maximum uint64) (uint64, error) {
+	if maximum == 0 {
+		return 0, fmt.Errorf("progressive document range must be positive")
+	}
+	value, err := cryptorand.Int(cryptorand.Reader, new(big.Int).SetUint64(maximum))
+	if err != nil {
+		return 0, fmt.Errorf("read operating system random source: %w", err)
+	}
+
+	return value.Uint64(), nil
 }
 
 func mergeProgressiveShardResults(

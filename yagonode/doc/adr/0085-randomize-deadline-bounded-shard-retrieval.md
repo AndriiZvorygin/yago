@@ -30,10 +30,20 @@ flag. Totals from an incomplete run are lower bounds. If all shards complete
 without candidate truncation, report complete coverage even if the primary
 alias attempt timed out.
 
+For a progressive request, a shard larger than the candidate window starts at
+a cryptographically randomized internal-ID position and inspects at most 256
+matching candidates. Report the sampled shard count alongside shard progress;
+sampled windows leave coverage incomplete. Exact, non-progressive searches
+retain the existing 4,096-candidate per-shard bound and fallback behavior.
+Internal IDs can be sparse, so the random position is not a statistical
+guarantee of uniform sampling over live matches; the response remains explicitly
+partial.
+
 Expose cumulative progress over NDJSON at `/search/stream` and
 `/yacysearch.ndjson`, and let the HTML search page consume the YaCy-compatible
 stream when browser streaming is available. Keep the ordinary JSON routes and
-all existing fields; add only completeness and coverage metadata.
+all existing fields; add completeness and coverage metadata, including sampled
+shards.
 
 ## Consequences
 

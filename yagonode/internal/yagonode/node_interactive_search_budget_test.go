@@ -151,8 +151,14 @@ func TestInteractiveSearchBudgetExtendsProgressiveRequests(t *testing.T) {
 		t.Fatalf("Search: %v", err)
 	}
 	deadline := <-inner.deadline
-	if remaining := time.Until(deadline); remaining < progressiveInteractiveSearchBudget-time.Second {
-		t.Fatalf("progressive search budget remaining = %s; started %s ago", remaining, time.Since(started))
+	if remaining := time.Until(
+		deadline,
+	); remaining < progressiveInteractiveSearchBudget-time.Second {
+		t.Fatalf(
+			"progressive search budget remaining = %s; started %s ago",
+			remaining,
+			time.Since(started),
+		)
 	}
 }
 

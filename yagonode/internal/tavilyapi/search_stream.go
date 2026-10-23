@@ -49,6 +49,7 @@ func progressStreamEvent(requestID string, progress searchcore.SearchProgress) s
 		Complete:  progress.Complete,
 		Coverage: &searchcore.SearchCoverage{
 			CompletedShards: progress.CompletedShards,
+			SampledShards:   progress.SampledShards,
 			TotalShards:     progress.TotalShards,
 			Complete:        progress.Complete,
 		},

@@ -21,6 +21,8 @@ When an eligible first-page plain query reaches the primary full-text deadline,
 the node uses the reserved final portion of the same request budget to search
 shards in a per-request OS-cryptographic-random order. The browser can render
 shard progress as it arrives; agents can consume NDJSON from `/search/stream`
-or `/yacysearch.ndjson`. Responses expose completeness and shard coverage so a
-partial result is not mistaken for an exact empty answer. The ordinary full-text
-alias search remains the primary path.
+or `/yacysearch.ndjson`. Large shards return a bounded sample from a randomized
+internal-ID position; coverage reports sampled separately from fully searched
+shards. Responses expose completeness so a partial result is not mistaken for
+an exact empty answer. The ordinary full-text alias search remains the primary
+path.

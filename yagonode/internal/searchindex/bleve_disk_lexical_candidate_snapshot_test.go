@@ -3,6 +3,8 @@ package searchindex
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -525,6 +527,140 @@ func TestBleveLexicalCandidateSnapshotAllowsBoundedIncompleteWindow(t *testing.T
 	}
 }
 
+func TestProgressiveCandidateSnapshotSeeksToRandomBoundedWindow(t *testing.T) {
+	reader := &bleveLexicalCandidateIndexReaderProbe{count: 1_000}
+	incomplete := &atomic.Bool{}
+	var randomRange uint64
+	query := &bleveLexicalCandidateSnapshotQuery{
+		candidate: &bleveLexicalCandidateQueryProbe{
+			searcher: newBleveLexicalCandidateSearcherProbe(
+				bleveindex.NewIndexInternalID(nil, 10),
+				bleveindex.NewIndexInternalID(nil, 128),
+				bleveindex.NewIndexInternalID(nil, 300),
+				bleveindex.NewIndexInternalID(nil, 400),
+			),
+		},
+		maximumDocuments: 2,
+		allowIncomplete:  true,
+		incomplete:       incomplete,
+		randomStart: func(maximum uint64) (uint64, error) {
+			randomRange = maximum
+
+			return 129, nil
+		},
+	}
+	window, err := query.Searcher(
+		t.Context(), reader, mapping.NewIndexMapping(), search.SearcherOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if randomRange != 1_000 || window.Count() != 2 || !incomplete.Load() {
+		t.Fatalf(
+			"random range=%d count=%d incomplete=%t",
+			randomRange,
+			window.Count(),
+			incomplete.Load(),
+		)
+	}
+	matchContext := &search.SearchContext{
+		DocumentMatchPool: search.NewDocumentMatchPool(window.DocumentMatchPoolSize(), 0),
+		IndexReader:       reader,
+	}
+	for position, want := range []uint64{300, 400} {
+		match, err := window.Next(matchContext)
+		if err != nil || match == nil || match.IndexInternalID.Value() != want {
+			t.Fatalf("window match %d=%+v error=%v want id=%d", position, match, err, want)
+		}
+		matchContext.DocumentMatchPool.Put(match)
+	}
+	if err := window.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProgressiveCandidateSnapshotRejectsInvalidRandomWindow(t *testing.T) {
+	query := &bleveLexicalCandidateSnapshotQuery{
+		candidate: &bleveLexicalCandidateQueryProbe{
+			searcher: newBleveLexicalCandidateSearcherProbe(),
+		},
+		maximumDocuments: 1,
+		allowIncomplete:  true,
+		randomStart: func(maximum uint64) (uint64, error) {
+			return maximum, nil
+		},
+	}
+	if _, err := query.Searcher(
+		t.Context(),
+		&bleveLexicalCandidateIndexReaderProbe{count: 100},
+		mapping.NewIndexMapping(),
+		search.SearcherOptions{},
+	); err == nil {
+		t.Fatal("out-of-range random sample position was accepted")
+	}
+}
+
+func TestProgressiveCandidateSnapshotAdvancesWithinRealBleveShard(t *testing.T) {
+	index, err := bleve.New(filepath.Join(t.TempDir(), "sample.bleve"), bleve.NewIndexMapping())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = index.Close() })
+	batch := index.NewBatch()
+	for ordinal := range 1_000 {
+		if err := batch.Index(fmt.Sprintf("doc-%04d", ordinal), map[string]string{
+			"body": "needle result",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := index.Batch(batch); err != nil {
+		t.Fatal(err)
+	}
+	advanced, err := index.Advanced()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := advanced.Reader()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reader.Close() })
+	incomplete := &atomic.Bool{}
+	candidate := bleve.NewTermQuery("needle")
+	candidate.SetField("body")
+	query := &bleveLexicalCandidateSnapshotQuery{
+		candidate:        candidate,
+		maximumDocuments: 32,
+		allowIncomplete:  true,
+		incomplete:       incomplete,
+		randomStart: func(uint64) (uint64, error) {
+			return 500, nil
+		},
+	}
+	window, err := query.Searcher(
+		t.Context(), reader, index.Mapping(), search.SearcherOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = window.Close() })
+	if window.Count() != 32 || !incomplete.Load() {
+		t.Fatalf("window count=%d incomplete=%t", window.Count(), incomplete.Load())
+	}
+	matchContext := &search.SearchContext{
+		DocumentMatchPool: search.NewDocumentMatchPool(window.DocumentMatchPoolSize(), 0),
+		IndexReader:       reader,
+	}
+	for position := range 32 {
+		match, err := window.Next(matchContext)
+		if err != nil || match == nil || match.IndexInternalID.Value() < 500 {
+			t.Fatalf("sample match %d=%+v error=%v", position, match, err)
+		}
+		matchContext.DocumentMatchPool.Put(match)
+	}
+}
+
 func TestBleveLexicalCandidateSnapshotQueryReturnsOverflowReaderFailures(t *testing.T) {
 	sentinel := errors.New("all documents failed")
 	failedCandidate := &bleveLexicalCandidateSnapshotQuery{
@@ -578,9 +714,17 @@ func TestNewBleveLexicalCandidateSnapshotQueryUsesPerShardBound(t *testing.T) {
 	).(*bleveLexicalCandidateSnapshotQuery)
 	if !ok || query.candidate == nil ||
 		query.maximumDocuments != diskLexicalCandidateMaximumDocumentsPerShard ||
+		query.randomStart == nil ||
 		diskLexicalCandidateMaximumDocumentsPerShard*diskShardCount !=
 			diskLexicalCandidateMaximumDocuments {
 		t.Fatalf("candidate query=%#v", query)
+	}
+	progressive, ok := newBleveLexicalCandidateSnapshotQuery(
+		SearchRequest{Query: "needle"}, true, true, nil,
+	).(*bleveLexicalCandidateSnapshotQuery)
+	if !ok || progressive.maximumDocuments != diskLexicalCandidateProgressiveWindowDocuments ||
+		progressive.randomStart == nil {
+		t.Fatalf("progressive candidate query=%#v", progressive)
 	}
 }
 

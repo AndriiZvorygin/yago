@@ -183,6 +183,7 @@ type Response struct {
 
 type SearchCoverage struct {
 	CompletedShards int  `json:"completed_shards"`
+	SampledShards   int  `json:"sampled_shards,omitempty"`
 	TotalShards     int  `json:"total_shards"`
 	Complete        bool `json:"complete"`
 }

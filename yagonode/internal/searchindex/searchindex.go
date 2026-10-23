@@ -25,6 +25,7 @@ type ProgressiveSearchIndex interface {
 type SearchProgress struct {
 	Results         SearchResultSet
 	CompletedShards int
+	SampledShards   int
 	TotalShards     int
 	Complete        bool
 }
@@ -115,6 +116,7 @@ type SearchResultSet struct {
 	Total           int
 	Incomplete      bool
 	CompletedShards int
+	SampledShards   int
 	TotalShards     int
 }
 

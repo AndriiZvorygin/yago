@@ -5,6 +5,7 @@ import "context"
 type SearchProgress struct {
 	Response        Response
 	CompletedShards int
+	SampledShards   int
 	TotalShards     int
 	Complete        bool
 }

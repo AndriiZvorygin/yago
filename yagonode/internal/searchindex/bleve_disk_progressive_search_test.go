@@ -3,11 +3,15 @@ package searchindex
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"testing"
 
 	"github.com/blevesearch/bleve/v2"
+
+	"github.com/D4rk4/yago/yagonode/internal/documentstore"
 )
 
 type progressiveShardProbe struct {
@@ -93,6 +97,18 @@ func TestCryptographicSearchRandomIndexReturnsInRange(t *testing.T) {
 	}
 }
 
+func TestCryptographicSearchRandomDocumentIDReturnsInRange(t *testing.T) {
+	for range 32 {
+		value, err := cryptographicSearchRandomDocumentID(10_000)
+		if err != nil || value >= 10_000 {
+			t.Fatalf("random document ID = %d, error = %v", value, err)
+		}
+	}
+	if _, err := cryptographicSearchRandomDocumentID(0); err == nil {
+		t.Fatal("zero document range was accepted")
+	}
+}
+
 func TestProgressiveDiskSearchReportsCompletedShards(t *testing.T) {
 	index, calls := progressiveDiskIndex(8, -1, nil, func(int) (int, error) {
 		return 0, nil
@@ -118,6 +134,98 @@ func TestProgressiveDiskSearchReportsCompletedShards(t *testing.T) {
 	if reflect.DeepEqual(*calls, []int{0, 1, 2, 3, 4, 5, 6, 7}) {
 		t.Fatalf("fixed shard order was retained: %v", *calls)
 	}
+}
+
+func TestProgressiveDiskSearchReportsSampledShardCoverage(t *testing.T) {
+	index := newSampledProgressiveDiskIndex(t)
+	var updates []SearchProgress
+	result, err := index.SearchProgressively(
+		t.Context(), SearchRequest{
+			Query: "needle", Terms: []string{"needle"}, MaxResults: 10,
+		},
+		func(progress SearchProgress) { updates = append(updates, progress) },
+	)
+	if err == nil {
+		t.Fatal("sampled progressive search reported complete coverage")
+	}
+	if !result.Incomplete || result.CompletedShards != diskShardCount ||
+		result.SampledShards != diskShardCount || result.TotalShards != diskShardCount {
+		t.Fatalf("sampled progressive result = %+v", result)
+	}
+	if len(updates) != diskShardCount ||
+		updates[0].SampledShards != 1 ||
+		updates[len(updates)-1].SampledShards != diskShardCount {
+		t.Fatalf("sampled progress updates = %+v", updates)
+	}
+}
+
+func sampledProgressiveDocuments() []documentstore.Document {
+	shards := make([]bleve.Index, diskShardCount)
+	documents := make([]documentstore.Document, 0, diskShardCount*300)
+	perShard := make([]int, diskShardCount)
+	for ordinal := 0; len(documents) < diskShardCount*300; ordinal++ {
+		url := fmt.Sprintf("https://sample-%d.example/page", ordinal)
+		shard := diskShardNumber(shards, url)
+		if perShard[shard] == 300 {
+			continue
+		}
+		perShard[shard]++
+		documents = append(documents, documentstore.Document{
+			NormalizedURL: url,
+			Title:         "needle result",
+			ExtractedText: "needle matching body",
+			Language:      "en",
+		})
+	}
+
+	return documents
+}
+
+func newSampledProgressiveDiskIndex(t *testing.T) *BleveDiskIndex {
+	t.Helper()
+	documents := sampledProgressiveDocuments()
+	indexMapping, err := newSearchIndexMapping()
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexes := make([]bleve.Index, diskShardCount)
+	t.Cleanup(func() { closeBleveShards(indexes) })
+	for shardNumber := range indexes {
+		shard, err := newBleveShard(
+			filepath.Join(t.TempDir(), fmt.Sprintf("progressive-%d.bleve", shardNumber)),
+			indexMapping,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		indexes[shardNumber] = shard
+		batch := shard.NewBatch()
+		for _, document := range documents {
+			if diskShardNumber(indexes, document.NormalizedURL) != shardNumber {
+				continue
+			}
+			indexed, err := bleveDocumentFromStore(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := batch.Index(documentID(document), indexed); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := shard.Batch(batch); err != nil {
+			t.Fatal(err)
+		}
+	}
+	index := &BleveDiskIndex{
+		shards:           indexes,
+		alias:            newBleveDiskSearchAlias(indexes),
+		documents:        newFakeDocumentDirectory(documents...),
+		multilingual:     supportsMultilingualAnalyzers(indexes[0]),
+		analyzerScope:    supportsAnalyzerScope(indexes[0]),
+		storedCandidates: supportsStoredCandidateProjection(indexes[0]),
+	}
+
+	return index
 }
 
 func TestProgressiveDiskSearchReturnsCompletedShardWorkAtDeadline(t *testing.T) {
