@@ -862,7 +862,15 @@ per-feature test pointers is [FEATURES.md](FEATURES.md).
 ```sh
 make verify   # static analysis · API/vulnerability gates · shuffled/race/fuzz tests · exact coverage · build
 make e2e      # build current images, then run containerized node/crawler suites
+make test-one FOCUSED_MODULE=yagonode FOCUSED_PACKAGE=./internal/yagonode FOCUSED_TEST='^TestName$'
+make test-one-race FOCUSED_MODULE=yagonode FOCUSED_PACKAGE=./internal/yagonode FOCUSED_TEST='^TestName$'
 ```
+
+Set `FOCUSED_MODULE` and `FOCUSED_PACKAGE` to select a module and package;
+`FOCUSED_TEST` is an optional Go test-name regular expression (anchor it with
+`^` and `$` to select one exact test). Omit `FOCUSED_TEST` to run all tests in
+that package. `test-one-race` runs the same selection with the race detector.
+These focused targets do not replace the full `make verify` release gate.
 
 Every feature lands with tests; new third-party dependencies require an ADR
 first; `make verify` plus Semgrep and Trivy scans gate every commit. Build,

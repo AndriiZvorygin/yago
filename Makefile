@@ -18,7 +18,7 @@ API_COMPATIBILITY_BASELINE := $(CURDIR)/tools/api-compatibility-baseline
 TEST_SHUFFLE_SEED := $(shell cat $(CURDIR)/tools/test-shuffle-seed)
 FUZZ_SMOKE_TIME ?= 5s
 
-.PHONY: tools proto-tools proto tidy tidy-check fmt fmt-check lint vet gosec nilaway api-compatibility govulncheck arch race test test-shuffle fuzz-smoke cover coverage-check-test go-module-download-test cover-check build verify compose-images e2e e2e-node e2e-crawler e2e-node-image e2e-crawler-image peer-hash
+.PHONY: tools proto-tools proto tidy tidy-check fmt fmt-check lint vet gosec nilaway api-compatibility govulncheck arch race test test-one test-one-race test-shuffle fuzz-smoke cover coverage-check-test go-module-download-test cover-check build verify compose-images e2e e2e-node e2e-crawler e2e-node-image e2e-crawler-image peer-hash
 
 PROTOC ?= protoc
 PROTO_MODULE := github.com/D4rk4/yago/yagocrawlcontract
@@ -26,6 +26,10 @@ PROTOC_GEN_GO_VERSION ?= v1.36.6
 PROTOC_GEN_GO_GRPC_VERSION ?= v1.5.1
 
 E2E_TIMEOUT ?= 25m
+FOCUSED_MODULE ?= yagonode
+FOCUSED_PACKAGE ?=
+FOCUSED_TEST ?=
+FOCUSED_TIMEOUT ?= 20m
 E2E_NODE_IMAGE ?= yago-node:e2e
 E2E_CRAWLER_IMAGE ?= yago-crawler:e2e
 SOURCE_REVISION ?= unknown
@@ -111,6 +115,22 @@ race:
 	done
 
 test: race
+
+# Run one package or named test without the rest of the repository suite.
+# Example: make test-one FOCUSED_MODULE=yagonode FOCUSED_PACKAGE=./internal/yagonode FOCUSED_TEST='^TestName$'
+test-one: FOCUSED_RACE_FLAG :=
+test-one-race: FOCUSED_RACE_FLAG := -race
+test-one test-one-race:
+	@set -e; \
+	case " $(MODULES) " in \
+		*" $(FOCUSED_MODULE) "*) ;; \
+		*) echo "unknown Go module: $(FOCUSED_MODULE)" >&2; exit 2 ;; \
+	esac; \
+	if [ -z "$(FOCUSED_PACKAGE)" ]; then \
+		echo "FOCUSED_PACKAGE must name a Go package or package pattern" >&2; exit 2; \
+	fi; \
+	echo "==> focused test $(FOCUSED_MODULE)/$(FOCUSED_PACKAGE)"; \
+	( cd "$(FOCUSED_MODULE)" && $(GO) test $(FOCUSED_RACE_FLAG) -count=1 -timeout=$(FOCUSED_TIMEOUT) $(if $(strip $(FOCUSED_TEST)),-run '$(FOCUSED_TEST)',) "$(FOCUSED_PACKAGE)" )
 
 test-shuffle:
 	@case "$(TEST_SHUFFLE_SEED)" in \
