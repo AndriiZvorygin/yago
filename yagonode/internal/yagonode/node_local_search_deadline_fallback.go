@@ -96,7 +96,11 @@ func (s localSearchDeadlineFallback) runFallback(
 ) searchcore.Response {
 	response, err := s.fallback.Search(ctx, req)
 	if err != nil {
-		return incompleteAfterFallbackFailure(req, primaryResponse)
+		if len(response.Results) == 0 && response.Coverage == nil {
+			response = primaryResponse
+		}
+
+		return incompleteAfterFallbackFailure(req, response)
 	}
 	response.Request = req
 	if response.Coverage == nil || !response.Coverage.Complete {
