@@ -105,6 +105,14 @@ an honest complete miss.
 | MCP and OpenAI-compatible AI surfaces | `/tools*`, `/v1/*`, `/api/tags` | — | unsupported | Deliberate non-goal (operator decision, 2026-07): upstream grew an MCP JSON-RPC search server and OpenAI/Ollama proxy endpoints, but this node's agent surface is the Tavily-compatible `/search`, `/extract`, `/crawl`, and `/map` API — one agent protocol, kept simple. |
 | Full embedded Solr API | `/solr/*` | GET, POST | unsupported | Full Solr server compatibility is not a Go peer target. No Solr subset is planned. |
 
+The YaCy-compatible HTML and JSON search surfaces render a valid array of title
+strings as its first nonempty title. If a description is itself an array whose
+first nonempty string matches that displayed title, the adapter renders the
+title in place of the duplicated serialized value. This presentation-only
+normalization also applies to existing stored documents without changing the
+index; ordinary descriptions, unrelated JSON snippets, malformed values, and
+non-string arrays remain unchanged.
+
 ### Swarm remote-search interop (no-Solr divergence)
 
 This node participates in YaCy distributed search over the RWI hash path only; it
