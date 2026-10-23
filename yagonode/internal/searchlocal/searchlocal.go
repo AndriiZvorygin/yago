@@ -96,6 +96,10 @@ func (s localSearcher) Search(
 				if err != nil {
 					return
 				}
+				response.TotalResults = min(
+					response.TotalResults,
+					searchcore.MaximumPublicResultHorizon,
+				)
 				searchcore.ReportSearchProgress(ctx, searchcore.SearchProgress{
 					Response:        response,
 					CompletedShards: progress.CompletedShards,

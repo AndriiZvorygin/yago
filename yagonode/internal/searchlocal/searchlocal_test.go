@@ -141,6 +141,41 @@ func TestProgressiveSearcherReportsIncompleteCoverageUntilAllShardsFinish(t *tes
 	}
 }
 
+func TestProgressiveSearcherCapsProgressCountToPublicResultHorizon(t *testing.T) {
+	partial := searchindex.SearchResultSet{
+		Total: 4_000,
+		Results: []searchindex.SearchResult{{
+			DocumentID: "result", Title: "Sample result", URL: "https://example.test/page",
+		}},
+		Incomplete: true, CompletedShards: 1, TotalShards: 8,
+	}
+	index := &fakeProgressiveIndex{
+		fakeIndex: &fakeIndex{},
+		progress: searchindex.SearchProgress{
+			Results: partial, CompletedShards: 1, TotalShards: 8,
+		},
+		result: partial,
+		err:    context.DeadlineExceeded,
+	}
+	var progress searchcore.SearchProgress
+	ctx := searchcore.WithSearchProgressObserver(
+		t.Context(),
+		func(update searchcore.SearchProgress) {
+			progress = update
+		},
+	)
+	_, err := NewProgressiveSearcherWithRanking(index, nil, nil).Search(
+		ctx,
+		searchcore.Request{
+			Query: "Sample", Terms: []string{"Sample"}, Limit: 10,
+		},
+	)
+	if err != nil || progress.Response.TotalResults != searchcore.MaximumPublicResultHorizon ||
+		progress.Response.Coverage == nil || progress.Response.Coverage.CompletedShards != 1 {
+		t.Fatalf("progress=%+v err=%v", progress, err)
+	}
+}
+
 func TestTitleOnlySearcherMarksBodyEvidenceAsUnavailable(t *testing.T) {
 	index := &fakeIndex{response: searchindex.SearchResultSet{
 		Total: 1,
