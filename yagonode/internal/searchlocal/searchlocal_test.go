@@ -109,12 +109,12 @@ func TestProgressiveSearcherReportsIncompleteCoverageUntilAllShardsFinish(t *tes
 		Results: []searchindex.SearchResult{{
 			DocumentID: "result", Title: "Sample result", URL: "https://example.test/page",
 		}},
-		Incomplete: true, CompletedShards: 1, TotalShards: 8,
+		Incomplete: true, CompletedShards: 1, SampledShards: 1, TotalShards: 8,
 	}
 	index := &fakeProgressiveIndex{
 		fakeIndex: &fakeIndex{},
 		progress: searchindex.SearchProgress{
-			Results: partial, CompletedShards: 1, TotalShards: 8,
+			Results: partial, CompletedShards: 1, SampledShards: 1, TotalShards: 8,
 		},
 		result: partial,
 		err:    context.DeadlineExceeded,
@@ -132,9 +132,10 @@ func TestProgressiveSearcherReportsIncompleteCoverageUntilAllShardsFinish(t *tes
 			Query: "Sample", Terms: []string{"Sample"}, Limit: 10,
 		},
 	)
-	if err != nil || progress.Response.Coverage == nil || progress.Response.Coverage.Complete ||
+	if err != nil || progress.SampledShards != 1 || progress.Response.Coverage == nil ||
+		progress.Response.Coverage.SampledShards != 1 || progress.Response.Coverage.Complete ||
 		progress.Response.Coverage.CompletedShards != 1 || len(progress.Response.PartialFailures) == 0 ||
-		response.Coverage == nil || response.Coverage.Complete ||
+		response.Coverage == nil || response.Coverage.SampledShards != 1 || response.Coverage.Complete ||
 		response.Coverage.CompletedShards != 1 || len(response.PartialFailures) == 0 ||
 		len(response.Results) != 1 {
 		t.Fatalf("progress=%+v response=%+v err=%v", progress, response, err)

@@ -35,14 +35,14 @@ func (searcher *progressReportingSearcher) Search(
 				},
 			},
 			Coverage: &searchcore.SearchCoverage{
-				CompletedShards: 2, TotalShards: 8, Complete: false,
+				CompletedShards: 2, SampledShards: 1, TotalShards: 8, Complete: false,
 			},
 			PartialFailures: []searchcore.PartialFailure{{
 				Source: searchcore.PartialFailureSourceLocalSearch,
 				Reason: "incomplete shard coverage",
 			}},
 		},
-		CompletedShards: 2, TotalShards: 8,
+		CompletedShards: 2, SampledShards: 1, TotalShards: 8,
 	})
 	searcher.response.Request = request
 
@@ -97,6 +97,8 @@ func TestProgressiveJSONEndpointStreamsPartialAndFinalResponses(t *testing.T) {
 	}
 	if events[1].Complete || events[1].CompletedShards != 2 ||
 		events[1].TotalShards != 8 || events[1].Response == nil ||
+		events[1].Response.Coverage == nil ||
+		events[1].Response.Coverage.SampledShards != 1 ||
 		events[1].Response.Channels[0].Items[0].Title != "Partial title" {
 		t.Fatalf("partial event = %+v", events[1])
 	}

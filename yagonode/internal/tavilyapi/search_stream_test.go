@@ -29,11 +29,11 @@ func (progressiveAPISearcher) Search(
 			Reason: "incomplete shard coverage",
 		}},
 		Coverage: &searchcore.SearchCoverage{
-			CompletedShards: 2, TotalShards: 8, Complete: false,
+			CompletedShards: 2, SampledShards: 1, TotalShards: 8, Complete: false,
 		},
 	}
 	searchcore.ReportSearchProgress(ctx, searchcore.SearchProgress{
-		Response: partial, CompletedShards: 2, TotalShards: 8,
+		Response: partial, CompletedShards: 2, SampledShards: 1, TotalShards: 8,
 	})
 
 	return partial, nil
@@ -89,6 +89,7 @@ func TestSearchStreamReturnsProgressAndExplicitPartialFinal(t *testing.T) {
 	}
 	if events[1].RequestID != "stream-request" || events[1].Complete ||
 		events[1].Coverage == nil || events[1].Coverage.CompletedShards != 2 ||
+		events[1].Coverage.SampledShards != 1 ||
 		len(events[1].Results) != 1 {
 		t.Fatalf("progress event=%+v", events[1])
 	}
