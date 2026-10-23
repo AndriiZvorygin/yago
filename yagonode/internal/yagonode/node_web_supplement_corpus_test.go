@@ -39,21 +39,7 @@ func TestSupplementationOnBoundedDocumentCorpus(t *testing.T) {
 		}
 	}
 	var webCalls atomic.Int32
-	client := &http.Client{
-		Transport: fallbackRoundTrip(func(request *http.Request) (*http.Response, error) {
-			webCalls.Add(1)
-			title := html.EscapeString(request.URL.Query().Get("q"))
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Header:     make(http.Header),
-				Body: io.NopCloser(
-					strings.NewReader(
-						`<ol><li><h2><a href="https://web.example/reference">` + title + `</a></h2><p>` + title + `</p></li></ol>`,
-					),
-				),
-			}, nil
-		}),
-	}
+	client := supplementationTestClient(&webCalls)
 	assembly := productionShapeSearchAssembly(client)
 	assembly.webFallback.Backend = "mojeek"
 	assembly.webFallback.CacheTTL = 0
@@ -63,13 +49,16 @@ func TestSupplementationOnBoundedDocumentCorpus(t *testing.T) {
 		productionShapeSwarmMiss{},
 		assembly,
 	)
+	streamContext := searchcore.WithSearchProgressObserver(
+		t.Context(), func(searchcore.SearchProgress) {},
+	)
 	durations := make([]time.Duration, 0, 25)
 	for range 5 {
 		for _, size := range []int{0, 1, 99, 100, 101} {
 			before := webCalls.Load()
 			start := time.Now()
 			response, err := search.Search(
-				t.Context(),
+				streamContext,
 				searchcore.Request{
 					Query:  fmt.Sprintf("needle corpus%d", size),
 					Source: searchcore.SourceGlobal,
@@ -97,4 +86,22 @@ func TestSupplementationOnBoundedDocumentCorpus(t *testing.T) {
 		durations[23],
 		durations[24],
 	)
+}
+
+func supplementationTestClient(webCalls *atomic.Int32) *http.Client {
+	return &http.Client{
+		Transport: fallbackRoundTrip(func(request *http.Request) (*http.Response, error) {
+			webCalls.Add(1)
+			title := html.EscapeString(request.URL.Query().Get("q"))
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body: io.NopCloser(
+					strings.NewReader(
+						`<ol><li><h2><a href="https://web.example/reference">` + title + `</a></h2><p>` + title + `</p></li></ol>`,
+					),
+				),
+			}, nil
+		}),
+	}
 }

@@ -84,6 +84,14 @@ equivalent host with one leading `www.` label. Other subdomains are excluded. A
 modifier-only request remains keyword-seeded and returns the existing add-word
 hint rather than scanning the corpus.
 
+The public search form can progressively render results when browser streaming
+is available. `/yacysearch.ndjson` accepts the same query parameters as
+`/yacysearch.json` and emits `started`, cumulative `progress`, and `final`
+events. Its progress events carry the current YaCy-shaped response and shard
+coverage. YaCy JSON and Tavily search responses add `complete` and optional
+`coverage` fields; an incomplete zero-result response is distinguishable from
+an honest complete miss.
+
 | Surface | Path | Methods | Status | Behavior |
 | --- | --- | --- | --- | --- |
 | YaCy search JSON | `/yacysearch.json` | GET | implemented | Serves local full-text and DHT-selected reachable-peer search results in an upstream-like JSON shape (channel `image`/opensearch fields and the full item shape `title`/`link`/`code`/`description`/`pubDate`/`size`/`sizename`/`guid`/`host`/`path`/`file`/`urlhash`/`ranking`); multi-term remote search uses YaCy index abstracts before secondary URL retrieval, and remote results are ranked with the local ranking profile before the calibrated federated merge (YaCy 1.4 harmonization). An unknown publication date remains an empty `pubDate`; fetch and index time are never substituted. Operational search failures preserve any completed rows as a partial response instead of turning the surface unavailable. A swarm deadline preserves a completed local branch. A classified outer, exact, local-recovery, or provider-incomplete refresh cannot replace an unexpired nonempty search session or extend its TTL; an incomplete global request may use equivalent unexpired local coverage without storing a synthetic global session, while a genuine local miss carrying only peer failures remains an honest empty answer. A `nav=` request returns the `navigation` array (hosts/authors/filetypes/languages/protocols/dates with per-value counts and refine `modifier`/`url`); the filetype navigator and the `filetype:` operator classify a document from its Content-Type with the URL extension as a fallback, so an extension-less PDF or office document (an arxiv `/pdf/<id>`) is matched, not only a `.pdf` URL (ADR-0042); the `author:` operator and the `author=` param steer the author filter; `count` is honored as the OpenSearch alias for `maximumRecords`. Query suggestions are served by the dedicated `/suggest.json` and `/suggest.xml` endpoints rather than embedded in the response, matching upstream; the YaCy-internal `faviconCode` favicon-hash is omitted (this node proxies favicons by host URL). |
@@ -167,6 +175,13 @@ encoded expression fits its fixed query ceiling. IPv6 literals and oversized
 expressions retain the base query. Exclusion wins over inclusion; bounded
 overfetch and the final returned-host check remain authoritative and prevent a
 disallowed high-ranked duplicate from consuming an allowed row's slot.
+
+`POST /search/stream` accepts the same body and authorization scopes as
+`POST /search`. It emits newline-delimited JSON `started`, cumulative local
+`progress`, and `final` events; the final event contains the normal Tavily
+response shape. Progress and final events include shard coverage and explicit
+completeness. The non-streaming `/search` route remains available to agents that
+prefer one JSON response.
 
 | Surface | Path | Methods | Status | Behavior |
 | --- | --- | --- | --- | --- |

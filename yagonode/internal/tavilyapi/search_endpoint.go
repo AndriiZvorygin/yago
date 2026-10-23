@@ -20,6 +20,7 @@ import (
 
 const (
 	PathSearch            = "/search"
+	PathSearchStream      = "/search/stream"
 	requestIDHeader       = "X-Request-ID"
 	defaultMaxResults     = 5
 	maxResultsCap         = 20
@@ -38,6 +39,7 @@ type searchEndpoint struct {
 	intake          *requestAdmission
 	now             func() time.Time
 	rawWorkDuration time.Duration
+	stream          bool
 }
 
 type SearchAdmission func(*http.Request) (func(), int, time.Duration)
@@ -80,15 +82,18 @@ type inclusionMode string
 // images is an array of URL strings unless include_image_descriptions asks for
 // {url, description} objects — real Tavily clients index into both.
 type SearchResponse struct {
-	Query             string            `json:"query"`
-	FollowUpQuestions *[]string         `json:"follow_up_questions"`
-	Answer            *string           `json:"answer"`
-	Images            any               `json:"images"`
-	Results           []SearchResult    `json:"results"`
-	ResponseTime      float64           `json:"response_time"`
-	AutoParameters    map[string]string `json:"auto_parameters,omitempty"`
-	Usage             *SearchUsage      `json:"usage,omitempty"`
-	RequestID         string            `json:"request_id"`
+	Query             string                      `json:"query"`
+	FollowUpQuestions *[]string                   `json:"follow_up_questions"`
+	Answer            *string                     `json:"answer"`
+	Images            any                         `json:"images"`
+	Results           []SearchResult              `json:"results"`
+	ResponseTime      float64                     `json:"response_time"`
+	Complete          bool                        `json:"complete"`
+	PartialFailures   []searchcore.PartialFailure `json:"partial_failures,omitempty"`
+	Coverage          *searchcore.SearchCoverage  `json:"coverage,omitempty"`
+	AutoParameters    map[string]string           `json:"auto_parameters,omitempty"`
+	Usage             *SearchUsage                `json:"usage,omitempty"`
+	RequestID         string                      `json:"request_id"`
 }
 
 type SearchResult struct {
@@ -127,7 +132,10 @@ func Mount(
 	access SearchAccessPolicy,
 	admission SearchAdmission,
 ) {
-	mux.Handle(PathSearch, newSearchEndpoint(search, documents, access, admission))
+	endpoint := newSearchEndpoint(search, documents, access, admission)
+	mux.Handle(PathSearch, endpoint)
+	endpoint.stream = true
+	mux.Handle(PathSearchStream, endpoint)
 }
 
 func NewSearchEndpoint(
@@ -150,7 +158,7 @@ func newSearchEndpoint(
 	documents documentstore.DocumentDirectory,
 	access SearchAccessPolicy,
 	admission SearchAdmission,
-) http.Handler {
+) searchEndpoint {
 	return searchEndpoint{
 		search:          search,
 		documents:       documents,
@@ -217,6 +225,15 @@ func (e searchEndpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer releaseWork()
 
 	start := e.now()
+	if e.stream {
+		e.serveStream(w, r, searchStreamRequest{
+			callerContext: callerContext,
+			request:       req,
+			start:         start,
+			requestID:     id,
+		})
+		return
+	}
 	resp, err := e.searchResponseForCaller(
 		r.Context(),
 		callerContext,
@@ -275,6 +292,7 @@ func (e searchEndpoint) searchResponseForCaller(
 			AutoParameters: responseAutoParameters(req),
 			Usage:          searchResponseUsage(req, false),
 			RequestID:      id,
+			Complete:       true,
 		}, nil
 	}
 
@@ -303,7 +321,7 @@ func (e searchEndpoint) searchResponseForCaller(
 	// count intact. Until the window's removals are counted separately from the
 	// sources' answers, a bounded request cannot be scored this way, and the
 	// specification already says such a window answers 200 with an empty list.
-	if !coreReq.FirstSeenBounded() {
+	if !coreReq.FirstSeenBounded() && !hasLocalSearchPartialFailure(resp.PartialFailures) {
 		if availabilityErr := searchAvailabilityError(
 			len(resp.Results),
 			resp.LostSourceFailures(),
@@ -323,7 +341,21 @@ func (e searchEndpoint) searchResponseForCaller(
 		AutoParameters: responseAutoParameters(req),
 		Usage:          searchResponseUsage(req, true),
 		RequestID:      id,
+		Complete: len(resp.PartialFailures) == 0 &&
+			(resp.Coverage == nil || resp.Coverage.Complete),
+		PartialFailures: append([]searchcore.PartialFailure(nil), resp.PartialFailures...),
+		Coverage:        resp.Coverage,
 	}, nil
+}
+
+func hasLocalSearchPartialFailure(failures []searchcore.PartialFailure) bool {
+	for _, failure := range failures {
+		if failure.Source == searchcore.PartialFailureSourceLocalSearch {
+			return true
+		}
+	}
+
+	return false
 }
 
 func coreRequest(req SearchRequest) (searchcore.Request, error) {

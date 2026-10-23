@@ -15,3 +15,17 @@ func (r *statusRecorder) WriteHeader(status int) {
 	}
 	r.ResponseWriter.WriteHeader(status)
 }
+
+// Flush preserves streaming support through the request logging and metrics
+// middleware that wrap public search handlers.
+func (r *statusRecorder) Flush() {
+	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+// Unwrap lets http.ResponseController reach optional capabilities provided by
+// the underlying server response writer.
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
