@@ -103,7 +103,7 @@ var htmlSearchTemplate = template.Must(template.New("yacysearch").Parse(`<!docty
 <body>
 <a href="#results" style="position:absolute;left:-999px;top:0;background:#00f;color:#fff;padding:0.5rem">Skip to results</a>
 <main>
-<form method="get" action="{{.SearchURL}}">
+<form class="search-form" method="get" action="{{.SearchURL}}">
 <span style="position:relative;display:inline-block">
 <input id="query" name="query" type="search" value="{{.Query}}" maxlength="200"
  role="combobox" aria-autocomplete="list" aria-expanded="false"
