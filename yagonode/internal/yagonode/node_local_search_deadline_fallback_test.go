@@ -87,6 +87,39 @@ func TestLocalSearchDeadlineFallbackReturnsMarkedPartialResults(t *testing.T) {
 	}
 }
 
+func TestLocalSearchProgressiveStreamStartsRandomizedShardWalk(t *testing.T) {
+	primary := &localDeadlineFallbackProbe{
+		response: searchcore.Response{Results: []searchcore.Result{{URL: "exact"}}},
+	}
+	fallback := &localDeadlineFallbackProbe{
+		response: searchcore.Response{
+			Results: []searchcore.Result{{URL: "randomized"}},
+			Coverage: &searchcore.SearchCoverage{
+				CompletedShards: 1, TotalShards: 8, Complete: false,
+			},
+		},
+	}
+	ctx := searchcore.WithSearchProgressObserver(
+		t.Context(), func(searchcore.SearchProgress) {},
+	)
+	request := plainLocalFallbackRequest()
+	request.RankingFeatures = true
+	request.Verify = searchcore.VerifyIfExist
+	response, err := (localSearchDeadlineFallback{
+		primary: primary, fallback: fallback,
+		fallbackReserve: localSearchFallbackReserve,
+	}).Search(ctx, request)
+	if err != nil || primary.calls != 0 || fallback.calls != 1 ||
+		len(response.Results) != 1 || response.Results[0].URL != "randomized" ||
+		response.Coverage == nil || response.Coverage.CompletedShards != 1 ||
+		len(response.PartialFailures) != 1 {
+		t.Fatalf(
+			"response=%#v primary=%d fallback=%d err=%v",
+			response, primary.calls, fallback.calls, err,
+		)
+	}
+}
+
 func TestLocalSearchDeadlineFallbackUsesRandomizedFallbackAfterPartialPrimary(t *testing.T) {
 	primary := &localDeadlineFallbackProbe{
 		response: searchcore.Response{
@@ -179,7 +212,10 @@ func TestLocalSearchDeadlineFallbackRejectsUnsupportedRequests(t *testing.T) {
 
 func TestProgressiveFallbackAcceptsShortPlainQueries(t *testing.T) {
 	requests := []searchcore.Request{
-		{Query: "Harborlight", Terms: []string{"Harborlight"}},
+		{
+			Query: "Harborlight", Terms: []string{"Harborlight"},
+			RankingFeatures: true, Verify: searchcore.VerifyIfExist,
+		},
 		{Query: "Harborlight skyline", Terms: []string{"Harborlight", "skyline"}},
 		{
 			Query: "Harborlight skyline dawn tide",

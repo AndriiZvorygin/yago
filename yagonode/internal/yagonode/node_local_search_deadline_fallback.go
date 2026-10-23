@@ -13,7 +13,7 @@ import (
 
 const (
 	localSearchFallbackReserve = 500 * time.Millisecond
-	localSearchFallbackReason  = "randomized shard fallback used after full-text search exceeded its budget"
+	localSearchFallbackReason  = "randomized progressive shard retrieval returned incomplete coverage"
 )
 
 type localSearchDeadlineFallback struct {
@@ -39,6 +39,9 @@ func (s localSearchDeadlineFallback) Search(
 ) (searchcore.Response, error) {
 	if s.fallback == nil || !progressiveFallbackEligible(req) {
 		return s.searchPrimary(ctx, req)
+	}
+	if searchcore.SearchProgressObserverFrom(ctx) != nil {
+		return s.runFallback(ctx, req, searchcore.Response{}), nil
 	}
 	deadline, found := ctx.Deadline()
 	if !found {
@@ -136,13 +139,14 @@ func progressiveFallbackEligible(req searchcore.Request) bool {
 		(req.SubmittedQuery != "" && !plainFallbackQuery(req.SubmittedQuery, len(req.Terms))) ||
 		len(req.ExcludedTerms) != 0 || len(req.Phrases) != 0 ||
 		req.Fuzzy || req.WithFacets || req.Near || req.SortByDate ||
-		req.Explain || req.RankingFeatures || req.MinDate != (time.Time{}) ||
+		req.Explain || req.MinDate != (time.Time{}) ||
 		req.MaxDate != (time.Time{}) || req.MinFirstSeen != (time.Time{}) ||
 		req.MaxFirstSeen != (time.Time{}) || len(req.IncludeDomains) != 0 ||
 		len(req.ExcludeDomains) != 0 || req.SiteHost != "" || req.Language != "" ||
 		req.InURL != "" || req.TLD != "" || req.FileType != "" || req.Author != "" ||
 		req.URLMaskFilter != "" || req.PreferMaskFilter != "" ||
-		len(req.ExpansionTerms) != 0 || req.Navigation != "" || req.Verify != "" {
+		len(req.ExpansionTerms) != 0 || req.Navigation != "" ||
+		req.Verify != "" && req.Verify != searchcore.VerifyIfExist {
 		return false
 	}
 	switch req.ContentDomain {

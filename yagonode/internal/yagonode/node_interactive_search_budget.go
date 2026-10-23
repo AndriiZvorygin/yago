@@ -13,6 +13,7 @@ import (
 
 const (
 	interactiveSearchBudget            = 1800 * time.Millisecond
+	progressiveInteractiveSearchBudget = 8 * time.Second
 	interactiveSearchCancellationGrace = 50 * time.Millisecond
 	// interactiveSearchAdmissionWait bounds the wait for a pipeline slot. Waiting
 	// for the whole budget guarantees an empty answer: a caller admitted with no
@@ -63,9 +64,14 @@ func (s interactiveBudgetSearcher) Search(
 	ctx context.Context,
 	req searchcore.Request,
 ) (searchcore.Response, error) {
-	hardCtx, hardCancel := context.WithTimeout(ctx, s.budget)
+	budget := s.budget
+	if searchcore.SearchProgressObserverFrom(ctx) != nil &&
+		budget < progressiveInteractiveSearchBudget {
+		budget = progressiveInteractiveSearchBudget
+	}
+	hardCtx, hardCancel := context.WithTimeout(ctx, budget)
 	defer hardCancel()
-	searchCtx, searchCancel := context.WithTimeout(hardCtx, s.budget-s.grace)
+	searchCtx, searchCancel := context.WithTimeout(hardCtx, budget-s.grace)
 	defer searchCancel()
 
 	release, err := s.admission.acquireWithin(searchCtx, s.admissionWait)
