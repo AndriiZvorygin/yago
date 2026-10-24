@@ -52,7 +52,7 @@ func testOpsMux() *http.ServeMux {
 
 func TestGuardAdminSurfaceGatesAndBootstraps(t *testing.T) {
 	config := nodeConfig{Admin: adminConfig{Username: "admin", Password: "pw"}}
-	service, err := provisionAdminAuth(context.Background(), config, openTestVault(t), nil)
+	service, err := provisionAdminAuth(context.Background(), config, openTestVault(t))
 	if err != nil {
 		t.Fatalf("provisionAdminAuth: %v", err)
 	}
@@ -91,7 +91,6 @@ func TestProvisionAdminAuthSurfacesServiceError(t *testing.T) {
 		context.Background(),
 		nodeConfig{},
 		storage,
-		nil,
 	); err == nil {
 		t.Fatal("provisionAdminAuth should fail when the service cannot be built")
 	}
@@ -107,7 +106,6 @@ func TestProvisionAdminAuthSurfacesBootstrapError(t *testing.T) {
 		context.Background(),
 		config,
 		storage,
-		nil,
 	); err == nil {
 		t.Fatal("provisionAdminAuth should surface a bootstrap error")
 	}

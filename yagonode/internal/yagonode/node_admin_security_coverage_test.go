@@ -52,7 +52,7 @@ func TestSecuritySourceSurfacesBackendErrors(t *testing.T) {
 // the mismatch and success branches that a bare context cannot reach.
 func TestSecuritySourceChangePasswordThroughGuard(t *testing.T) {
 	config := nodeConfig{Admin: adminConfig{Username: "admin", Password: "pw"}}
-	service, err := provisionAdminAuth(context.Background(), config, openTestVault(t), nil)
+	service, err := provisionAdminAuth(context.Background(), config, openTestVault(t))
 	if err != nil {
 		t.Fatalf("provisionAdminAuth: %v", err)
 	}

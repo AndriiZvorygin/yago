@@ -49,7 +49,7 @@ func TestAdminOrderClearRequiresSessionAndFormCSRF(t *testing.T) {
 	ops.Handle(adminui.BasePath, adminui.New(options))
 	auth, err := provisionAdminAuth(context.Background(), nodeConfig{
 		Admin: adminConfig{Username: "operator", Password: "local-test-password"},
-	}, openTestVault(t), nil)
+	}, openTestVault(t))
 	if err != nil {
 		t.Fatalf("provisionAdminAuth: %v", err)
 	}

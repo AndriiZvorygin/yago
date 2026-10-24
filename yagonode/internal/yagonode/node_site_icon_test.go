@@ -20,7 +20,6 @@ func TestAdminSiteIconIsAvailableBeforeLogin(t *testing.T) {
 		context.Background(),
 		nodeConfig{Admin: adminConfig{Username: "admin", Password: "pw"}},
 		openTestVault(t),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("provision admin auth: %v", err)
@@ -49,7 +48,6 @@ func TestOpenAdminAssetsUseExactSafeRoutes(t *testing.T) {
 		context.Background(),
 		nodeConfig{Admin: adminConfig{Username: "admin", Password: "pw"}},
 		openTestVault(t),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("provision admin auth: %v", err)
@@ -137,7 +135,6 @@ func guardedSecurityHandler(t *testing.T) http.Handler {
 		context.Background(),
 		nodeConfig{Admin: adminConfig{Username: "operator", Password: "pw"}},
 		openTestVault(t),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("provision admin auth: %v", err)

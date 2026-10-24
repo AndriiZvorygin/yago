@@ -50,7 +50,7 @@ func (*rwiBackfillAuthFixture) Status(context.Context) (adminui.RWIBackfillStatu
 }
 
 func TestRWIBackfillRequiresScopedAdminKeys(t *testing.T) {
-	service, err := provisionAdminAuth(context.Background(), nodeConfig{}, openTestVault(t), nil)
+	service, err := provisionAdminAuth(context.Background(), nodeConfig{}, openTestVault(t))
 	if err != nil {
 		t.Fatalf("provision auth: %v", err)
 	}
@@ -118,7 +118,7 @@ func (f *indexImportAuthFixture) ImportDocuments(
 }
 
 func TestIndexImportRequiresScopedAdminWriteKey(t *testing.T) {
-	service, err := provisionAdminAuth(context.Background(), nodeConfig{}, openTestVault(t), nil)
+	service, err := provisionAdminAuth(context.Background(), nodeConfig{}, openTestVault(t))
 	if err != nil {
 		t.Fatalf("provision auth: %v", err)
 	}
@@ -183,7 +183,7 @@ func (f *frontierImportAuthFixture) ImportCrawlOrder(
 }
 
 func TestCrawlOrderImportRequiresScopedAdminWriteKey(t *testing.T) {
-	service, err := provisionAdminAuth(context.Background(), nodeConfig{}, openTestVault(t), nil)
+	service, err := provisionAdminAuth(context.Background(), nodeConfig{}, openTestVault(t))
 	if err != nil {
 		t.Fatalf("provision auth: %v", err)
 	}

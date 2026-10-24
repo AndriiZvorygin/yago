@@ -38,7 +38,6 @@ func authenticatedOpsLogHandler(
 		t.Context(),
 		nodeConfig{Admin: adminConfig{Username: "admin", Password: "pw"}},
 		openTestVault(t),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("provision admin auth: %v", err)

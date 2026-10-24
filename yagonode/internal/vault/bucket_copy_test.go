@@ -2,6 +2,7 @@ package vault_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/D4rk4/yago/yagonode/internal/shardvault"
@@ -27,37 +28,25 @@ func openBucketCopyVault(t *testing.T) *vault.Vault {
 	return storage
 }
 
+type bucketCopyRecord struct {
+	key   vault.Key
+	value string
+}
+
 func TestCopyBucketFromIsBoundedIdempotentAndPreservesDestinationValues(t *testing.T) {
 	ctx := context.Background()
 	source := openBucketCopyVault(t)
 	destination := openBucketCopyVault(t)
-	sourceRecords, err := vault.Register(source, "records", bucketCopyStringCodec{})
-	if err != nil {
-		t.Fatalf("register source records: %v", err)
-	}
-	destinationRecords, err := vault.Register(destination, "records", bucketCopyStringCodec{})
-	if err != nil {
-		t.Fatalf("register destination records: %v", err)
-	}
-	for _, record := range []struct {
-		key   vault.Key
-		value string
-	}{
+	sourceRecords := registerBucketCopyRecords(t, source)
+	destinationRecords := registerBucketCopyRecords(t, destination)
+	writeBucketCopyRecords(t, source, sourceRecords, []bucketCopyRecord{
 		{key: vault.Key("a"), value: "source-a"},
 		{key: vault.Key("b"), value: "source-b"},
 		{key: vault.Key("c"), value: "source-c"},
-	} {
-		if err := source.Update(ctx, func(tx *vault.Txn) error {
-			return sourceRecords.Put(tx, record.key, record.value)
-		}); err != nil {
-			t.Fatalf("write source record %q: %v", record.key, err)
-		}
-	}
-	if err := destination.Update(ctx, func(tx *vault.Txn) error {
-		return destinationRecords.Put(tx, vault.Key("b"), "destination-b")
-	}); err != nil {
-		t.Fatalf("write existing destination record: %v", err)
-	}
+	})
+	writeBucketCopyRecords(t, destination, destinationRecords, []bucketCopyRecord{
+		{key: vault.Key("b"), value: "destination-b"},
+	})
 
 	if err := destination.CopyBucketFrom(ctx, source, "records", 2); err != nil {
 		t.Fatalf("copy records: %v", err)
@@ -65,49 +54,73 @@ func TestCopyBucketFromIsBoundedIdempotentAndPreservesDestinationValues(t *testi
 	if err := destination.CopyBucketFrom(ctx, source, "records", 2); err != nil {
 		t.Fatalf("repeat records copy: %v", err)
 	}
-	if err := destination.View(ctx, func(tx *vault.Txn) error {
-		length, err := destinationRecords.Len(tx)
+	assertBucketCopyRecords(t, destination, destinationRecords, []bucketCopyRecord{
+		{key: vault.Key("a"), value: "source-a"},
+		{key: vault.Key("b"), value: "destination-b"},
+		{key: vault.Key("c"), value: "source-c"},
+	})
+	assertBucketCopyRecords(t, source, sourceRecords, []bucketCopyRecord{
+		{key: vault.Key("a"), value: "source-a"},
+		{key: vault.Key("b"), value: "source-b"},
+		{key: vault.Key("c"), value: "source-c"},
+	})
+}
+
+func registerBucketCopyRecords(t *testing.T, storage *vault.Vault) *vault.Collection[string] {
+	t.Helper()
+	records, err := vault.Register(storage, "records", bucketCopyStringCodec{})
+	if err != nil {
+		t.Fatalf("register records: %v", err)
+	}
+	return records
+}
+
+func writeBucketCopyRecords(
+	t *testing.T,
+	storage *vault.Vault,
+	records *vault.Collection[string],
+	values []bucketCopyRecord,
+) {
+	t.Helper()
+	for _, record := range values {
+		if err := storage.Update(context.Background(), func(tx *vault.Txn) error {
+			if err := records.Put(tx, record.key, record.value); err != nil {
+				return fmt.Errorf("put record %q: %w", record.key, err)
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("write record %q: %v", record.key, err)
+		}
+	}
+}
+
+func assertBucketCopyRecords(
+	t *testing.T,
+	storage *vault.Vault,
+	records *vault.Collection[string],
+	want []bucketCopyRecord,
+) {
+	t.Helper()
+	if err := storage.View(context.Background(), func(tx *vault.Txn) error {
+		length, err := records.Len(tx)
 		if err != nil {
-			return err
+			return fmt.Errorf("count records: %w", err)
 		}
-		if length != 3 {
-			t.Fatalf("destination length = %d, want 3", length)
+		if length != len(want) {
+			t.Fatalf("record length = %d, want %d", length, len(want))
 		}
-		for _, record := range []struct {
-			key  vault.Key
-			want string
-		}{
-			{key: vault.Key("a"), want: "source-a"},
-			{key: vault.Key("b"), want: "destination-b"},
-			{key: vault.Key("c"), want: "source-c"},
-		} {
-			got, found, err := destinationRecords.Get(tx, record.key)
-			if err != nil || !found || got != record.want {
-				t.Fatalf(
-					"destination record %q = %q, %t, %v; want %q",
-					record.key,
-					got,
-					found,
-					err,
-					record.want,
-				)
+		for _, record := range want {
+			got, found, err := records.Get(tx, record.key)
+			if err != nil {
+				return fmt.Errorf("read record %q: %w", record.key, err)
+			}
+			if !found || got != record.value {
+				t.Fatalf("record %q = %q, found=%t; want %q", record.key, got, found, record.value)
 			}
 		}
 		return nil
 	}); err != nil {
-		t.Fatalf("read destination records: %v", err)
-	}
-	if err := source.View(ctx, func(tx *vault.Txn) error {
-		length, err := sourceRecords.Len(tx)
-		if err != nil {
-			return err
-		}
-		if length != 3 {
-			t.Fatalf("source length after copy = %d, want 3", length)
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("read source records: %v", err)
+		t.Fatalf("read records: %v", err)
 	}
 }
 

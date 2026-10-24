@@ -20,9 +20,8 @@ func provisionAdminAuth(
 	ctx context.Context,
 	config nodeConfig,
 	storage *vault.Vault,
-	observer adminauth.AuthObserver,
 ) (*adminauth.Service, error) {
-	return provisionAdminAuthWithLegacyStorage(ctx, config, storage, nil, observer)
+	return provisionAdminAuthWithLegacyStorage(ctx, config, storage, nil, nil)
 }
 
 func provisionAdminAuthWithLegacyStorage(

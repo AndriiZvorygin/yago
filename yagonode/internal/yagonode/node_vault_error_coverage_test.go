@@ -314,7 +314,7 @@ func TestSecurityChangePasswordVerifyError(t *testing.T) {
 	engine := newCtrlEngine()
 	v := ctrlVault(t, engine)
 	config := nodeConfig{Admin: adminConfig{Username: "admin", Password: "pw"}}
-	service, err := provisionAdminAuth(context.Background(), config, v, nil)
+	service, err := provisionAdminAuth(context.Background(), config, v)
 	if err != nil {
 		t.Fatalf("provisionAdminAuth: %v", err)
 	}

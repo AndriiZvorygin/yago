@@ -77,7 +77,7 @@ func TestMiddlewarePreservesResponseStreaming(t *testing.T) {
 	))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/stream", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/stream", nil)
 	handler.ServeHTTP(rec, req)
 
 	if !rec.Flushed {
