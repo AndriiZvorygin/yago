@@ -2,7 +2,7 @@ package yacysearch
 
 import "testing"
 
-func TestYacyJSONDisplayTitle(t *testing.T) {
+func TestYacyDisplayTitle(t *testing.T) {
 	for _, test := range []struct {
 		name  string
 		input string
@@ -17,14 +17,14 @@ func TestYacyJSONDisplayTitle(t *testing.T) {
 		{name: "all blank values", input: `["", "  "]`, want: `["", "  "]`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := yacyJSONDisplayTitle(test.input); got != test.want {
-				t.Fatalf("yacyJSONDisplayTitle(%q) = %q, want %q", test.input, got, test.want)
+			if got := yacyDisplayTitle(test.input); got != test.want {
+				t.Fatalf("yacyDisplayTitle(%q) = %q, want %q", test.input, got, test.want)
 			}
 		})
 	}
 }
 
-func TestYacyJSONDisplayDescription(t *testing.T) {
+func TestYacyDisplayDescription(t *testing.T) {
 	for _, test := range []struct {
 		name        string
 		title       string
@@ -57,14 +57,8 @@ func TestYacyJSONDisplayDescription(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := yacyJSONDisplayDescription(test.title, test.description); got != test.want {
-				t.Fatalf(
-					"yacyJSONDisplayDescription(%q, %q) = %q, want %q",
-					test.title,
-					test.description,
-					got,
-					test.want,
-				)
+			if got := yacyDisplayDescription(test.title, test.description); got != test.want {
+				t.Fatalf("yacyDisplayDescription(%q, %q) = %q, want %q", test.title, test.description, got, test.want)
 			}
 		})
 	}

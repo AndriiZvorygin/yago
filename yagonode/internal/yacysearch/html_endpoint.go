@@ -551,9 +551,9 @@ func responseHTMLItems(
 ) []htmlSearchItem {
 	items := make([]htmlSearchItem, 0, len(results))
 	for index, result := range results {
-		result.Snippet = yacyJSONDisplayDescription(result.Title, result.Snippet)
+		result.Snippet = yacyDisplayDescription(result.Title, result.Snippet)
 		item := htmlSearchItem{
-			Title:    yacyJSONDisplayTitle(result.Title),
+			Title:    yacyDisplayTitle(result.Title),
 			URL:      result.URL,
 			Identity: result.URL,
 			// Rank is the result's 1-based position across all pages, so click

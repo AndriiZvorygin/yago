@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func yacyJSONDisplayTitle(title string) string {
+func yacyDisplayTitle(title string) string {
 	var values []string
 	if err := json.Unmarshal([]byte(title), &values); err != nil {
 		return title
@@ -18,9 +18,9 @@ func yacyJSONDisplayTitle(title string) string {
 	return title
 }
 
-func yacyJSONDisplayDescription(title, description string) string {
-	displayDescription := yacyJSONDisplayTitle(description)
-	if displayDescription != description && displayDescription == yacyJSONDisplayTitle(title) {
+func yacyDisplayDescription(title, description string) string {
+	displayDescription := yacyDisplayTitle(description)
+	if displayDescription != description && displayDescription == yacyDisplayTitle(title) {
 		return displayDescription
 	}
 	return description
