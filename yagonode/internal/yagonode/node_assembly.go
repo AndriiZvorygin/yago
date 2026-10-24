@@ -131,6 +131,7 @@ type nodeTelemetry struct {
 	saturation       *metrics.SaturationMetrics
 	registry         prometheus.Registerer
 	storagePressure  *yagocrawlcontract.StoragePressureGate
+	controlVault     *vault.Vault
 }
 
 var (
@@ -233,7 +234,11 @@ func assembleNode(
 		return node{}, err
 	}
 	peerWire.queues.bindCrawl(surfaces.crawl)
-	backfill, err := openNodeRWIBackfill(vault, storage)
+	backfillStorage := telemetry.controlVault
+	if backfillStorage == nil {
+		backfillStorage = vault
+	}
+	backfill, err := openNodeRWIBackfill(backfillStorage, vault, storage)
 	if err != nil {
 		return node{}, err
 	}
@@ -249,13 +254,18 @@ func assembleNode(
 	return assembled, nil
 }
 
-func openNodeRWIBackfill(vault *vault.Vault, storage nodeStorage) (*rwibackfill.Backfill, error) {
+func openNodeRWIBackfill(
+	storageVault *vault.Vault,
+	legacyVault *vault.Vault,
+	storage nodeStorage,
+) (*rwibackfill.Backfill, error) {
 	resumableDocuments, ok := storage.documentDirectory.(documentstore.ResumableStoredDocumentPageScanner)
 	if !ok {
 		return nil, fmt.Errorf("resumable stored-document scan is unavailable")
 	}
-	backfill, err := rwibackfill.Open(
-		vault,
+	backfill, err := rwibackfill.OpenWithLegacyStorage(
+		storageVault,
+		legacyVault,
 		resumableDocuments,
 		storage.urlReceiver,
 		storage.postingReceiver,

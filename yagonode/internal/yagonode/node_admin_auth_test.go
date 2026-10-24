@@ -117,6 +117,9 @@ func TestRunFailsWhenAdminAuthCannotConfigure(t *testing.T) {
 	restoreMainSeams(t)
 	setValidRunEnv(t)
 	openRuntimeVault = func(string, int64) (*vault.Vault, error) {
+		return openTestVault(t), nil
+	}
+	openRuntimeControlVault = func(string) (*vault.Vault, error) {
 		storage := openTestVault(t)
 		if _, err := adminauth.New(storage, adminauth.Config{}); err != nil {
 			t.Fatalf("pre-register admin auth: %v", err)

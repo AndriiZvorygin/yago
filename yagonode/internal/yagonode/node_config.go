@@ -90,6 +90,7 @@ const (
 
 	storageFileName       = "yago-node.db"
 	legacyStorageFileName = "yacy-rwi.db"
+	controlStateFileName  = "yago-control.db"
 	searchIndexDirName    = "search.bleve"
 	peerBirthDateLayout   = "20060102"
 )

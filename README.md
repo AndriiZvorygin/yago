@@ -833,7 +833,8 @@ flowchart LR
     end
     subgraph node ["yago-node"]
         B[("crawl broker<br/>durable leases")]
-        V[("sharded vault<br/>bbolt + zstd")]
+        V[("corpus vault<br/>documents + RWI")]
+        C[("control vault<br/>auth + backfill state")]
         X[("sharded Bleve index")]
         S["search core<br/>RRF + MMR + morphology"]
     end
@@ -842,6 +843,7 @@ flowchart LR
     S --> PEER["peer listener :8090<br/>YaCy RWI/DHT"]
     S --> PUB["public listener :8080<br/>portal · yacysearch · Tavily API"]
     S --> OPS["ops listener :9090<br/>admin console · metrics"]
+    C -. "operator state" .-> OPS
     PEER <--> SWARM(("YaCy swarm"))
 ```
 
@@ -864,6 +866,8 @@ make verify   # static analysis · API/vulnerability gates · shuffled/race/fuzz
 make e2e      # build current images, then run containerized node/crawler suites
 make test-one FOCUSED_MODULE=yagonode FOCUSED_PACKAGE=./internal/yagonode FOCUSED_TEST='^TestName$'
 make test-one-race FOCUSED_MODULE=yagonode FOCUSED_PACKAGE=./internal/yagonode FOCUSED_TEST='^TestName$'
+tools/yago-status
+python3 -m unittest tools/test_yago_status.py -v
 ```
 
 Set `FOCUSED_MODULE` and `FOCUSED_PACKAGE` to select a module and package;
@@ -871,6 +875,13 @@ Set `FOCUSED_MODULE` and `FOCUSED_PACKAGE` to select a module and package;
 `^` and `$` to select one exact test). Omit `FOCUSED_TEST` to run all tests in
 that package. `test-one-race` runs the same selection with the race detector.
 These focused targets do not replace the full `make verify` release gate.
+
+`tools/yago-status` inspects the local node container, readiness, RWI backfill,
+public endpoint, mounted filesystem capacity, runtime usage, and selected
+recent log counts. It does not print administrator credentials or raw log
+messages. Use `--container NAME` for another local node or `--json` for
+machine-readable output. See
+[`yagonode/doc/local-operations.md`](yagonode/doc/local-operations.md).
 
 Every feature lands with tests; new third-party dependencies require an ADR
 first; `make verify` plus Semgrep and Trivy scans gate every commit. Build,

@@ -13,6 +13,8 @@ import (
 
 const checkpointFormat = "yago-rwi-backfill-v1"
 
+const checkpointBucket vault.Name = "rwi_backfill_checkpoints"
+
 var checkpointKey = vault.Key("current")
 
 type checkpoint struct {
@@ -89,7 +91,7 @@ type checkpointRepository struct {
 func openCheckpointRepository(storage *vault.Vault) (*checkpointRepository, error) {
 	records, err := vault.Register(
 		storage,
-		vault.Name("rwi_backfill_checkpoints"),
+		checkpointBucket,
 		checkpointCodec{},
 	)
 	if err != nil {

@@ -234,6 +234,7 @@ func restoreMainSeams(t *testing.T) {
 	oldExitProcess := exitProcess
 	oldRunNode := runNode
 	oldOpenRuntimeVault := openRuntimeVault
+	oldOpenRuntimeControlVault := openRuntimeControlVault
 	oldAssembleRuntimeNode := assembleRuntimeNode
 	oldBuildRuntimeEgressClient := buildRuntimeEgressClient
 	oldServeRuntimeNode := serveRuntimeNode
@@ -245,6 +246,7 @@ func restoreMainSeams(t *testing.T) {
 		exitProcess = oldExitProcess
 		runNode = oldRunNode
 		openRuntimeVault = oldOpenRuntimeVault
+		openRuntimeControlVault = oldOpenRuntimeControlVault
 		assembleRuntimeNode = oldAssembleRuntimeNode
 		buildRuntimeEgressClient = oldBuildRuntimeEgressClient
 		serveRuntimeNode = oldServeRuntimeNode
@@ -405,7 +407,9 @@ func TestRunReturnsStageErrors(t *testing.T) {
 		restoreMainSeams(t)
 		setValidRunEnv(t)
 		sentinel := errors.New("assemble failed")
-		openRuntimeVault = func(string, int64) (*vault.Vault, error) { return openTestVault(t), nil }
+		runtimeStorage := openTestVault(t)
+		openRuntimeVault = func(string, int64) (*vault.Vault, error) { return runtimeStorage, nil }
+		openRuntimeControlVault = func(string) (*vault.Vault, error) { return runtimeStorage, nil }
 		assembleRuntimeNode = func(
 			context.Context,
 			nodeConfig,
@@ -425,7 +429,9 @@ func TestRunMountsCrawlDispatchAndServes(t *testing.T) {
 	restoreMainSeams(t)
 	setValidRunEnv(t)
 	crawl := &recordingCrawl{}
-	openRuntimeVault = func(string, int64) (*vault.Vault, error) { return openTestVault(t), nil }
+	runtimeStorage := openTestVault(t)
+	openRuntimeVault = func(string, int64) (*vault.Vault, error) { return runtimeStorage, nil }
+	openRuntimeControlVault = func(string) (*vault.Vault, error) { return runtimeStorage, nil }
 	assembleRuntimeNode = func(
 		context.Context,
 		nodeConfig,
@@ -468,7 +474,9 @@ func TestRunOmitsPublicServerWhenDisabled(t *testing.T) {
 	restoreMainSeams(t)
 	setValidRunEnv(t)
 	t.Setenv(envPublicAddr, "off")
-	openRuntimeVault = func(string, int64) (*vault.Vault, error) { return openTestVault(t), nil }
+	runtimeStorage := openTestVault(t)
+	openRuntimeVault = func(string, int64) (*vault.Vault, error) { return runtimeStorage, nil }
+	openRuntimeControlVault = func(string) (*vault.Vault, error) { return runtimeStorage, nil }
 	assembleRuntimeNode = func(
 		context.Context,
 		nodeConfig,

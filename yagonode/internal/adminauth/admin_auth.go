@@ -69,6 +69,17 @@ type Service struct {
 }
 
 func New(storage *vault.Vault, cfg Config) (*Service, error) {
+	return NewWithLegacyStorage(storage, nil, cfg)
+}
+
+func NewWithLegacyStorage(
+	storage *vault.Vault,
+	legacyStorage *vault.Vault,
+	cfg Config,
+) (*Service, error) {
+	if storage == nil {
+		return nil, fmt.Errorf("admin storage is required")
+	}
 	cfg = cfg.withDefaults()
 	setupFormSigningKey := newSetupFormSigningKey()
 	creds, err := newCredentialStore(storage)
@@ -82,6 +93,15 @@ func New(storage *vault.Vault, cfg Config) (*Service, error) {
 	apiKeys, err := newAPIKeyStore(storage, cfg.Now)
 	if err != nil {
 		return nil, err
+	}
+	if legacyStorage != nil && legacyStorage != storage {
+		if err := migrateLegacyAdminAuthState(
+			context.Background(),
+			legacyStorage,
+			storage,
+		); err != nil {
+			return nil, fmt.Errorf("migrate legacy admin state: %w", err)
+		}
 	}
 
 	return &Service{

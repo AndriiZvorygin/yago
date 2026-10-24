@@ -33,6 +33,7 @@ func TestRunBuildsEgressClientFromPersistedSettings(t *testing.T) {
 
 	runtimeStorage := ctrlVault(t, engine)
 	openRuntimeVault = func(string, int64) (*vault.Vault, error) { return runtimeStorage, nil }
+	openRuntimeControlVault = func(string) (*vault.Vault, error) { return runtimeStorage, nil }
 	builtClient := &http.Client{}
 	built := false
 	buildRuntimeEgressClient = func(config nodeConfig) *http.Client {

@@ -104,3 +104,4 @@ version from `PATH`.
 | [0083](0083-shuffle-tests-and-smoke-fuzz-targets.md) | Shuffle tests and smoke fuzz targets | Accepted |
 | [0084](0084-supplement-incomplete-primary-search-with-bounded-web-results.md) | Supplement incomplete primary search with bounded web results | Accepted |
 | [0085](0085-randomize-deadline-bounded-shard-retrieval.md) | Randomize deadline-bounded shard retrieval | Accepted |
+| [0086](0086-isolate-operator-control-state.md) | Isolate operator control state from the corpus vault | Accepted |

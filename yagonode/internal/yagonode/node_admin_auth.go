@@ -22,7 +22,17 @@ func provisionAdminAuth(
 	storage *vault.Vault,
 	observer adminauth.AuthObserver,
 ) (*adminauth.Service, error) {
-	service, err := adminauth.New(storage, adminauth.Config{
+	return provisionAdminAuthWithLegacyStorage(ctx, config, storage, nil, observer)
+}
+
+func provisionAdminAuthWithLegacyStorage(
+	ctx context.Context,
+	config nodeConfig,
+	storage *vault.Vault,
+	legacyStorage *vault.Vault,
+	observer adminauth.AuthObserver,
+) (*adminauth.Service, error) {
+	service, err := adminauth.NewWithLegacyStorage(storage, legacyStorage, adminauth.Config{
 		Observer:        observer,
 		LoginNodeStatus: newLoginNodeStatusSource(config),
 	})

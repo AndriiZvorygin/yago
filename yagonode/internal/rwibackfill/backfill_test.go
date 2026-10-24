@@ -169,6 +169,76 @@ func openBackfillFixture(
 	return backfill, urls, postings
 }
 
+func TestBackfillOpenMigratesCheckpointAndRetainsLegacyState(t *testing.T) {
+	ctx := context.Background()
+	legacy, err := shardvault.Open(t.TempDir(), 0)
+	if err != nil {
+		t.Fatalf("open legacy vault: %v", err)
+	}
+	t.Cleanup(func() { _ = legacy.Close() })
+	legacyRepository, err := openCheckpointRepository(legacy)
+	if err != nil {
+		t.Fatalf("open legacy checkpoint repository: %v", err)
+	}
+	checkpointTime := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+	legacyCheckpoint := checkpoint{
+		Format:             checkpointFormat,
+		State:              statePaused,
+		Cursor:             "cursor-5",
+		ScannedDocuments:   5,
+		IndexedDocuments:   3,
+		SkippedDocuments:   2,
+		PostingRows:        17,
+		UpdatedAtUnixMilli: checkpointTime.UnixMilli(),
+	}
+	if err := legacyRepository.save(ctx, legacyCheckpoint); err != nil {
+		t.Fatalf("save legacy checkpoint: %v", err)
+	}
+
+	storage, err := shardvault.Open(t.TempDir(), 0)
+	if err != nil {
+		t.Fatalf("open control vault: %v", err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+	urls := &urlRows{rows: make(map[yagomodel.URLHash]yagomodel.URIMetadataRow)}
+	postings := &postingRows{urls: urls, rows: make(map[string]yagomodel.RWIPosting)}
+	backfill, err := OpenWithLegacyStorage(storage, legacy, documentSequence{}, urls, postings)
+	if err != nil {
+		t.Fatalf("open backfill with legacy checkpoint: %v", err)
+	}
+	status, err := backfill.Status(ctx)
+	if err != nil || status.State != statePaused || status.ScannedDocuments != 5 ||
+		status.IndexedDocuments != 3 || status.PostingRows != 17 {
+		t.Fatalf("migrated backfill status = %#v, %v", status, err)
+	}
+
+	updated := legacyCheckpoint
+	updated.State = stateRunning
+	updated.UpdatedAtUnixMilli++
+	if err := backfill.repository.save(ctx, updated); err != nil {
+		t.Fatalf("update control checkpoint: %v", err)
+	}
+	if err := storage.CopyBucketFrom(ctx, legacy, checkpointBucket, 1); err != nil {
+		t.Fatalf("repeat checkpoint migration: %v", err)
+	}
+	status, err = backfill.Status(ctx)
+	if err != nil || status.State != stateRunning ||
+		!status.UpdatedAt.Equal(time.UnixMilli(updated.UpdatedAtUnixMilli)) {
+		t.Fatalf("repeated migration replaced control checkpoint: %#v, %v", status, err)
+	}
+	retained, found, err := legacyRepository.load(ctx)
+	if err != nil || !found || retained != legacyCheckpoint {
+		t.Fatalf("legacy checkpoint after migration = %#v, %t, %v", retained, found, err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatalf("close legacy vault: %v", err)
+	}
+	status, err = backfill.Status(ctx)
+	if err != nil || status.State != stateRunning {
+		t.Fatalf("control status after legacy close = %#v, %v", status, err)
+	}
+}
+
 func importedDocument(url, status string) documentstore.Document {
 	return documentstore.Document{
 		NormalizedURL: url,

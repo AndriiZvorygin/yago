@@ -58,7 +58,13 @@ func TestYacyDisplayDescription(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := yacyDisplayDescription(test.title, test.description); got != test.want {
-				t.Fatalf("yacyDisplayDescription(%q, %q) = %q, want %q", test.title, test.description, got, test.want)
+				t.Fatalf(
+					"yacyDisplayDescription(%q, %q) = %q, want %q",
+					test.title,
+					test.description,
+					got,
+					test.want,
+				)
 			}
 		})
 	}

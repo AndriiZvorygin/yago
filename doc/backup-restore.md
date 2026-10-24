@@ -1,6 +1,7 @@
 # Backup and restore (OPS-03)
 
-Durable state includes the node's vault and search index, the dedicated
+Durable state includes the node's corpus vault, `yago-control.db`, search
+index, the dedicated
 `${YAGO_DATA_DIR}/crawlbroker.db`, and the crawler's frontier checkpoint.
 `crawlbroker.db` contains the node-side order queue, leases, settlements,
 controls, and terminal-run delivery state. Bare-metal and package deployments
@@ -69,7 +70,7 @@ frontier recovery without a checkpoint error. When crawling is enabled, also
 confirm `/ready` succeeds and the authenticated `/metrics` output contains
 `crawl_broker_state_used_bytes` and `crawl_broker_state_file_bytes`.
 
-Never restore only `crawlbroker.db`, only the main node vault, or only the
+Never restore only `crawlbroker.db`, only one of the node databases, or only the
 crawler checkpoint. That can combine orders, leases, settlements, and page
 frontier state from different moments. The correct restart order after restore
 is node first, readiness second, and crawler last; the crawler then adopts the

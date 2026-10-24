@@ -10,6 +10,11 @@ Optional search-demand-guided crawling is described in
 [`doc/search-demand-crawling.md`](doc/search-demand-crawling.md). That feature
 is disabled by default and does not replace ordinary crawl profiles.
 
+The node keeps administrator credentials, sessions, API keys, and the RWI
+backfill checkpoint in `yago-control.db`, separate from the corpus and RWI
+posting vault. Upgrade startup copies only those records and retains their
+legacy source rows; the document index and peer identity are left in place.
+
 Invitation-only account personalization is disabled by default and described
 in [`doc/personalized-search.md`](doc/personalized-search.md). It reranks only
 the signed-in user's retrieved results and keeps personal history on this node.

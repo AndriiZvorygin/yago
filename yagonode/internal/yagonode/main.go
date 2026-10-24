@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/D4rk4/yago/yagomodel"
+	"github.com/D4rk4/yago/yagonode/internal/boltvault"
 	"github.com/D4rk4/yago/yagonode/internal/metrics"
 	"github.com/D4rk4/yago/yagonode/internal/rwi"
 	"github.com/D4rk4/yago/yagonode/internal/shardvault"
@@ -73,6 +75,9 @@ var (
 			shardvault.WithWordFilter(rwi.PostingsBucket, yagomodel.HashLength),
 			shardvault.WithRootRecordRecovery(rwi.PostingsBucket, rwi.RecognizesPosting),
 		)
+	}
+	openRuntimeControlVault = func(path string) (*vault.Vault, error) {
+		return boltvault.Open(path, 0)
 	}
 	assembleRuntimeNode      = assembleNode
 	buildRuntimeEgressClient = newRuntimeEgressClient
@@ -135,13 +140,23 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("open storage: %w", err)
 	}
+	controlVault, err := openRuntimeControlVault(
+		filepath.Join(config.DataDir, controlStateFileName),
+	)
+	if err != nil {
+		closeVault(storageVault)
+		return fmt.Errorf("open control state: %w", err)
+	}
 	var eventDrain <-chan struct{}
-	defer func() { closeVaultAfterEventDrain(storageVault, eventDrain) }()
+	defer func() {
+		closeVaultAfterEventDrain(controlVault, eventDrain)
+		closeVaultAfterEventDrain(storageVault, eventDrain)
+	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	eventDrain, err = bootNodeWithEventDrain(ctx, config, storageVault)
+	eventDrain, err = bootNodeWithEventDrain(ctx, config, storageVault, controlVault)
 
 	return err
 }
@@ -156,7 +171,7 @@ func bootNode(
 	config nodeConfig,
 	storageVault *vault.Vault,
 ) error {
-	_, err := bootNodeWithEventDrain(ctx, config, storageVault)
+	_, err := bootNodeWithEventDrain(ctx, config, storageVault, storageVault)
 
 	return err
 }
@@ -165,6 +180,7 @@ func bootNodeWithEventDrain(
 	ctx context.Context,
 	config nodeConfig,
 	storageVault *vault.Vault,
+	controlVault *vault.Vault,
 ) (<-chan struct{}, error) {
 	obs, err := provisionObservability(ctx, storageVault)
 	if err != nil {
@@ -188,7 +204,9 @@ func bootNodeWithEventDrain(
 		return eventDrain, fmt.Errorf("validate listen addresses: %w", err)
 	}
 
-	authService, err := provisionAdminAuth(ctx, config, storageVault, obs.authObserver)
+	authService, err := provisionAdminAuthWithLegacyStorage(
+		ctx, config, controlVault, storageVault, obs.authObserver,
+	)
 	if err != nil {
 		return eventDrain, fmt.Errorf("configure admin auth: %w", err)
 	}
@@ -221,6 +239,7 @@ func bootNodeWithEventDrain(
 			saturation:       obs.saturation,
 			registry:         obs.endpoints.Registry(),
 			storagePressure:  storagePressure,
+			controlVault:     controlVault,
 		},
 	)
 	if err != nil {

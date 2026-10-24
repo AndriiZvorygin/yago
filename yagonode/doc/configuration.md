@@ -115,9 +115,22 @@ HTTP endpoint is listening.
 ### Storage admission
 
 `YAGO_STORAGE_QUOTA` is the soft admission and eviction target for logical live
-rows in the main sharded vault. It excludes Bleve, `crawlbroker.db`, crawler
-frontier databases, bbolt free pages, open-but-deleted blocks, and temporary
-copies. It is not a filesystem quota.
+rows in the main sharded vault. It excludes Bleve, `crawlbroker.db`, the
+operator-state vault, crawler frontier databases, bbolt free pages,
+open-but-deleted blocks, and temporary copies. It is not a filesystem quota.
+
+The node stores administrator credentials, sessions, API keys, and the RWI
+backfill checkpoint in the separate bbolt database
+`${YAGO_DATA_DIR}/yago-control.db`. This small control store keeps frequent
+operator and checkpoint reads away from the document and RWI posting stores.
+On first startup after upgrade, existing records are copied from the main vault
+in bounded, idempotent pages; the source records remain intact. Documents, URL
+metadata, RWI postings, peer identity, and the Bleve index are not migrated or
+rewritten. Keep the control database
+with the data directory in backups. For rollback, stop the node and restore a
+consistent backup of both databases; if operator credentials or API keys changed
+after cutover, copy the current control-state buckets back to the legacy store
+before starting an older binary.
 
 The node and crawler use independent filesystem free-space policies.
 `YAGO_STORAGE_RESERVED_FREE` and `YAGO_STORAGE_PRESSURE_HYSTERESIS` apply to
@@ -181,7 +194,7 @@ required.
 | --- | --- | --- |
 | `LOG_LEVEL` | `INFO` | Bootstrap log threshold: `DEBUG`, `INFO`, `WARN`, or `ERROR`. Admin key: `logging.level` in Configuration → Monitoring; persisted changes and Reset apply live to the active node logger. |
 | `YAGO_PEER_BIRTH_DATE` | first start time | Optional peer birth date (`YYYYMMDD`, UTC) stored on the first start with a fresh data directory. Declare it when migrating an established peer identity or when private-network tests need an aged peer; YaCy peers skip DHT targets younger than three days. |
-| `YAGO_DATA_DIR` | `./data` | Where each process persists its data. The node uses `yago-node.db` (or an existing `yacy-rwi.db`), `search.bleve`, peer profile, shared-blacklist files, and `crawlbroker.db` for atomic crawler coordination. The crawler uses `crawler/frontier-v1.db` for exact restart recovery and its stable worker identity. Package services share `/opt/yago/data` under one OS user; the Docker images use separate volumes because their unprivileged UIDs differ. |
+| `YAGO_DATA_DIR` | `./data` | Where each process persists its data. The node uses `yago-node.db` (or an existing `yacy-rwi.db`), `yago-control.db` for operator credentials, sessions, API keys and RWI backfill state, `search.bleve`, peer profile, shared-blacklist files, and `crawlbroker.db` for atomic crawler coordination. The crawler uses `crawler/frontier-v1.db` for exact restart recovery and its stable worker identity. Package services share `/opt/yago/data` under one OS user; the Docker images use separate volumes because their unprivileged UIDs differ. |
 | `YAGO_PEER_ADDR` | `:8090` | Listen address for the YaCy peer protocol. Dedicated Admin key: `bind.peer`; a stored address takes effect after restart, and Reset deletes the override so this environment value is authoritative again. |
 | `YAGO_PUBLIC_ADDR` | `:8080` | Listen address for public search, agent APIs, and OpenSearch. `off`, `none`, or `disabled` starts no public listener. Dedicated Admin key: `bind.public`; Disable persists the off state, and Reset deletes the override so this environment value is authoritative again. Changes take effect after restart. |
 | `YAGO_OPS_ADDR` | `:9090` | Listen address for `/health`, `/ready`, `/metrics`, ops JSON endpoints, and the Admin console. Dedicated Admin key: `bind.ops`; a stored address takes effect after restart, and Reset deletes the override so this environment value is authoritative again. |

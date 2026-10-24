@@ -1,5 +1,7 @@
 .git
 .github
+.env*
+**/.env*
 .claude
 archive
 coverage.out

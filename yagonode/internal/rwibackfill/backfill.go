@@ -98,12 +98,29 @@ func Open(
 	urls urlmeta.URLReceiver,
 	postings rwi.PostingReceiver,
 ) (*Backfill, error) {
+	return OpenWithLegacyStorage(storage, nil, documents, urls, postings)
+}
+
+func OpenWithLegacyStorage(
+	storage *vault.Vault,
+	legacyStorage *vault.Vault,
+	documents documentScanner,
+	urls urlmeta.URLReceiver,
+	postings rwi.PostingReceiver,
+) (*Backfill, error) {
 	if storage == nil || documents == nil || urls == nil || postings == nil {
 		return nil, errors.New("rwi backfill dependencies are required")
 	}
 	repository, err := openCheckpointRepository(storage)
 	if err != nil {
 		return nil, err
+	}
+	if legacyStorage != nil && legacyStorage != storage {
+		if err := storage.CopyBucketFrom(
+			context.Background(), legacyStorage, checkpointBucket, 64,
+		); err != nil {
+			return nil, fmt.Errorf("migrate legacy backfill checkpoint: %w", err)
+		}
 	}
 	return &Backfill{
 		wake:       make(chan struct{}, 1),

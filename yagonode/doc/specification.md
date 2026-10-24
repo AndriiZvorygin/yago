@@ -1002,6 +1002,15 @@ it is not an assumed deployment dependency.
   4 GiB, with zero disabling the boundary. At or above the boundary, fresh order
   enqueue SHALL fail while migration, ingest, lifecycle, recovery, and settlement
   writes remain admitted through the underlying filesystem-pressure policy.
+* The node SHALL keep administrator credentials, sessions, API keys, and RWI
+  backfill checkpoints in `${YAGO_DATA_DIR}/yago-control.db`, separate from
+  document, URL-metadata, and RWI-posting storage. Upgrade migration SHALL copy
+  these buckets in bounded idempotent pages, preserve all legacy source rows,
+  and never rewrite the Bleve index or corpus. Existing destination records
+  SHALL take precedence over copied legacy values. Operators SHALL back up both
+  stores together; downgrade after control-state mutations requires a
+  consistent backup or an offline copy of current control buckets back to the
+  legacy store.
 * Crawl-broker startup SHALL rebuild an in-memory active-lease catalog from the
   durable lease bucket. Capacity checks SHALL use an O(1) worker/session lookup,
   and committed claim, adoption, settlement, defer, and requeue transitions SHALL
