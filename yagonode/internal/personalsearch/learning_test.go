@@ -1,17 +1,16 @@
 package personalsearch
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/D4rk4/yago/yagonode/internal/boltvault"
+	"github.com/D4rk4/yago/yagonode/internal/memvault"
 	"github.com/D4rk4/yago/yagonode/internal/searchcore"
 )
 
 func openLearning(t *testing.T, now func() time.Time) *Learning {
 	t.Helper()
-	storage, err := boltvault.Open(filepath.Join(t.TempDir(), "state.db"), 0)
+	storage, err := memvault.Open(0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,4 +1,4 @@
-package vault_test
+package shardvault_test
 
 import (
 	"context"

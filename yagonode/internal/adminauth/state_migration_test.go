@@ -5,19 +5,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/D4rk4/yago/yagonode/internal/shardvault"
+	"github.com/D4rk4/yago/yagonode/internal/memvault"
 	"github.com/D4rk4/yago/yagonode/internal/vault"
 )
 
 func openAdminStateVault(t *testing.T) *vault.Vault {
 	t.Helper()
-	storage, err := shardvault.Open(t.TempDir(), 0)
+	storage, err := memvault.Open(0)
 	if err != nil {
-		t.Fatalf("open shard vault: %v", err)
+		t.Fatalf("open in-memory vault: %v", err)
 	}
 	t.Cleanup(func() {
 		if err := storage.Close(); err != nil {
-			t.Errorf("close shard vault: %v", err)
+			t.Errorf("close in-memory vault: %v", err)
 		}
 	})
 	return storage

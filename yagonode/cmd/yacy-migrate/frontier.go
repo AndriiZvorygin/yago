@@ -96,45 +96,105 @@ type frontierSourceProfile struct {
 	profile      yagocrawlcontract.CrawlProfile
 }
 
-func importFrontier(ctx context.Context, opts frontierImportOptions, progress io.Writer) error {
+func importFrontier(
+	ctx context.Context,
+	opts frontierImportOptions,
+	progress io.Writer,
+) (resultErr error) {
 	if err := validateFrontierImportOptions(opts); err != nil {
 		return err
 	}
+	files, err := openFrontierImportFiles(opts)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		resultErr = files.close(resultErr)
+	}()
+	setup, err := loadFrontierImportSetup(opts, files)
+	if err != nil {
+		return err
+	}
+	return runPreparedFrontierImport(ctx, opts, progress, files, setup)
+}
+
+type frontierImportFiles struct {
+	input       *os.File
+	inputInfo   os.FileInfo
+	profiles    *os.File
+	profileInfo os.FileInfo
+}
+
+func openFrontierImportFiles(opts frontierImportOptions) (*frontierImportFiles, error) {
 	input, err := os.Open(opts.Input) // #nosec G304 -- selected by local migration operator.
 	if err != nil {
-		return fmt.Errorf("open YaCy frontier: %w", err)
+		return nil, fmt.Errorf("open YaCy frontier: %w", err)
 	}
-	defer closeImportInput(input, "close YaCy frontier", nil)
 	inputInfo, err := input.Stat()
 	if err != nil {
-		return fmt.Errorf("stat YaCy frontier: %w", err)
+		return nil, closeImportInput(
+			input,
+			"stat YaCy frontier",
+			fmt.Errorf("stat YaCy frontier: %w", err),
+		)
 	}
-	profileFile, err := os.Open(
+	profiles, err := os.Open(
 		opts.Profiles,
 	) // #nosec G304 -- selected by local migration operator.
 	if err != nil {
-		return fmt.Errorf("open YaCy profile sidecar: %w", err)
+		return nil, closeImportInput(
+			input,
+			"close YaCy frontier",
+			fmt.Errorf("open YaCy profile sidecar: %w", err),
+		)
 	}
-	defer closeImportInput(profileFile, "close YaCy profile sidecar", nil)
-	profileInfo, err := profileFile.Stat()
+	profileInfo, err := profiles.Stat()
 	if err != nil {
-		return fmt.Errorf("stat YaCy profile sidecar: %w", err)
+		resultErr := fmt.Errorf("stat YaCy profile sidecar: %w", err)
+		resultErr = closeImportInput(profiles, "close YaCy profile sidecar", resultErr)
+		resultErr = closeImportInput(input, "close YaCy frontier", resultErr)
+		return nil, resultErr
 	}
-	profilesHash, err := hashOpenFile(profileFile)
+	return &frontierImportFiles{
+		input: input, inputInfo: inputInfo, profiles: profiles, profileInfo: profileInfo,
+	}, nil
+}
+
+func (f *frontierImportFiles) close(resultErr error) error {
+	resultErr = closeImportInput(f.profiles, "close YaCy profile sidecar", resultErr)
+	return closeImportInput(f.input, "close YaCy frontier", resultErr)
+}
+
+type frontierImportSetup struct {
+	profiles        map[string]frontierSourceProfile
+	profileSource   string
+	inputHash       string
+	profilesHash    string
+	endpoint        *url.URL
+	statePath       string
+	state           frontierImportCheckpoint
+	checkpointFound bool
+}
+
+func loadFrontierImportSetup(
+	opts frontierImportOptions,
+	files *frontierImportFiles,
+) (frontierImportSetup, error) {
+	profilesHash, err := hashOpenFile(files.profiles)
 	if err != nil {
-		return fmt.Errorf("fingerprint YaCy profile sidecar: %w", err)
+		return frontierImportSetup{}, fmt.Errorf("fingerprint YaCy profile sidecar: %w", err)
 	}
-	profiles, profileSourceID, err := loadYaCyProfiles(profileFile)
+	profiles, profileSource, err := loadYaCyProfiles(files.profiles)
 	if err != nil {
-		return err
+		return frontierImportSetup{}, err
 	}
-	inputHash, err := hashOpenFile(input)
+	inputHash, err := hashOpenFile(files.input)
 	if err != nil {
-		return fmt.Errorf("fingerprint YaCy frontier: %w", err)
+		return frontierImportSetup{}, fmt.Errorf("fingerprint YaCy frontier: %w", err)
 	}
 	endpoint, err := validateFrontierEndpoint(opts.Endpoint, opts.DryRun)
 	if err != nil {
-		return err
+		return frontierImportSetup{}, err
 	}
 	statePath := opts.State
 	if statePath == "" {
@@ -142,71 +202,109 @@ func importFrontier(ctx context.Context, opts frontierImportOptions, progress io
 	}
 	state, found, err := loadFrontierImportCheckpoint(statePath)
 	if err != nil {
-		return err
+		return frontierImportSetup{}, err
 	}
-	if err := validateFrontierCheckpoint(
-		state, found, inputInfo, profileInfo, inputHash, profilesHash,
-		profileSourceID, endpoint, opts.DryRun,
-	); err != nil {
-		return err
+	validation := frontierCheckpointValidation{
+		found: found, inputInfo: files.inputInfo, profileInfo: files.profileInfo,
+		inputHash: inputHash, profilesHash: profilesHash, sourceID: profileSource,
+		endpoint: endpoint, dryRun: opts.DryRun,
+	}
+	if err := validateFrontierCheckpoint(state, validation); err != nil {
+		return frontierImportSetup{}, err
 	}
 	if opts.DryRun {
 		found = false
 		state = frontierImportCheckpoint{}
 	}
-	reader := bufio.NewReaderSize(input, 64<<10)
+	return frontierImportSetup{
+		profiles: profiles, profileSource: profileSource, inputHash: inputHash,
+		profilesHash: profilesHash, endpoint: endpoint, statePath: statePath,
+		state: state, checkpointFound: found,
+	}, nil
+}
+
+func runPreparedFrontierImport(
+	ctx context.Context,
+	opts frontierImportOptions,
+	progress io.Writer,
+	files *frontierImportFiles,
+	setup frontierImportSetup,
+) error {
+	reader := bufio.NewReaderSize(files.input, 64<<10)
 	header, headerEnd, err := readFrontierHeader(reader)
 	if err != nil {
 		return err
 	}
-	if header.SourceID != profileSourceID {
+	if header.SourceID != setup.profileSource {
 		return errors.New("YaCy frontier and profile sidecar source IDs do not match")
 	}
-	if !found {
-		state = frontierImportCheckpoint{
-			Version: 1, SourceID: header.SourceID, InputSHA256: inputHash,
-			ProfilesSHA256: profilesHash, InputSize: inputInfo.Size(),
-			InputModTime: inputInfo.ModTime().UnixNano(), ProfilesSize: profileInfo.Size(),
-			ProfilesModTime: profileInfo.ModTime().UnixNano(), Offset: headerEnd,
-		}
+	if !setup.checkpointFound {
+		setup.state = newFrontierImportCheckpoint(header, headerEnd, files, setup)
 		if !opts.DryRun {
-			state.DestinationFingerprint = destinationFingerprint(endpoint)
-			if err := saveCheckpoint(statePath, state); err != nil {
+			setup.state.DestinationFingerprint = destinationFingerprint(setup.endpoint)
+			if err := saveCheckpoint(setup.statePath, setup.state); err != nil {
 				return err
 			}
 		}
-	} else if state.Offset > headerEnd {
-		seen, err := rebuildFrontierSeen(input, state.Offset, profiles)
-		if err != nil {
-			return fmt.Errorf("restore frontier deduplication state: %w", err)
-		}
-		if _, err := input.Seek(state.Offset, io.SeekStart); err != nil {
-			return fmt.Errorf("seek YaCy frontier checkpoint: %w", err)
-		}
-		reader.Reset(input)
-		return runFrontierImport(
-			ctx,
-			opts,
-			progress,
-			input,
-			inputInfo,
-			reader,
-			profiles,
-			seen,
-			endpoint,
-			statePath,
-			state,
-		)
-	} else {
-		if _, err := input.Seek(headerEnd, io.SeekStart); err != nil {
-			return fmt.Errorf("seek YaCy frontier header: %w", err)
-		}
-		reader.Reset(input)
 	}
-	return runFrontierImport(
-		ctx, opts, progress, input, inputInfo, reader, profiles,
-		make(map[string]struct{}), endpoint, statePath, state,
+	seen, err := seekFrontierResumePoint(
+		files.input,
+		reader,
+		headerEnd,
+		setup.state,
+		setup.profiles,
 	)
+	if err != nil {
+		return err
+	}
+	runner := &frontierImportRunner{
+		ctx: ctx, opts: opts, progress: progress, input: files.input,
+		inputInfo: files.inputInfo, reader: reader, profiles: setup.profiles,
+		seen: seen, endpoint: setup.endpoint, statePath: setup.statePath,
+		state: setup.state, client: &http.Client{Timeout: 90 * time.Second},
+		batchEnd: setup.state.Offset, offset: setup.state.Offset,
+	}
+	return runner.run()
+}
+
+func newFrontierImportCheckpoint(
+	header frontierFileHeader,
+	headerEnd int64,
+	files *frontierImportFiles,
+	setup frontierImportSetup,
+) frontierImportCheckpoint {
+	return frontierImportCheckpoint{
+		Version: 1, SourceID: header.SourceID, InputSHA256: setup.inputHash,
+		ProfilesSHA256: setup.profilesHash, InputSize: files.inputInfo.Size(),
+		InputModTime: files.inputInfo.ModTime().UnixNano(), ProfilesSize: files.profileInfo.Size(),
+		ProfilesModTime: files.profileInfo.ModTime().UnixNano(), Offset: headerEnd,
+	}
+}
+
+func seekFrontierResumePoint(
+	input *os.File,
+	reader *bufio.Reader,
+	headerEnd int64,
+	state frontierImportCheckpoint,
+	profiles map[string]frontierSourceProfile,
+) (map[string]struct{}, error) {
+	seen := make(map[string]struct{})
+	if state.Offset > headerEnd {
+		var err error
+		seen, err = rebuildFrontierSeen(input, state.Offset, profiles)
+		if err != nil {
+			return nil, fmt.Errorf("restore frontier deduplication state: %w", err)
+		}
+	}
+	seekTo := headerEnd
+	if state.Offset > headerEnd {
+		seekTo = state.Offset
+	}
+	if _, err := input.Seek(seekTo, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("seek YaCy frontier to resume point: %w", err)
+	}
+	reader.Reset(input)
+	return seen, nil
 }
 
 func validateFrontierImportOptions(opts frontierImportOptions) error {
@@ -267,45 +365,61 @@ func loadYaCyProfiles(file *os.File) (map[string]frontierSourceProfile, string, 
 		return nil, "", fmt.Errorf("seek YaCy profile sidecar: %w", err)
 	}
 	reader := bufio.NewReaderSize(file, 16<<10)
+	header, err := readYaCyProfileHeader(reader)
+	if err != nil {
+		return nil, "", err
+	}
+	profiles, err := readYaCyProfileRecords(reader)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(profiles) == 0 {
+		return nil, "", errors.New("YaCy profile sidecar contains no profiles")
+	}
+	return profiles, header.SourceID, nil
+}
+
+func readYaCyProfileHeader(reader *bufio.Reader) (frontierFileHeader, error) {
 	line, err := readBoundedLine(reader)
 	if err != nil && (!errors.Is(err, io.EOF) || len(line) == 0) {
-		return nil, "", fmt.Errorf("read YaCy profile sidecar header: %w", err)
+		return frontierFileHeader{}, fmt.Errorf("read YaCy profile sidecar header: %w", err)
 	}
 	var header frontierFileHeader
 	if json.Unmarshal(line, &header) != nil || header.Type != "yacy-crawl-profiles" ||
 		header.Version != 1 || !validFrontierSourceID(header.SourceID) {
-		return nil, "", errors.New("invalid versioned YaCy profile sidecar header")
+		return frontierFileHeader{}, errors.New("invalid versioned YaCy profile sidecar header")
 	}
+	return header, nil
+}
+
+func readYaCyProfileRecords(reader *bufio.Reader) (map[string]frontierSourceProfile, error) {
 	profiles := make(map[string]frontierSourceProfile)
 	for {
-		line, err = readBoundedLine(reader)
+		line, err := readBoundedLine(reader)
 		if errors.Is(err, io.EOF) && len(line) == 0 {
 			break
 		}
 		if err != nil && !errors.Is(err, io.EOF) {
-			return nil, "", fmt.Errorf("read YaCy profile sidecar record: %w", err)
+			return nil, fmt.Errorf("read YaCy profile sidecar record: %w", err)
 		}
 		var record yaCyProfileRecord
 		if json.Unmarshal(line, &record) != nil || record.Type != "yacy-crawl-profile" ||
 			record.Version != 1 || record.Handle == "" || len(record.Fields) == 0 {
-			return nil, "", errors.New("invalid YaCy crawl-profile record")
+			return nil, errors.New("invalid YaCy crawl-profile record")
 		}
 		if _, duplicate := profiles[record.Handle]; duplicate {
-			return nil, "", errors.New("duplicate YaCy crawl-profile handle in sidecar")
+			return nil, errors.New("duplicate YaCy crawl-profile handle in sidecar")
 		}
 		profile, err := mapYaCyProfile(record)
 		if err != nil {
-			return nil, "", fmt.Errorf("map YaCy crawl profile: %w", err)
+			return nil, fmt.Errorf("map YaCy crawl profile: %w", err)
 		}
 		profiles[record.Handle] = frontierSourceProfile{
 			sourceHandle: record.Handle,
 			profile:      profile,
 		}
 	}
-	if len(profiles) == 0 {
-		return nil, "", errors.New("YaCy profile sidecar contains no profiles")
-	}
-	return profiles, header.SourceID, nil
+	return profiles, nil
 }
 
 func mapYaCyProfile(record yaCyProfileRecord) (yagocrawlcontract.CrawlProfile, error) {
@@ -324,53 +438,20 @@ func mapYaCyProfile(record yaCyProfileRecord) (yagocrawlcontract.CrawlProfile, e
 	}
 	maximumPagesPerRun := yagocrawlcontract.MaximumCrawlOrderImportBatchRecords
 	profile.MaxPagesPerRun = &maximumPagesPerRun
-	if raw := fields["generalDepth"]; raw != "" {
-		value, err := strconv.Atoi(raw)
-		if err != nil || value < 0 {
-			return yagocrawlcontract.CrawlProfile{}, errors.New("invalid YaCy generalDepth")
-		}
-		if value > 0 {
-			profile.MaxDepth = min(value, yagocrawlcontract.MaxCrawlDepth)
-		}
+	if err := applyYaCyProfileLimits(fields, &profile); err != nil {
+		return yagocrawlcontract.CrawlProfile{}, err
 	}
-	if raw := fields["domMaxPages"]; raw != "" {
-		value, err := strconv.Atoi(raw)
-		if err != nil {
-			return yagocrawlcontract.CrawlProfile{}, errors.New("invalid YaCy domMaxPages")
-		}
-		if value > 0 {
-			profile.MaxPagesPerHost = value
-		}
+	if err := applyYaCyNoFollowSetting(fields, &profile); err != nil {
+		return yagocrawlcontract.CrawlProfile{}, err
 	}
-	if raw := fields["obeyHtmlRobotsNofollow"]; raw != "" {
-		obey, err := strconv.ParseBool(raw)
-		if err != nil {
-			return yagocrawlcontract.CrawlProfile{}, errors.New(
-				"invalid YaCy robots-nofollow setting",
-			)
-		}
-		profile.FollowNoFollowLinks = !obey
+	if err := validateYaCyRecrawlSetting(fields); err != nil {
+		return yagocrawlcontract.CrawlProfile{}, err
 	}
-	if raw := fields["recrawlIfOlder"]; raw != "" && raw != "eternity" {
-		// YaCy stores an absolute millisecond cutoff date here (Long.MAX_VALUE
-		// means eternity); Yago stores a duration after fetch. Preserve the raw
-		// source field below instead of inventing an interval conversion.
-		cutoff, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil || cutoff < 0 {
-			return yagocrawlcontract.CrawlProfile{}, errors.New("invalid YaCy recrawl cutoff")
-		}
+	metadata, err := mapYaCyProfileMetadata(record)
+	if err != nil {
+		return yagocrawlcontract.CrawlProfile{}, err
 	}
-	metadata := make(map[string]string, len(fields)+1)
-	metadata["yacy.source_profile_handle"] = record.Handle
-	for key, value := range fields {
-		if len(key) > 240 || len(value) > 32<<10 {
-			return yagocrawlcontract.CrawlProfile{}, errors.New(
-				"YaCy profile field exceeds migration bounds",
-			)
-		}
-		metadata["yacy.profile."+key] = value
-	}
-	profile.SourceMetadata = metadata
+	profile.SourceMetadata = yagocrawlcontract.NewSourceMetadata(metadata)
 	profile = yagocrawlcontract.NewCrawlProfile(profile)
 	if err := profile.Validate(); err != nil {
 		return yagocrawlcontract.CrawlProfile{}, fmt.Errorf(
@@ -379,6 +460,73 @@ func mapYaCyProfile(record yaCyProfileRecord) (yagocrawlcontract.CrawlProfile, e
 		)
 	}
 	return profile, nil
+}
+
+func applyYaCyProfileLimits(
+	fields map[string]string,
+	profile *yagocrawlcontract.CrawlProfile,
+) error {
+	if raw := fields["generalDepth"]; raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 0 {
+			return errors.New("invalid YaCy generalDepth")
+		}
+		if value > 0 {
+			profile.MaxDepth = min(value, yagocrawlcontract.MaxCrawlDepth)
+		}
+	}
+	if raw := fields["domMaxPages"]; raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			return errors.New("invalid YaCy domMaxPages")
+		}
+		if value > 0 {
+			profile.MaxPagesPerHost = value
+		}
+	}
+	return nil
+}
+
+func applyYaCyNoFollowSetting(
+	fields map[string]string,
+	profile *yagocrawlcontract.CrawlProfile,
+) error {
+	if raw := fields["obeyHtmlRobotsNofollow"]; raw != "" {
+		obey, err := strconv.ParseBool(raw)
+		if err != nil {
+			return errors.New("invalid YaCy robots-nofollow setting")
+		}
+		profile.FollowNoFollowLinks = !obey
+	}
+	return nil
+}
+
+func validateYaCyRecrawlSetting(fields map[string]string) error {
+	if raw := fields["recrawlIfOlder"]; raw != "" && raw != "eternity" {
+		// YaCy stores an absolute millisecond cutoff date here (Long.MAX_VALUE
+		// means eternity); Yago stores a duration after fetch. Preserve the raw
+		// source field below instead of inventing an interval conversion.
+		cutoff, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || cutoff < 0 {
+			return errors.New("invalid YaCy recrawl cutoff")
+		}
+	}
+	return nil
+}
+
+func mapYaCyProfileMetadata(record yaCyProfileRecord) (map[string]string, error) {
+	fields := record.Fields
+	metadata := make(map[string]string, len(fields)+1)
+	metadata["yacy.source_profile_handle"] = record.Handle
+	for key, value := range fields {
+		if len(key) > 240 || len(value) > 32<<10 {
+			return nil, errors.New(
+				"YaCy profile field exceeds migration bounds",
+			)
+		}
+		metadata["yacy.profile."+key] = value
+	}
+	return metadata, nil
 }
 
 func mapYaCyPattern(pattern string) string {
@@ -402,186 +550,254 @@ func validFrontierSourceID(value string) bool {
 	return true
 }
 
-func runFrontierImport(
-	ctx context.Context,
-	opts frontierImportOptions,
-	progress io.Writer,
-	input *os.File,
-	inputInfo os.FileInfo,
-	reader *bufio.Reader,
-	profiles map[string]frontierSourceProfile,
-	seen map[string]struct{},
-	endpoint *url.URL,
-	statePath string,
-	state frontierImportCheckpoint,
-) error {
-	if state.Complete {
-		return writeFrontierImportProgress(progress, state)
+type frontierImportRunner struct {
+	ctx          context.Context
+	opts         frontierImportOptions
+	progress     io.Writer
+	input        *os.File
+	inputInfo    os.FileInfo
+	reader       *bufio.Reader
+	profiles     map[string]frontierSourceProfile
+	seen         map[string]struct{}
+	endpoint     *url.URL
+	statePath    string
+	state        frontierImportCheckpoint
+	client       *http.Client
+	batch        []yagocrawlcontract.CrawlRequest
+	batchEnd     int64
+	batchProfile string
+	batchRows    int64
+	duplicates   int64
+	blockedCreds int64
+	blockedURLs  int64
+	runRows      int
+	offset       int64
+}
+
+func (r *frontierImportRunner) run() error {
+	if r.state.Complete {
+		return writeFrontierImportProgress(r.progress, r.state)
 	}
-	client := &http.Client{Timeout: 90 * time.Second}
-	var batch []yagocrawlcontract.CrawlRequest
-	batchEnd := state.Offset
-	batchProfileHandle := ""
-	var batchRows, batchDuplicates, batchBlockedCredentialURLs, batchBlockedInvalidURLs int64
-	var runRows int
-	offset := state.Offset
-	flush := func() error {
-		if batchRows == 0 {
-			return nil
-		}
-		var importBatch yagocrawlcontract.CrawlOrderImportBatch
-		if len(batch) > 0 {
-			importBatch = makeFrontierImportBatch(
-				state.SourceID, batchProfileHandle, profiles, batch, false,
-			)
-			if err := importBatch.Validate(); err != nil {
-				return fmt.Errorf("validate mapped frontier batch at byte %d: %w", batchEnd, err)
-			}
-			encoded, err := json.Marshal(importBatch)
-			if err != nil {
-				return fmt.Errorf("size frontier import batch: %w", err)
-			}
-			if len(encoded) > yagocrawlcontract.MaximumCrawlOrderImportBatchBytes {
-				return fmt.Errorf(
-					"mapped frontier batch exceeds the %d-byte limit; rerun with a smaller --batch-records value",
-					yagocrawlcontract.MaximumCrawlOrderImportBatchBytes,
-				)
-			}
-		}
-		if !opts.DryRun && len(batch) > 0 {
-			if err := verifyImportFileUnchanged(input, inputInfo); err != nil {
-				return err
-			}
-			response, err := sendFrontierImportBatch(
-				ctx,
-				client,
-				endpoint.String(),
-				opts.APIKey,
-				importBatch,
-			)
-			if err != nil {
-				return err
-			}
-			state.EnqueuedRequests += int64(response.EnqueuedRequests)
-			state.AlreadyIndexed += int64(response.AlreadyIndexed)
-		} else if opts.DryRun {
-			state.UniqueRequests += int64(len(batch))
-		}
-		if opts.DryRun {
-			state.Offset = batchEnd
-			state.Records += batchRows
-			state.DuplicateRequests += batchDuplicates
-			state.BlockedCredentialURLs += batchBlockedCredentialURLs
-			state.BlockedInvalidURLs += batchBlockedInvalidURLs
-			batch = nil
-			batchRows, batchDuplicates, batchBlockedCredentialURLs, batchBlockedInvalidURLs = 0, 0, 0, 0
-			batchProfileHandle = ""
-			return nil
-		}
-		state.Offset = batchEnd
-		state.Records += batchRows
-		state.UniqueRequests += int64(len(batch))
-		state.DuplicateRequests += batchDuplicates
-		state.BlockedCredentialURLs += batchBlockedCredentialURLs
-		state.BlockedInvalidURLs += batchBlockedInvalidURLs
-		if err := saveCheckpoint(statePath, state); err != nil {
+	if err := r.runRecords(); err != nil {
+		return err
+	}
+	if err := r.flush(); err != nil {
+		return err
+	}
+	if !r.opts.DryRun {
+		r.state.Complete = r.opts.MaxRecords == 0 && r.state.Offset == r.inputInfo.Size()
+		if err := saveCheckpoint(r.statePath, r.state); err != nil {
 			return err
 		}
-		if err := writeFrontierImportProgress(progress, state); err != nil {
+	}
+	return writeFrontierImportSummary(r.progress, r.state, r.opts.DryRun)
+}
+
+func (r *frontierImportRunner) runRecords() error {
+	for r.opts.MaxRecords == 0 || r.runRows < r.opts.MaxRecords {
+		line, err := r.readLine()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
 			return err
 		}
-		batch = nil
-		batchRows, batchDuplicates, batchBlockedCredentialURLs, batchBlockedInvalidURLs = 0, 0, 0, 0
-		batchProfileHandle = ""
+		if err := r.processLine(line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *frontierImportRunner) readLine() ([]byte, error) {
+	line, err := readBoundedLine(r.reader)
+	if errors.Is(err, io.EOF) && len(line) == 0 {
+		return nil, io.EOF
+	}
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("read YaCy frontier at byte %d: %w", r.offset, err)
+	}
+	return line, nil
+}
+
+func (r *frontierImportRunner) processLine(line []byte) error {
+	row, profile, err := r.decodeRow(line)
+	if err != nil {
+		return err
+	}
+	blockedReason := frontierURLBlockReason(row.URL)
+	if blockedReason == "" && len(r.batch) > 0 && r.batchProfile != row.ProfileHandle {
+		if err := r.flush(); err != nil {
+			return err
+		}
+	}
+	r.offset += int64(len(line))
+	r.runRows++
+	r.batchRows++
+	r.batchEnd = r.offset
+	identity := row.ProfileHandle + "\x00" + row.URL
+	if blockedReason != "" {
+		if err := r.recordBlocked(identity, blockedReason); err != nil {
+			return err
+		}
+	} else if err := r.recordRequest(identity, row, profile); err != nil {
+		return fmt.Errorf("map YaCy frontier record at byte %d: %w", r.batchEnd, err)
+	}
+	if len(r.batch) >= r.opts.BatchRecords {
+		return r.flush()
+	}
+	return nil
+}
+
+func (r *frontierImportRunner) decodeRow(
+	line []byte,
+) (yaCyFrontierRecord, frontierSourceProfile, error) {
+	var row yaCyFrontierRecord
+	if json.Unmarshal(line, &row) != nil || row.Type != "crawlRequest" || row.Version != 1 ||
+		row.Stack != "LOCAL" || row.URL == "" || row.ProfileHandle == "" {
+		return row, frontierSourceProfile{}, fmt.Errorf(
+			"invalid YaCy frontier record at byte %d",
+			r.offset,
+		)
+	}
+	profile, ok := r.profiles[row.ProfileHandle]
+	if !ok {
+		return row, frontierSourceProfile{}, fmt.Errorf(
+			"YaCy frontier references an unavailable profile at byte %d",
+			r.offset,
+		)
+	}
+	return row, profile, nil
+}
+
+func (r *frontierImportRunner) recordBlocked(identity, reason string) error {
+	if _, duplicate := r.seen[identity]; duplicate {
+		r.duplicates++
 		return nil
 	}
-	for {
-		if opts.MaxRecords > 0 && runRows >= opts.MaxRecords {
-			break
+	if err := r.markSeen(identity); err != nil {
+		return err
+	}
+	if reason == "credential" {
+		r.blockedCreds++
+	} else {
+		r.blockedURLs++
+	}
+	return nil
+}
+
+func (r *frontierImportRunner) recordRequest(
+	identity string,
+	row yaCyFrontierRecord,
+	profile frontierSourceProfile,
+) error {
+	request, err := mapYaCyFrontierRequest(row, profile.profile)
+	if err != nil {
+		return err
+	}
+	if _, duplicate := r.seen[identity]; duplicate {
+		r.duplicates++
+		return nil
+	}
+	if err := r.markSeen(identity); err != nil {
+		return err
+	}
+	r.batch = append(r.batch, request)
+	if r.batchProfile == "" {
+		r.batchProfile = row.ProfileHandle
+	}
+	return nil
+}
+
+func (r *frontierImportRunner) markSeen(identity string) error {
+	if len(r.seen) >= maximumFrontierSeenURLs {
+		return errors.New("frontier deduplication safety limit reached")
+	}
+	r.seen[identity] = struct{}{}
+	return nil
+}
+
+func (r *frontierImportRunner) flush() error {
+	if r.batchRows == 0 {
+		return nil
+	}
+	importBatch, err := r.buildBatch()
+	if err != nil {
+		return err
+	}
+	if !r.opts.DryRun && len(r.batch) > 0 {
+		if err := verifyImportFileUnchanged(r.input, r.inputInfo); err != nil {
+			return err
 		}
-		line, readErr := readBoundedLine(reader)
-		if errors.Is(readErr, io.EOF) && len(line) == 0 {
-			break
-		}
-		if readErr != nil && !errors.Is(readErr, io.EOF) {
-			return fmt.Errorf("read YaCy frontier at byte %d: %w", offset, readErr)
-		}
-		var row yaCyFrontierRecord
-		if json.Unmarshal(line, &row) != nil || row.Type != "crawlRequest" || row.Version != 1 ||
-			row.Stack != "LOCAL" || row.URL == "" || row.ProfileHandle == "" {
-			return fmt.Errorf("invalid YaCy frontier record at byte %d", offset)
-		}
-		profile, ok := profiles[row.ProfileHandle]
-		if !ok {
-			return fmt.Errorf("YaCy frontier references an unavailable profile at byte %d", offset)
-		}
-		blockedReason := frontierURLBlockReason(row.URL)
-		if blockedReason == "" && len(batch) > 0 && batchProfileHandle != row.ProfileHandle {
-			if err := flush(); err != nil {
-				return err
-			}
-		}
-		offset += int64(len(line))
-		lineEnd := offset
-		runRows++
-		batchRows++
-		batchEnd = lineEnd
-		identity := row.ProfileHandle + "\x00" + row.URL
-		if blockedReason != "" {
-			if _, duplicate := seen[identity]; duplicate {
-				batchDuplicates++
-			} else {
-				if len(seen) >= maximumFrontierSeenURLs {
-					return errors.New("frontier deduplication safety limit reached")
-				}
-				seen[identity] = struct{}{}
-				if blockedReason == "credential" {
-					batchBlockedCredentialURLs++
-				} else {
-					batchBlockedInvalidURLs++
-				}
-			}
-			if len(batch) >= opts.BatchRecords {
-				if err := flush(); err != nil {
-					return err
-				}
-			}
-			continue
-		}
-		request, err := mapYaCyFrontierRequest(row, profile.profile)
+		response, err := sendFrontierImportBatch(
+			r.ctx, r.client, r.endpoint.String(), r.opts.APIKey, importBatch,
+		)
 		if err != nil {
-			return fmt.Errorf("map YaCy frontier record at byte %d: %w", lineEnd, err)
+			return err
 		}
-		if _, duplicate := seen[identity]; duplicate {
-			batchDuplicates++
-		} else {
-			if len(seen) >= maximumFrontierSeenURLs {
-				return errors.New("frontier deduplication safety limit reached")
-			}
-			seen[identity] = struct{}{}
-			batch = append(batch, request)
-			if batchProfileHandle == "" {
-				batchProfileHandle = row.ProfileHandle
-			}
-		}
-		if len(batch) >= opts.BatchRecords {
-			if err := flush(); err != nil {
-				return err
-			}
-		}
+		r.state.EnqueuedRequests += int64(response.EnqueuedRequests)
+		r.state.AlreadyIndexed += int64(response.AlreadyIndexed)
 	}
-	if batchRows > 0 {
-		if err := flush(); err != nil {
+	if r.opts.DryRun {
+		r.state.UniqueRequests += int64(len(r.batch))
+	}
+	r.recordBatchProgress()
+	if !r.opts.DryRun {
+		if err := saveCheckpoint(r.statePath, r.state); err != nil {
+			return err
+		}
+		if err := writeFrontierImportProgress(r.progress, r.state); err != nil {
 			return err
 		}
 	}
-	if !opts.DryRun {
-		state.Complete = opts.MaxRecords == 0 && state.Offset == inputInfo.Size()
-		if err := saveCheckpoint(statePath, state); err != nil {
-			return err
-		}
+	r.resetBatch()
+	return nil
+}
+
+func (r *frontierImportRunner) buildBatch() (yagocrawlcontract.CrawlOrderImportBatch, error) {
+	if len(r.batch) == 0 {
+		return yagocrawlcontract.CrawlOrderImportBatch{}, nil
 	}
-	return writeFrontierImportSummary(progress, state, opts.DryRun)
+	batch := makeFrontierImportBatch(r.state.SourceID, r.batchProfile, r.profiles, r.batch, false)
+	if err := batch.Validate(); err != nil {
+		return yagocrawlcontract.CrawlOrderImportBatch{}, fmt.Errorf(
+			"validate mapped frontier batch at byte %d: %w", r.batchEnd, err,
+		)
+	}
+	encoded, err := json.Marshal(batch)
+	if err != nil {
+		return yagocrawlcontract.CrawlOrderImportBatch{}, fmt.Errorf(
+			"size frontier import batch: %w",
+			err,
+		)
+	}
+	if len(encoded) > yagocrawlcontract.MaximumCrawlOrderImportBatchBytes {
+		return yagocrawlcontract.CrawlOrderImportBatch{}, fmt.Errorf(
+			"mapped frontier batch exceeds the %d-byte limit; rerun with a smaller --batch-records value",
+			yagocrawlcontract.MaximumCrawlOrderImportBatchBytes,
+		)
+	}
+	return batch, nil
+}
+
+func (r *frontierImportRunner) recordBatchProgress() {
+	r.state.Offset = r.batchEnd
+	r.state.Records += r.batchRows
+	if !r.opts.DryRun {
+		r.state.UniqueRequests += int64(len(r.batch))
+	}
+	r.state.DuplicateRequests += r.duplicates
+	r.state.BlockedCredentialURLs += r.blockedCreds
+	r.state.BlockedInvalidURLs += r.blockedURLs
+}
+
+func (r *frontierImportRunner) resetBatch() {
+	r.batch = nil
+	r.batchProfile = ""
+	r.batchRows = 0
+	r.duplicates = 0
+	r.blockedCreds = 0
+	r.blockedURLs = 0
 }
 
 func mapYaCyFrontierRequest(
@@ -597,12 +813,12 @@ func mapYaCyFrontierRequest(
 	request := yagocrawlcontract.CrawlRequest{
 		URL: row.URL, Mode: yagocrawlcontract.CrawlRequestModeURL,
 		AnchorName: row.Anchor, Depth: row.Depth, ProfileHandle: profile.Handle,
-		SourceMetadata: map[string]string{
+		SourceMetadata: yagocrawlcontract.NewSourceMetadata(map[string]string{
 			"yacy.source_profile_handle": row.ProfileHandle,
 			"yacy.stack":                 row.Stack,
 			"yacy.queued_at_millis":      strconv.FormatInt(row.QueuedAtMillis, 10),
 			"yacy.initiator_hex":         row.InitiatorHex,
-		},
+		}),
 	}
 	if row.QueuedAtMillis > 0 {
 		request.AppDate = time.UnixMilli(row.QueuedAtMillis).UTC()
@@ -655,7 +871,7 @@ func sendFrontierImportBatch(
 	client *http.Client,
 	endpoint, apiKey string,
 	batch yagocrawlcontract.CrawlOrderImportBatch,
-) (frontierImportResponse, error) {
+) (result frontierImportResponse, resultErr error) {
 	encoded, err := json.Marshal(batch)
 	if err != nil {
 		return frontierImportResponse{}, fmt.Errorf("encode frontier import batch: %w", err)
@@ -675,7 +891,14 @@ func sendFrontierImportBatch(
 	if err != nil {
 		return frontierImportResponse{}, fmt.Errorf("send frontier import batch: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			resultErr = errors.Join(
+				resultErr,
+				fmt.Errorf("close frontier import response: %w", err),
+			)
+		}
+	}()
 	if response.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 		return frontierImportResponse{}, fmt.Errorf(
@@ -683,7 +906,6 @@ func sendFrontierImportBatch(
 			response.StatusCode,
 		)
 	}
-	var result frontierImportResponse
 	decoder := json.NewDecoder(io.LimitReader(response.Body, 16<<10))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&result); err != nil {
@@ -698,7 +920,7 @@ func rebuildFrontierSeen(
 	profiles map[string]frontierSourceProfile,
 ) (map[string]struct{}, error) {
 	if _, err := input.Seek(0, io.SeekStart); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("seek frontier before checkpoint replay: %w", err)
 	}
 	reader := bufio.NewReaderSize(input, 64<<10)
 	_, headerEnd, err := readFrontierHeader(reader)
@@ -739,26 +961,33 @@ func rebuildFrontierSeen(
 	return seen, nil
 }
 
+type frontierCheckpointValidation struct {
+	found        bool
+	inputInfo    os.FileInfo
+	profileInfo  os.FileInfo
+	inputHash    string
+	profilesHash string
+	sourceID     string
+	endpoint     *url.URL
+	dryRun       bool
+}
+
 func validateFrontierCheckpoint(
 	state frontierImportCheckpoint,
-	found bool,
-	inputInfo, profileInfo os.FileInfo,
-	inputHash, profilesHash, sourceID string,
-	endpoint *url.URL,
-	dryRun bool,
+	validation frontierCheckpointValidation,
 ) error {
-	if dryRun {
+	if validation.dryRun || !validation.found {
 		return nil
 	}
-	if !found {
-		return nil
-	}
-	if dryRun || state.Version != 1 || state.SourceID != sourceID ||
-		state.InputSHA256 != inputHash || state.ProfilesSHA256 != profilesHash ||
-		state.InputSize != inputInfo.Size() || state.InputModTime != inputInfo.ModTime().UnixNano() ||
-		state.ProfilesSize != profileInfo.Size() || state.ProfilesModTime != profileInfo.ModTime().UnixNano() ||
-		state.Offset < 0 || state.Offset > inputInfo.Size() || endpoint == nil ||
-		state.DestinationFingerprint != destinationFingerprint(endpoint) {
+	if state.Version != 1 || state.SourceID != validation.sourceID ||
+		state.InputSHA256 != validation.inputHash ||
+		state.ProfilesSHA256 != validation.profilesHash ||
+		state.InputSize != validation.inputInfo.Size() ||
+		state.InputModTime != validation.inputInfo.ModTime().UnixNano() ||
+		state.ProfilesSize != validation.profileInfo.Size() ||
+		state.ProfilesModTime != validation.profileInfo.ModTime().UnixNano() ||
+		state.Offset < 0 || state.Offset > validation.inputInfo.Size() || validation.endpoint == nil ||
+		state.DestinationFingerprint != destinationFingerprint(validation.endpoint) {
 		return errors.New("frontier checkpoint does not match the input files or destination")
 	}
 	return nil
@@ -782,14 +1011,14 @@ func loadFrontierImportCheckpoint(path string) (frontierImportCheckpoint, bool, 
 
 func hashOpenFile(file *os.File) (string, error) {
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return "", err
+		return "", fmt.Errorf("seek file before hashing: %w", err)
 	}
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
+		return "", fmt.Errorf("hash file contents: %w", err)
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return "", err
+		return "", fmt.Errorf("rewind file after hashing: %w", err)
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
@@ -807,7 +1036,10 @@ func writeFrontierImportProgress(progress io.Writer, state frontierImportCheckpo
 		state.BlockedInvalidURLs,
 		state.Offset,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("write frontier checkpoint progress: %w", err)
+	}
+	return nil
 }
 
 func writeFrontierImportSummary(
@@ -825,7 +1057,10 @@ func writeFrontierImportSummary(
 			state.BlockedCredentialURLs,
 			state.BlockedInvalidURLs,
 		)
-		return err
+		if err != nil {
+			return fmt.Errorf("write frontier dry-run summary: %w", err)
+		}
+		return nil
 	}
 	return writeFrontierImportProgress(progress, state)
 }

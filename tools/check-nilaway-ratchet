@@ -15,23 +15,67 @@ trap 'rm -rf "$scratch"' EXIT
 diagnostics="$scratch/diagnostics"
 actual="$scratch/actual"
 : > "$diagnostics"
+batch_size=${NILAWAY_BATCH_SIZE:-8}
+case "$batch_size" in
+	'' | *[!0-9]* | 0)
+		echo "NILAWAY_BATCH_SIZE must be a positive integer" >&2
+		exit 2
+		;;
+esac
 
-for module in "$@"; do
-	module_path=$(sed -n 's/^module //p' "$root/$module/go.mod")
-	raw="$scratch/$module.raw"
-	module_diagnostics="$scratch/$module.diagnostics"
-	echo "==> nilaway $module"
-	set +e
-	(
+run_nilaway_batch() {
+	package_batch=$1
+	set -f
+	set -- $package_batch
+	set +f
+	"$nilaway" -pretty-print=false -print-full-file-path=true \
+		-include-pkgs="$module_path" -exclude-test-files "$@"
+}
+
+analyze_nilaway_batch() {
+	package_batch=$1
+	batch_label=$2
+	raw="$scratch/$module.$batch_label.raw"
+	batch_diagnostics="$scratch/$module.$batch_label.diagnostics"
+	echo "==> nilaway $module batch $batch_label"
+	if (
 		cd "$root/$module"
-		"$nilaway" -pretty-print=false -print-full-file-path=true \
-			-include-pkgs="$module_path" -exclude-test-files ./...
-	) > "$raw" 2>&1
-	status=$?
-	set -e
+		run_nilaway_batch "$package_batch"
+	) > "$raw" 2>&1; then
+		status=0
+	else
+		status=$?
+	fi
+	if [ "$status" -eq 137 ]; then
+		set -f
+		set -- $package_batch
+		set +f
+		package_count=$#
+		if [ "$package_count" -le 1 ]; then
+			cat "$raw"
+			echo "nilaway could not analyze a single package in $module" >&2
+			return "$status"
+		fi
+		midpoint=$((package_count / 2))
+		left=
+		right=
+		package_index=0
+		for package in $package_batch; do
+			package_index=$((package_index + 1))
+			if [ "$package_index" -le "$midpoint" ]; then
+				left="${left}${left:+ }$package"
+			else
+				right="${right}${right:+ }$package"
+			fi
+		done
+		printf '==> nilaway split %s batch %s after memory limit\n' "$module" "$batch_label"
+		analyze_nilaway_batch "$left" "${batch_label}a"
+		analyze_nilaway_batch "$right" "${batch_label}b"
+		return 0
+	fi
 	case "$status" in
 		0 | 3) ;;
-		*) cat "$raw"; echo "nilaway failed to analyze $module" >&2; exit "$status" ;;
+		*) cat "$raw"; echo "nilaway failed to analyze $module batch $batch_label" >&2; return "$status" ;;
 	esac
 	awk -v prefix="$root/" '
 		index($0, prefix) == 1 {
@@ -40,7 +84,7 @@ for module in "$@"; do
 			boundary = index(value, marker)
 			if (boundary > 0) print substr(value, 1, boundary - 1)
 		}
-	' "$raw" > "$module_diagnostics"
+	' "$raw" > "$batch_diagnostics"
 	if awk -v prefix="$root/" '
 		index($0, prefix) == 1 && index($0, ": Potential nil panic detected.") == 0 {
 			unclassified = 1
@@ -49,14 +93,39 @@ for module in "$@"; do
 	' "$raw"; then
 		cat "$raw"
 		echo "nilaway returned an unclassified diagnostic" >&2
-		exit 1
+		return 1
 	fi
-	cat "$module_diagnostics" >> "$diagnostics"
-	if [ "$status" -eq 3 ] && [ ! -s "$module_diagnostics" ]; then
+	cat "$batch_diagnostics" >> "$module_diagnostics"
+	if [ "$status" -eq 3 ] && [ ! -s "$batch_diagnostics" ]; then
 		cat "$raw"
 		echo "nilaway returned diagnostics that the ratchet could not classify" >&2
-		exit 1
+		return 1
 	fi
+}
+
+for module in "$@"; do
+	module_path=$(sed -n 's/^module //p' "$root/$module/go.mod")
+	packages="$scratch/$module.packages"
+	batches="$scratch/$module.batches"
+	module_diagnostics="$scratch/$module.diagnostics"
+	: > "$module_diagnostics"
+	(
+		cd "$root/$module"
+		go list -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./...
+	) > "$packages"
+	awk -v size="$batch_size" '
+		NF == 0 { next }
+		count > 0 && count % size == 0 { printf "\n" }
+		{ printf "%s%s", separator, $0; separator = " "; count++ }
+		END { if (count > 0) printf "\n" }
+	' "$packages" > "$batches"
+	batch_number=0
+	while IFS= read -r package_batch; do
+		[ -n "$package_batch" ] || continue
+		batch_number=$((batch_number + 1))
+		analyze_nilaway_batch "$package_batch" "$batch_number"
+	done < "$batches"
+	cat "$module_diagnostics" >> "$diagnostics"
 done
 
 sort -u "$diagnostics" > "$actual"

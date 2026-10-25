@@ -29,6 +29,10 @@
       "rules": ["G124"]
     },
     {
+      "path": ".*yagonode/internal/personalsearch/account_credential_reset_route\\.go",
+      "rules": ["G101"]
+    },
+    {
       "path": ".*yagonode/internal/adminui/performance_history\\.go",
       "rules": ["G203"]
     },

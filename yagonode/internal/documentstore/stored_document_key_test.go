@@ -2,11 +2,10 @@ package documentstore
 
 import (
 	"bytes"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/D4rk4/yago/yagonode/internal/boltvault"
+	"github.com/D4rk4/yago/yagonode/internal/memvault"
 	"github.com/D4rk4/yago/yagonode/internal/vault"
 )
 
@@ -32,8 +31,8 @@ func TestOrderedDocumentKeyRoundTripAndOrder(t *testing.T) {
 	}
 }
 
-func TestBboltDocumentStoreRoundTripsMigrationSizedURLIdentity(t *testing.T) {
-	storage, err := boltvault.Open(filepath.Join(t.TempDir(), "documents.db"), 0)
+func TestDocumentStoreRoundTripsMigrationSizedURLIdentity(t *testing.T) {
+	storage, err := memvault.Open(0)
 	if err != nil {
 		t.Fatal(err)
 	}

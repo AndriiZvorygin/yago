@@ -40,10 +40,26 @@ func (s *payloadSearcher) Search(
 func TestStableWindowDetachesAndIsolatesCompletePayload(t *testing.T) {
 	backing := strings.Repeat("x", 1<<20)
 	short := backing[:8]
-	inner := &payloadSearcher{response: searchcore.Response{
+	inner := &payloadSearcher{response: completePayload(short)}
+	stable := WithStableWindow(inner).(*stableSearcher)
+	req := searchcore.Request{Query: "go", Limit: 1}
+	first, err := stable.Search(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := stable.sessions[sessionKey(req)]
+	if entry == nil || entry.retained >= len(backing) {
+		t.Fatalf("detached session/bytes = %#v/%d", entry, entry.retained)
+	}
+	mutateSearchPayloadCopies(&first, inner)
+	assertCompleteSearchPayload(t, entry.respond(req), short)
+}
+
+func completePayload(title string) searchcore.Response {
+	return searchcore.Response{
 		TotalResults: 1,
 		Results: []searchcore.Result{{
-			Title:            short,
+			Title:            title,
 			URL:              "https://example.test/",
 			Images:           []searchcore.ResultImage{{URL: "image", Alt: "alt"}},
 			QueryMatches:     []searchcore.QueryMatch{{Start: 1, End: 2}},
@@ -69,17 +85,10 @@ func TestStableWindowDetachesAndIsolatesCompletePayload(t *testing.T) {
 		Coverage: &searchcore.SearchCoverage{
 			CompletedShards: 2, TotalShards: 8, Complete: false,
 		},
-	}}
-	stable := WithStableWindow(inner).(*stableSearcher)
-	req := searchcore.Request{Query: "go", Limit: 1}
-	first, err := stable.Search(context.Background(), req)
-	if err != nil {
-		t.Fatal(err)
 	}
-	entry := stable.sessions[sessionKey(req)]
-	if entry == nil || entry.retained >= len(backing) {
-		t.Fatalf("detached session/bytes = %#v/%d", entry, entry.retained)
-	}
+}
+
+func mutateSearchPayloadCopies(first *searchcore.Response, source *payloadSearcher) {
 	first.Results[0].Title = "changed"
 	first.Results[0].Images[0].URL = "changed"
 	first.Results[0].QueryMatches[0].Start = 9
@@ -89,18 +98,20 @@ func TestStableWindowDetachesAndIsolatesCompletePayload(t *testing.T) {
 	first.PartialFailures[0].Reason = "changed"
 	first.Facets[0].Terms[0].Term = "changed"
 	first.Coverage.CompletedShards = 7
-	inner.response.Results[0].Images[0].Alt = "changed"
-	inner.response.Results[0].QueryMatches[0].End = 9
-	inner.response.Results[0].BodyQueryMatches[0].End = 9
-	inner.response.Results[0].FieldScores["body"] = 7
-	inner.response.Results[0].FieldTermPositions["body"]["term"][1] = 7
-	inner.response.PartialFailures[0].Source = "changed"
-	inner.response.Facets[0].Name = "changed"
-	inner.response.Coverage.TotalShards = 99
+	source.response.Results[0].Images[0].Alt = "changed"
+	source.response.Results[0].QueryMatches[0].End = 9
+	source.response.Results[0].BodyQueryMatches[0].End = 9
+	source.response.Results[0].FieldScores["body"] = 7
+	source.response.Results[0].FieldTermPositions["body"]["term"][1] = 7
+	source.response.PartialFailures[0].Source = "changed"
+	source.response.Facets[0].Name = "changed"
+	source.response.Coverage.TotalShards = 99
+}
 
-	cached := entry.respond(req)
+func assertCompleteSearchPayload(t *testing.T, cached searchcore.Response, title string) {
+	t.Helper()
 	result := cached.Results[0]
-	if result.Title != short || result.Images[0] != (searchcore.ResultImage{
+	if result.Title != title || result.Images[0] != (searchcore.ResultImage{
 		URL: "image", Alt: "alt",
 	}) || result.QueryMatches[0] != (searchcore.QueryMatch{Start: 1, End: 2}) ||
 		result.BodyQueryMatches[0] != (searchcore.QueryMatch{Start: 3, End: 4}) ||

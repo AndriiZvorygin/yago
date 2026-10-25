@@ -59,63 +59,59 @@ func (b CrawlOrderImportBatch) IdempotencyKey() string {
 // Validate checks the bounded, versioned frontier-import envelope before it
 // can be persisted as a crawl order.
 func (b CrawlOrderImportBatch) Validate() error {
-	if b.Version != 1 || len(b.Requests) == 0 ||
-		len(b.Requests) > MaximumCrawlOrderImportBatchRecords {
+	if err := validateCrawlOrderImportBounds(b); err != nil {
+		return err
+	}
+	if err := validateCrawlOrderImportSource(b.SourceID); err != nil {
+		return err
+	}
+	if err := validateCrawlOrderImportProfile(b.Profile); err != nil {
+		return err
+	}
+	if err := validateCrawlOrderImportRequests(b.Profile.Handle, b.Requests); err != nil {
+		return err
+	}
+	return validateCrawlOrderImportIdentity(b)
+}
+
+func validateCrawlOrderImportBounds(batch CrawlOrderImportBatch) error {
+	if batch.Version != 1 || len(batch.Requests) == 0 ||
+		len(batch.Requests) > MaximumCrawlOrderImportBatchRecords {
 		return fmt.Errorf("unsupported frontier version or request count")
 	}
-	if len(b.SourceID) == 0 || len(b.SourceID) > MaximumCrawlOrderImportSourceID ||
-		strings.TrimSpace(b.SourceID) != b.SourceID || !validImportSourceID(b.SourceID) {
+	return nil
+}
+
+func validateCrawlOrderImportSource(sourceID string) error {
+	if len(sourceID) == 0 || len(sourceID) > MaximumCrawlOrderImportSourceID ||
+		strings.TrimSpace(sourceID) != sourceID || !validImportSourceID(sourceID) {
 		return fmt.Errorf("invalid frontier source ID")
 	}
-	if len(b.BatchID) != sha256.Size*2 {
-		return fmt.Errorf("invalid frontier batch ID")
-	}
-	if _, err := hex.DecodeString(
-		b.BatchID,
-	); err != nil ||
-		strings.ToLower(b.BatchID) != b.BatchID {
-		return fmt.Errorf("invalid frontier batch ID")
-	}
-	if len(b.Profile.Handle) == 0 || len(b.Profile.Handle) > MaximumProfileHandleBytes ||
-		!utf8.ValidString(b.Profile.Name) || len(b.Profile.Name) > 512 {
+	return nil
+}
+
+func validateCrawlOrderImportProfile(profile CrawlProfile) error {
+	if len(profile.Handle) == 0 || len(profile.Handle) > MaximumProfileHandleBytes ||
+		!utf8.ValidString(profile.Name) || len(profile.Name) > 512 {
 		return fmt.Errorf("invalid frontier crawl profile")
 	}
-	if err := b.Profile.Validate(); err != nil {
+	if err := profile.Validate(); err != nil {
 		return fmt.Errorf("invalid frontier crawl profile: %w", err)
 	}
-	if err := validateImportMetadata(b.Profile.SourceMetadata); err != nil {
+	if err := validateImportMetadata(profile.SourceMetadata); err != nil {
 		return fmt.Errorf("invalid frontier profile metadata: %w", err)
 	}
-	seen := make(map[string]struct{}, len(b.Requests))
-	for _, request := range b.Requests {
-		if request.URL == "" || len(request.URL) > MaximumCrawlURLBytes ||
-			!utf8.ValidString(request.URL) {
-			return fmt.Errorf("invalid frontier URL")
-		}
-		parsed, err := url.Parse(request.URL)
-		if err != nil || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" ||
-			!importableCrawlScheme(parsed.Scheme) {
-			return fmt.Errorf("frontier URL must be an absolute HTTP, HTTPS, FTP, or SMB URL")
-		}
-		if request.ProfileHandle != b.Profile.Handle || request.Depth < 0 ||
-			request.Depth > MaxCrawlDepth || len(request.AnchorName) > MaximumCrawlOrderImportAnchorBytes ||
-			!utf8.ValidString(request.AnchorName) {
-			return fmt.Errorf("invalid frontier request metadata")
-		}
-		if request.Mode != "" {
-			if _, ok := NormalizeCrawlRequestMode(request.Mode); !ok {
-				return fmt.Errorf("invalid frontier request mode")
-			}
-		}
-		if request.ReferrerURL != "" {
-			referrer, err := url.Parse(request.ReferrerURL)
-			if err != nil || referrer.Host == "" || referrer.User != nil ||
-				referrer.Fragment != "" || !importableCrawlScheme(referrer.Scheme) {
-				return fmt.Errorf("invalid frontier referrer URL")
-			}
-		}
-		if request.Initiator != "" && !request.Initiator.Valid() {
-			return fmt.Errorf("invalid frontier initiator")
+	return nil
+}
+
+func validateCrawlOrderImportRequests(
+	profileHandle string,
+	requests []CrawlRequest,
+) error {
+	seen := make(map[string]struct{}, len(requests))
+	for _, request := range requests {
+		if err := validateCrawlOrderImportRequest(profileHandle, request); err != nil {
+			return err
 		}
 		identity := request.ProfileHandle + "\x00" + request.URL
 		if _, duplicate := seen[identity]; duplicate {
@@ -126,11 +122,69 @@ func (b CrawlOrderImportBatch) Validate() error {
 			return fmt.Errorf("invalid frontier request metadata: %w", err)
 		}
 	}
-	computed, err := b.ComputeBatchID()
+	return nil
+}
+
+func validateCrawlOrderImportRequest(profileHandle string, request CrawlRequest) error {
+	if err := validateCrawlOrderImportURL(request.URL); err != nil {
+		return err
+	}
+	if request.ProfileHandle != profileHandle || request.Depth < 0 ||
+		request.Depth > MaxCrawlDepth || len(request.AnchorName) > MaximumCrawlOrderImportAnchorBytes ||
+		!utf8.ValidString(request.AnchorName) {
+		return fmt.Errorf("invalid frontier request metadata")
+	}
+	if request.Mode != "" {
+		if _, ok := NormalizeCrawlRequestMode(request.Mode); !ok {
+			return fmt.Errorf("invalid frontier request mode")
+		}
+	}
+	if err := validateCrawlOrderImportReferrer(request.ReferrerURL); err != nil {
+		return err
+	}
+	if request.Initiator != "" && !request.Initiator.Valid() {
+		return fmt.Errorf("invalid frontier initiator")
+	}
+	return nil
+}
+
+func validateCrawlOrderImportURL(raw string) error {
+	if raw == "" || len(raw) > MaximumCrawlURLBytes || !utf8.ValidString(raw) {
+		return fmt.Errorf("invalid frontier URL")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" ||
+		!importableCrawlScheme(parsed.Scheme) {
+		return fmt.Errorf("frontier URL must be an absolute HTTP, HTTPS, FTP, or SMB URL")
+	}
+	return nil
+}
+
+func validateCrawlOrderImportReferrer(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	referrer, err := url.Parse(raw)
+	if err != nil || referrer.Host == "" || referrer.User != nil ||
+		referrer.Fragment != "" || !importableCrawlScheme(referrer.Scheme) {
+		return fmt.Errorf("invalid frontier referrer URL")
+	}
+	return nil
+}
+
+func validateCrawlOrderImportIdentity(batch CrawlOrderImportBatch) error {
+	if len(batch.BatchID) != sha256.Size*2 {
+		return fmt.Errorf("invalid frontier batch ID")
+	}
+	if _, err := hex.DecodeString(batch.BatchID); err != nil ||
+		strings.ToLower(batch.BatchID) != batch.BatchID {
+		return fmt.Errorf("invalid frontier batch ID")
+	}
+	computed, err := batch.ComputeBatchID()
 	if err != nil {
 		return err
 	}
-	if computed != b.BatchID {
+	if computed != batch.BatchID {
 		return fmt.Errorf("frontier batch ID does not match payload")
 	}
 	return nil
@@ -156,12 +210,15 @@ func importableCrawlScheme(scheme string) bool {
 	}
 }
 
-func validateImportMetadata(metadata map[string]string) error {
-	if len(metadata) > MaximumCrawlOrderImportMetadata {
+func validateImportMetadata(metadata *SourceMetadata) error {
+	if metadata == nil {
+		return nil
+	}
+	if len(*metadata) > MaximumCrawlOrderImportMetadata {
 		return fmt.Errorf("too many metadata fields")
 	}
 	bytes := 0
-	for key, value := range metadata {
+	for key, value := range *metadata {
 		if key == "" || len(key) > 256 || !utf8.ValidString(key) || !utf8.ValidString(value) {
 			return fmt.Errorf("invalid metadata entry")
 		}

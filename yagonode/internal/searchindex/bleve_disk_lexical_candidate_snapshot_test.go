@@ -728,6 +728,16 @@ func TestNewBleveLexicalCandidateSnapshotQueryUsesPerShardBound(t *testing.T) {
 	}
 }
 
+func TestProgressiveWindowRejectsNegativeDocumentMaximum(t *testing.T) {
+	query := &bleveLexicalCandidateSnapshotQuery{
+		maximumDocuments: -1,
+		allowIncomplete:  true,
+	}
+	if _, err := query.progressiveWindow(nil); err == nil {
+		t.Fatal("negative progressive sample maximum was accepted")
+	}
+}
+
 var (
 	_ blevequery.Query       = (*bleveLexicalCandidateQueryProbe)(nil)
 	_ search.Searcher        = (*bleveLexicalCandidateSearcherProbe)(nil)

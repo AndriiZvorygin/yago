@@ -26,7 +26,7 @@ type CrawlProfile struct {
 	Name   string
 	// SourceMetadata preserves adapter-specific profile fields without making
 	// them part of Yago's deterministic rule or profile-handle calculation.
-	SourceMetadata       map[string]string `json:",omitempty"`
+	SourceMetadata       *SourceMetadata `json:",omitempty"`
 	Scope                CrawlScope
 	URLMustMatch         string
 	URLMustNotMatch      string
@@ -63,6 +63,26 @@ type CrawlProfile struct {
 	// indexes for this crawl; the node fills it from the operator's shared
 	// format settings on every dispatch.
 	Formats FormatToggles
+}
+
+type SourceMetadata map[string]string
+
+func NewSourceMetadata(values map[string]string) *SourceMetadata {
+	if values == nil {
+		return nil
+	}
+	metadata := make(SourceMetadata, len(values))
+	for key, value := range values {
+		metadata[key] = value
+	}
+	return &metadata
+}
+
+func (metadata *SourceMetadata) Get(key string) string {
+	if metadata == nil {
+		return ""
+	}
+	return (*metadata)[key]
 }
 
 // FormatToggles enables document format families for parsing (YaCy TextParser

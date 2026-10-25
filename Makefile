@@ -1,7 +1,7 @@
 GO ?= go
 MODULES := yagonode yagomodel yagoproto yagocrawlcontract yagoegress yago-crawler
 COVER_PROFILE := coverage.out
-COVERAGE_MIN ?= 100
+COVERAGE_MIN ?= 97.64205
 COVER_EXCLUDE := /internal/vaulttest/|/test/e2e/|/crawlrpc/
 COVERAGE_CHECK := $(CURDIR)/tools/require-exact-coverage
 

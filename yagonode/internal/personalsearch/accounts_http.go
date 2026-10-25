@@ -16,20 +16,19 @@ import (
 )
 
 const (
-	PathAccountLogin          = "/account/login"
-	PathAccountClaim          = "/account/claim"
-	PathAccountHome           = "/account"
-	PathAccountLogout         = "/account/logout"
-	PathAccountPreference     = "/account/preference"
-	PathAccountHistory        = "/account/history"
-	PathAccountHistoryClear   = "/account/history/clear"
-	PathAccountAPIKeys        = "/account/api-keys"
-	PathPersonalSearchAdmin   = "/admin/personal-search"
-	PathPersonalInvitations   = "/api/admin/v1/personal-search/invitations"
-	PathPersonalPasswordReset = "/api/admin/v1/personal-search/password-reset"
-	pathPersonalAccount       = "/api/admin/v1/personal-search/accounts/{id}"
-	accountEnrollmentCookie   = "__Host-yago_account_enrollment"
-	accountCSRFCookie         = "__Host-yago_account_csrf"
+	PathAccountLogin        = "/account/login"
+	PathAccountClaim        = "/account/claim"
+	PathAccountHome         = "/account"
+	PathAccountLogout       = "/account/logout"
+	PathAccountPreference   = "/account/preference"
+	PathAccountHistory      = "/account/history"
+	PathAccountHistoryClear = "/account/history/clear"
+	PathAccountAPIKeys      = "/account/api-keys"
+	PathPersonalSearchAdmin = "/admin/personal-search"
+	PathPersonalInvitations = "/api/admin/v1/personal-search/invitations"
+	pathPersonalAccount     = "/api/admin/v1/personal-search/accounts/{id}"
+	accountEnrollmentCookie = "__Host-yago_account_enrollment"
+	accountCSRFCookie       = "__Host-yago_account_csrf"
 )
 
 type loginAttempt struct {
@@ -160,7 +159,7 @@ func (a *Accounts) MountAdminPages(mux *http.ServeMux, learning *Learning) {
 	mux.HandleFunc("GET "+PathPersonalSearchAdmin, admin.page)
 	mux.HandleFunc("POST "+PathPersonalSearchAdmin, admin.create)
 	mux.HandleFunc("POST "+PathPersonalInvitations, admin.createJSON)
-	mux.HandleFunc("POST "+PathPersonalPasswordReset, admin.resetPasswordJSON)
+	mux.HandleFunc("POST "+PathPersonalCredentialReset, admin.resetPasswordJSON)
 	mux.HandleFunc("DELETE "+pathPersonalAccount, admin.disableAccount)
 }
 
@@ -222,7 +221,7 @@ func (h accountPagesHandler) login(w http.ResponseWriter, r *http.Request) {
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name: accountCSRFCookie, Value: session.CSRFToken, Path: "/", Secure: true,
-		SameSite: http.SameSiteStrictMode, Expires: session.ExpiresAt,
+		HttpOnly: true, SameSite: http.SameSiteStrictMode, Expires: session.ExpiresAt,
 		MaxAge: int(time.Until(session.ExpiresAt).Seconds()),
 	})
 	http.SetCookie(w, &http.Cookie{
@@ -352,6 +351,7 @@ func (h accountPagesHandler) logout(w http.ResponseWriter, r *http.Request) {
 			Value:    "",
 			Path:     "/",
 			Secure:   true,
+			HttpOnly: true,
 			SameSite: http.SameSiteStrictMode,
 			MaxAge:   -1,
 		},

@@ -27,7 +27,82 @@ func TestInvitationFormUsesAdminGuardCSRFField(t *testing.T) {
 	}
 }
 
+func TestAccountLoginAndLogoutProtectCSRFCookie(t *testing.T) {
+	accounts := openAccounts(t, time.Now)
+	account := claimTestAccount(t, accounts)
+	mux := http.NewServeMux()
+	accounts.MountUserPages(mux, nil, nil)
+	handler := accounts.Middleware(mux)
+	loginPage := httptest.NewRecorder()
+	handler.ServeHTTP(
+		loginPage,
+		httpTestRequest(t, http.MethodGet, PathAccountLogin, ""),
+	)
+	enrollmentCookie := accountResponseCookie(loginPage, accountEnrollmentCookie)
+	if enrollmentCookie == nil {
+		t.Fatal("login page did not set the enrollment cookie")
+	}
+	form := url.Values{
+		"csrf":     {enrollmentCookie.Value},
+		"login":    {account.LoginName},
+		"password": {"a sufficiently long test password"},
+	}
+	login := httptest.NewRecorder()
+	loginRequest := httpTestRequest(t, http.MethodPost, PathAccountLogin, form.Encode())
+	loginRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRequest.AddCookie(enrollmentCookie)
+	handler.ServeHTTP(login, loginRequest)
+	if login.Code != http.StatusSeeOther {
+		t.Fatalf("login status = %d, body=%s", login.Code, login.Body.String())
+	}
+	sessionCookie := accountResponseCookie(login, accountSessionCookie)
+	csrfCookie := accountResponseCookie(login, accountCSRFCookie)
+	assertProtectedAccountCookie(t, sessionCookie)
+	assertProtectedAccountCookie(t, csrfCookie)
+
+	logout := httptest.NewRecorder()
+	logoutForm := url.Values{"csrf": {csrfCookie.Value}}
+	logoutRequest := httpTestRequest(t, http.MethodPost, PathAccountLogout, logoutForm.Encode())
+	logoutRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	logoutRequest.AddCookie(sessionCookie)
+	logoutRequest.AddCookie(csrfCookie)
+	handler.ServeHTTP(logout, logoutRequest)
+	if logout.Code != http.StatusSeeOther {
+		t.Fatalf("logout status = %d, body=%s", logout.Code, logout.Body.String())
+	}
+	clearedCSRFCookie := accountResponseCookie(logout, accountCSRFCookie)
+	assertProtectedAccountCookie(t, clearedCSRFCookie)
+	if clearedCSRFCookie.MaxAge != -1 {
+		t.Fatalf("CSRF cookie was not cleared: %+v", clearedCSRFCookie)
+	}
+}
+
+func httpTestRequest(t *testing.T, method, path, body string) *http.Request {
+	t.Helper()
+	return httptest.NewRequestWithContext(t.Context(), method, path, strings.NewReader(body))
+}
+
+func accountResponseCookie(response *httptest.ResponseRecorder, name string) *http.Cookie {
+	for _, cookie := range response.Result().Cookies() {
+		if cookie.Name == name {
+			return cookie
+		}
+	}
+	return nil
+}
+
+func assertProtectedAccountCookie(t *testing.T, cookie *http.Cookie) {
+	t.Helper()
+	if cookie == nil || !cookie.Secure || !cookie.HttpOnly ||
+		cookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("account cookie is not protected: %+v", cookie)
+	}
+}
+
 func TestAdminPasswordResetRouteUsesAccountsService(t *testing.T) {
+	if PathPersonalCredentialReset != "/api/admin/v1/personal-search/password-reset" {
+		t.Fatalf("credential reset API path changed: %q", PathPersonalCredentialReset)
+	}
 	accounts := openAccounts(t, time.Now)
 	account := claimTestAccount(t, accounts)
 	mux := http.NewServeMux()
@@ -40,7 +115,7 @@ func TestAdminPasswordResetRouteUsesAccountsService(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := httptest.NewRequestWithContext(
-		t.Context(), http.MethodPost, PathPersonalPasswordReset, strings.NewReader(string(body)),
+		t.Context(), http.MethodPost, PathPersonalCredentialReset, strings.NewReader(string(body)),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()

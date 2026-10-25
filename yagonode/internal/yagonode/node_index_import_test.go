@@ -87,6 +87,22 @@ func (d *batchImportDocumentDirectory) store(document documentstore.Document) {
 	d.documents[document.NormalizedURL] = document
 }
 
+func TestImportWorkerForURLBoundsWorkerCount(t *testing.T) {
+	const rawURL = "https://example.test/import"
+	for _, count := range []int{0, -1, yagocrawlcontract.MaximumIngestBatchRecords + 1} {
+		if worker := importWorkerForURL(rawURL, count); worker != 0 {
+			t.Fatalf("worker for invalid count %d = %d, want zero", count, worker)
+		}
+	}
+	first := importWorkerForURL(rawURL, 4)
+	if first < 0 || first >= 4 || importWorkerForURL(rawURL, 4) != first {
+		t.Fatalf("worker assignment = %d; want deterministic index in [0, 4)", first)
+	}
+	if worker := importWorkerForURL(rawURL, 1); worker != 0 {
+		t.Fatalf("single worker assignment = %d, want zero", worker)
+	}
+}
+
 type batchImportSubmitterFixture struct {
 	mu        sync.Mutex
 	directory *batchImportDocumentDirectory

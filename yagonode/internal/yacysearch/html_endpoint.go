@@ -25,7 +25,6 @@ type htmlEndpoint struct {
 
 type htmlSearchPage struct {
 	Query              string
-	ThemeCSS           template.CSS
 	Resource           string
 	ContentDomain      string
 	SearchURL          string
@@ -100,7 +99,7 @@ var htmlSearchTemplate = template.Must(template.New("yacysearch").Parse(`<!docty
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="search" type="application/opensearchdescription+xml" title="YagoSeek" href="{{.OpenSearchURL}}">
 <link rel="alternate" type="application/rss+xml" title="Search for {{.Query}}" href="{{.RSSURL}}">
-<style>{{.ThemeCSS}}</style>
+<style>` + htmlSearchTheme + `</style>
 </head>
 <body>
 <a class="skip-link" href="#results">Skip to results</a>
@@ -394,7 +393,6 @@ func responseHTML(r *http.Request, resp searchcore.Response) htmlSearchPage {
 
 	page := htmlSearchPage{
 		Query:         query,
-		ThemeCSS:      htmlSearchThemeCSS,
 		Resource:      string(resp.Request.Source),
 		ContentDomain: string(resp.Request.ContentDomain),
 		SearchURL:     searchBaseURL(r),

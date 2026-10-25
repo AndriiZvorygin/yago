@@ -86,6 +86,11 @@ func (query *bleveLexicalCandidateSnapshotQuery) progressiveWindow(
 	reader bleveindex.IndexReader,
 ) (bleveLexicalCandidateWindow, error) {
 	window := bleveLexicalCandidateWindow{maximumDocuments: query.maximumDocuments}
+	if window.maximumDocuments < 0 {
+		return bleveLexicalCandidateWindow{}, fmt.Errorf(
+			"progressive sample maximum must not be negative",
+		)
+	}
 	if !query.allowIncomplete {
 		return window, nil
 	}

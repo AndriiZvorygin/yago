@@ -124,10 +124,42 @@ func TestImportCorpusStopsAtConfiguredSuccessfulRecordLimit(t *testing.T) {
 }
 
 func TestImportCorpusFollowsOnlyCommittedExportBytesUntilComplete(t *testing.T) {
+	fixture := newFollowedExportImportTest(t)
+	fixture.start(t)
+	first := cliTestRecord("fixture-a", "https://a.example.test/")
+	writeGrowingExportRecord(t, fixture.input, first)
+	assertGrowingImportHasNoRequest(t, fixture)
+	fixture.commitCurrentExportBoundary(t, "cursor-a", 1, false)
+	waitForImportRequests(t, &fixture.requests, 1)
+	assertGrowingImportStillRunning(t, fixture)
+	fixture.appendCommittedExportRecord(
+		t, cliTestRecord("fixture-b", "https://b.example.test/"), "cursor-b", true,
+	)
+	assertGrowingImportCompletes(t, fixture)
+	assertGrowingImportCheckpoint(t, fixture)
+	if got := fixture.requests.Load(); got != 2 {
+		t.Fatalf("import requests=%d, want one committed batch per export page", got)
+	}
+}
+
+type followedExportImportTest struct {
+	input           string
+	exportStatePath string
+	importStatePath string
+	checkpoint      exportCheckpoint
+	requests        atomic.Int32
+	done            chan error
+	ctx             context.Context
+}
+
+func newFollowedExportImportTest(t *testing.T) *followedExportImportTest {
+	t.Helper()
 	directory := t.TempDir()
-	input := filepath.Join(directory, "growing.jsonl")
-	exportStatePath := filepath.Join(directory, "export.state.json")
-	importStatePath := filepath.Join(directory, "import.state.json")
+	fixture := &followedExportImportTest{
+		input:           filepath.Join(directory, "growing.jsonl"),
+		exportStatePath: filepath.Join(directory, "export.state.json"),
+		importStatePath: filepath.Join(directory, "import.state.json"),
+	}
 	header, err := json.Marshal(
 		interchangeHeader{Type: "header", Version: 1, SourceID: "fixture-source"},
 	)
@@ -135,127 +167,135 @@ func TestImportCorpusFollowsOnlyCommittedExportBytesUntilComplete(t *testing.T) 
 		t.Fatal(err)
 	}
 	header = append(header, '\n')
-	if err := os.WriteFile(input, header, 0o600); err != nil {
+	if err := os.WriteFile(fixture.input, header, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	checkpoint := exportCheckpoint{
+	fixture.checkpoint = exportCheckpoint{
 		Version: 1, SourceID: "fixture-source", SourceFingerprint: "fixture-fingerprint",
 		Cursor: "*", Offset: int64(len(header)),
 	}
-	if err := saveCheckpoint(exportStatePath, checkpoint); err != nil {
+	if err := saveCheckpoint(fixture.exportStatePath, fixture.checkpoint); err != nil {
 		t.Fatal(err)
 	}
-	var requests atomic.Int32
+	return fixture
+}
+
+func (fixture *followedExportImportTest) start(t *testing.T) {
+	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request documentimport.Request
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Errorf("decode import request: %v", err)
 			return
 		}
-		requests.Add(1)
+		fixture.requests.Add(1)
 		results := make([]documentimport.Result, len(request.Records))
 		for index, record := range request.Records {
 			results[index] = documentimport.Result{ID: record.ID, Status: "imported"}
 		}
 		_ = json.NewEncoder(w).Encode(importResponse{Results: results})
 	}))
-	defer server.Close()
-
+	t.Cleanup(server.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	done := make(chan error, 1)
+	t.Cleanup(cancel)
+	fixture.ctx = ctx
+	fixture.done = make(chan error, 1)
 	go func() {
-		done <- importCorpus(ctx, importOptions{
-			Input: input, Endpoint: server.URL, APIKey: "fixture-token", State: importStatePath,
-			FollowExportCheckpoint: exportStatePath,
+		fixture.done <- importCorpus(ctx, importOptions{
+			Input: fixture.input, Endpoint: server.URL, APIKey: "fixture-token",
+			State: fixture.importStatePath, FollowExportCheckpoint: fixture.exportStatePath,
 		}, io.Discard)
 	}()
+}
 
-	appendExportRecord := func(record documentimport.Record, cursor string, complete bool) {
-		t.Helper()
-		file, err := os.OpenFile(input, os.O_WRONLY|os.O_APPEND, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := json.NewEncoder(file).Encode(
-			interchangeRecord{Type: "document", Version: 1, Record: record},
-		); err != nil {
-			_ = file.Close()
-			t.Fatal(err)
-		}
-		if err := file.Sync(); err != nil {
-			_ = file.Close()
-			t.Fatal(err)
-		}
-		info, err := file.Stat()
-		if closeErr := file.Close(); err != nil || closeErr != nil {
-			t.Fatalf("inspect or close append file: stat=%v close=%v", err, closeErr)
-		}
-		checkpoint.Cursor = cursor
-		checkpoint.Offset = info.Size()
-		checkpoint.Records++
-		checkpoint.Complete = complete
-		if err := saveCheckpoint(exportStatePath, checkpoint); err != nil {
-			t.Fatal(err)
-		}
+func (fixture *followedExportImportTest) commitCurrentExportBoundary(
+	t *testing.T,
+	cursor string,
+	records int64,
+	complete bool,
+) {
+	t.Helper()
+	info, err := os.Stat(fixture.input)
+	if err != nil {
+		t.Fatal(err)
 	}
+	fixture.checkpoint.Cursor = cursor
+	fixture.checkpoint.Offset = info.Size()
+	fixture.checkpoint.Records = records
+	fixture.checkpoint.Complete = complete
+	if err := saveCheckpoint(fixture.exportStatePath, fixture.checkpoint); err != nil {
+		t.Fatal(err)
+	}
+}
 
-	// Bytes not yet committed by the exporter must remain invisible to the importer.
-	first := cliTestRecord("fixture-a", "https://a.example.test/")
-	file, err := os.OpenFile(input, os.O_WRONLY|os.O_APPEND, 0)
+func (fixture *followedExportImportTest) appendCommittedExportRecord(
+	t *testing.T,
+	record documentimport.Record,
+	cursor string,
+	complete bool,
+) {
+	t.Helper()
+	writeGrowingExportRecord(t, fixture.input, record)
+	fixture.commitCurrentExportBoundary(t, cursor, fixture.checkpoint.Records+1, complete)
+}
+
+func writeGrowingExportRecord(t *testing.T, path string, record documentimport.Record) {
+	t.Helper()
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := json.NewEncoder(file).Encode(
-		interchangeRecord{Type: "document", Version: 1, Record: first},
+		interchangeRecord{Type: "document", Version: 1, Record: record},
 	); err != nil {
+		_ = file.Close()
 		t.Fatal(err)
 	}
 	if err := file.Sync(); err != nil {
+		_ = file.Close()
 		t.Fatal(err)
 	}
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func assertGrowingImportHasNoRequest(t *testing.T, fixture *followedExportImportTest) {
+	t.Helper()
 	time.Sleep(40 * time.Millisecond)
-	if got := requests.Load(); got != 0 {
+	if got := fixture.requests.Load(); got != 0 {
 		t.Fatalf("importer read uncommitted export bytes: requests=%d", got)
 	}
-	info, err := os.Stat(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkpoint.Cursor = "cursor-a"
-	checkpoint.Offset = info.Size()
-	checkpoint.Records = 1
-	if err := saveCheckpoint(exportStatePath, checkpoint); err != nil {
-		t.Fatal(err)
-	}
-	waitForImportRequests(t, &requests, 1)
+}
+
+func assertGrowingImportStillRunning(t *testing.T, fixture *followedExportImportTest) {
+	t.Helper()
 	select {
-	case err := <-done:
+	case err := <-fixture.done:
 		t.Fatalf("import finished before export completed: %v", err)
 	default:
 	}
+}
 
-	appendExportRecord(
-		cliTestRecord("fixture-b", "https://b.example.test/"), "cursor-b", true,
-	)
+func assertGrowingImportCompletes(t *testing.T, fixture *followedExportImportTest) {
+	t.Helper()
 	select {
-	case err := <-done:
+	case err := <-fixture.done:
 		if err != nil {
 			t.Fatalf("follow import: %v", err)
 		}
-	case <-ctx.Done():
+	case <-fixture.ctx.Done():
 		t.Fatal("follow import did not finish after exporter marked complete")
 	}
-	state, found, err := loadImportCheckpoint(importStatePath)
+}
+
+func assertGrowingImportCheckpoint(t *testing.T, fixture *followedExportImportTest) {
+	t.Helper()
+	state, found, err := loadImportCheckpoint(fixture.importStatePath)
 	if err != nil || !found || !state.Complete || state.Records != 2 ||
-		state.Offset != checkpoint.Offset || state.FollowExportOffset != checkpoint.Offset {
+		state.Offset != fixture.checkpoint.Offset ||
+		state.FollowExportOffset != fixture.checkpoint.Offset {
 		t.Fatalf("final follow checkpoint = %+v found=%t err=%v", state, found, err)
-	}
-	if got := requests.Load(); got != 2 {
-		t.Fatalf("import requests=%d, want one committed batch per export page", got)
 	}
 }
 

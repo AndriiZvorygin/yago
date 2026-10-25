@@ -22,23 +22,40 @@ const ingestMicroBatch = yagocrawlcontract.MaximumIngestBatchRecords
 // per-delivery tail (metadata, postings, ack) runs for everything that made it
 // through. A single delivery takes the plain absorb path unchanged.
 func (c *IngestConsumer) absorbGroup(ctx context.Context, group []IngestDelivery) {
-	if len(group) > 1 {
-		segments := splitIngestGroupByImportMode(group)
-		if len(segments) > 1 {
-			for _, segment := range segments {
-				c.absorbGroup(ctx, segment)
-			}
-			return
-		}
-	}
-	if len(group) == 1 {
-		c.absorb(ctx, group[0])
-
+	if c.absorbImportModeSegments(ctx, group) || c.absorbSingleDelivery(ctx, group) {
 		return
 	}
 	group, releases := authorizeIngestGroup(ctx, group)
 	defer releaseIngestGroup(releases)
+	c.absorbAuthorizedGroup(ctx, group)
+}
 
+func (c *IngestConsumer) absorbImportModeSegments(
+	ctx context.Context,
+	group []IngestDelivery,
+) bool {
+	if len(group) <= 1 {
+		return false
+	}
+	segments := splitIngestGroupByImportMode(group)
+	if len(segments) <= 1 {
+		return false
+	}
+	for _, segment := range segments {
+		c.absorbGroup(ctx, segment)
+	}
+	return true
+}
+
+func (c *IngestConsumer) absorbSingleDelivery(ctx context.Context, group []IngestDelivery) bool {
+	if len(group) != 1 {
+		return false
+	}
+	c.absorb(ctx, group[0])
+	return true
+}
+
+func (c *IngestConsumer) absorbAuthorizedGroup(ctx context.Context, group []IngestDelivery) {
 	admitted := make([]IngestDelivery, 0, len(group))
 	for _, delivery := range group {
 		if c.passesGates(ctx, delivery) {
@@ -46,18 +63,27 @@ func (c *IngestConsumer) absorbGroup(ctx context.Context, group []IngestDelivery
 		}
 	}
 	admitted = coalesceIngestDeliveries(admitted)
-	regular := make([]IngestDelivery, 0, len(admitted))
-	removals := make([]IngestDelivery, 0, len(admitted))
-	for _, delivery := range admitted {
+	regular, removals := splitIngestRemovals(admitted)
+	for _, delivery := range c.beginObservations(ctx, removals) {
+		c.purgeRemoval(ctx, delivery)
+	}
+	c.absorbRegularGroup(ctx, regular)
+}
+
+func splitIngestRemovals(group []IngestDelivery) ([]IngestDelivery, []IngestDelivery) {
+	regular := make([]IngestDelivery, 0, len(group))
+	removals := make([]IngestDelivery, 0, len(group))
+	for _, delivery := range group {
 		if delivery.Batch.Removed {
 			removals = append(removals, delivery)
 			continue
 		}
 		regular = append(regular, delivery)
 	}
-	for _, delivery := range c.beginObservations(ctx, removals) {
-		c.purgeRemoval(ctx, delivery)
-	}
+	return regular, removals
+}
+
+func (c *IngestConsumer) absorbRegularGroup(ctx context.Context, regular []IngestDelivery) {
 	if !c.admitStorageGrowth(ctx, regular) {
 		return
 	}

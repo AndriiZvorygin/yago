@@ -35,13 +35,48 @@ func TestIdenticalRulesetsShareHandle(t *testing.T) {
 
 func TestSourceMetadataDoesNotChangeProfileHandle(t *testing.T) {
 	first := baseProfile()
-	first.SourceMetadata = map[string]string{"source.one": "value"}
+	first.SourceMetadata = yagocrawlcontract.NewSourceMetadata(
+		map[string]string{"source.one": "value"},
+	)
 	second := baseProfile()
-	second.SourceMetadata = map[string]string{"source.two": "other"}
+	second.SourceMetadata = yagocrawlcontract.NewSourceMetadata(
+		map[string]string{"source.two": "other"},
+	)
 
 	if got, want := yagocrawlcontract.NewCrawlProfile(first).Handle,
 		yagocrawlcontract.NewCrawlProfile(second).Handle; got != want {
 		t.Fatalf("source metadata changed profile handle: %q != %q", got, want)
+	}
+}
+
+func TestCrawlValuesRemainComparable(t *testing.T) {
+	firstProfile, secondProfile := yagocrawlcontract.CrawlProfile{}, yagocrawlcontract.CrawlProfile{}
+	if firstProfile != secondProfile {
+		t.Fatal("zero crawl profiles differ")
+	}
+	firstRequest, secondRequest := yagocrawlcontract.CrawlRequest{}, yagocrawlcontract.CrawlRequest{}
+	if firstRequest != secondRequest {
+		t.Fatal("zero crawl requests differ")
+	}
+}
+
+func TestSourceMetadataCopiesValuesAndSupportsNilLookup(t *testing.T) {
+	if got := yagocrawlcontract.NewSourceMetadata(nil); got != nil {
+		t.Fatalf("nil source metadata = %v, want nil", *got)
+	}
+	var nilMetadata *yagocrawlcontract.SourceMetadata
+	if got := nilMetadata.Get("missing"); got != "" {
+		t.Fatalf("nil metadata lookup = %q, want empty string", got)
+	}
+
+	values := map[string]string{"source": "original"}
+	metadata := yagocrawlcontract.NewSourceMetadata(values)
+	values["source"] = "mutated"
+	if got := metadata.Get("source"); got != "original" {
+		t.Fatalf("metadata constructor retained caller map: %q", got)
+	}
+	if got := metadata.Get("missing"); got != "" {
+		t.Fatalf("missing metadata lookup = %q, want empty string", got)
 	}
 }
 

@@ -220,6 +220,10 @@ components:
     in: internal/crawlruns/**
   adminauth:
     in: internal/adminauth/**
+  personalsearch:
+    in: internal/personalsearch/**
+  searchdemand:
+    in: internal/searchdemand/**
   crossorigin:
     in: internal/crossorigin/**
   compatibility:
@@ -979,6 +983,20 @@ deps:
       - memvault
     canUse:
       - crypto
+  personalsearch:
+    mayDependOn:
+      - personalsearch
+      - adminauth
+      - searchcore
+      - vault
+      - memvault
+    canUse:
+      - crypto
+  searchdemand:
+    mayDependOn:
+      - searchdemand
+      - vault
+      - memvault
   crossorigin:
     mayDependOn:
       - crossorigin
@@ -1061,6 +1079,8 @@ deps:
       - recrawlfrontier
       - remotecrawl
       - adminauth
+      - personalsearch
+      - searchdemand
       - crossorigin
       - compatibility
       - searchcore
@@ -1106,6 +1126,7 @@ deps:
       - documentimport
     canUse:
       - yagocrawlcontract
+      - yagomodel
 
 excludeFiles:
   - "test/e2e"

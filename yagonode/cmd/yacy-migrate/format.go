@@ -50,53 +50,7 @@ func mapSolrDocument(
 	if err != nil {
 		return documentimport.Record{}, err
 	}
-	if urls.legacyURLStatus != "" {
-		metadata[documentimport.LegacyURLStatusMetadataKey] = urls.legacyURLStatus
-	}
-	if urls.credentialsRedacted {
-		metadata["yacy.migration_credentials_redacted"] = "true"
-	}
-	if content.fullTitle != "" {
-		if len(
-			content.fullTitle,
-		) > documentimport.MaximumRecordMetadataBytes-len(
-			"yacy.title_full",
-		) {
-			return documentimport.Record{}, errors.New(
-				"YaCy title exceeds the migration metadata preservation limit",
-			)
-		}
-		metadata["yacy.title_full"] = content.fullTitle
-		metadata["yacy.migration_title_truncated"] = "true"
-	}
-	if len(content.fullHeadings) > 0 {
-		encoded, err := json.Marshal(content.fullHeadings)
-		if err != nil {
-			return documentimport.Record{}, errors.New(
-				"YaCy headings could not be encoded for migration metadata",
-			)
-		}
-		metadata["yacy.headings_full"] = string(encoded)
-		metadata["yacy.migration_headings_truncated"] = "true"
-	}
-	if links.outboundAvailable > len(links.outbound) ||
-		links.inboundAvailable > len(links.inbound) {
-		truncation, err := json.Marshal(migrationLinkTruncation{
-			Outbound: migrationLinkCount{
-				Available: links.outboundAvailable,
-				Stored:    len(links.outbound),
-			},
-			Inbound: migrationLinkCount{
-				Available: links.inboundAvailable,
-				Stored:    len(links.inbound),
-			},
-		})
-		if err != nil {
-			return documentimport.Record{}, errors.New("encode YaCy link truncation metadata")
-		}
-		metadata[migrationLinkTruncationMetadataKey] = string(truncation)
-	}
-	if err := validateMigrationMetadata(metadata); err != nil {
+	if err := preserveSolrMigrationMetadata(metadata, urls, content, links); err != nil {
 		return documentimport.Record{}, err
 	}
 	contentHash := sha256.Sum256([]byte(content.text))
@@ -134,6 +88,70 @@ func mapSolrDocument(
 	}, nil
 }
 
+func preserveSolrMigrationMetadata(
+	metadata map[string]string,
+	urls solrDocumentURLs,
+	content solrDocumentContent,
+	links solrDocumentLinks,
+) error {
+	if urls.legacyURLStatus != "" {
+		metadata[documentimport.LegacyURLStatusMetadataKey] = urls.legacyURLStatus
+	}
+	if urls.credentialsRedacted {
+		metadata["yacy.migration_credentials_redacted"] = "true"
+	}
+	if content.fullTitle != "" {
+		if len(
+			content.fullTitle,
+		) > documentimport.MaximumRecordMetadataBytes-len(
+			"yacy.title_full",
+		) {
+			return errors.New("YaCy title exceeds the migration metadata preservation limit")
+		}
+		metadata["yacy.title_full"] = content.fullTitle
+		metadata["yacy.migration_title_truncated"] = "true"
+	}
+	if err := preserveSolrFullHeadings(metadata, content.fullHeadings); err != nil {
+		return err
+	}
+	if err := preserveSolrLinkCounts(metadata, links); err != nil {
+		return err
+	}
+	return validateMigrationMetadata(metadata)
+}
+
+func preserveSolrFullHeadings(metadata map[string]string, headings []solrFullHeading) error {
+	if len(headings) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(headings)
+	if err != nil {
+		return errors.New("YaCy headings could not be encoded for migration metadata")
+	}
+	metadata["yacy.headings_full"] = string(encoded)
+	metadata["yacy.migration_headings_truncated"] = "true"
+	return nil
+}
+
+func preserveSolrLinkCounts(metadata map[string]string, links solrDocumentLinks) error {
+	if links.outboundAvailable <= len(links.outbound) &&
+		links.inboundAvailable <= len(links.inbound) {
+		return nil
+	}
+	truncation, err := json.Marshal(migrationLinkTruncation{
+		Outbound: migrationLinkCount{
+			Available: links.outboundAvailable,
+			Stored:    len(links.outbound),
+		},
+		Inbound: migrationLinkCount{Available: links.inboundAvailable, Stored: len(links.inbound)},
+	})
+	if err != nil {
+		return errors.New("encode YaCy link truncation metadata")
+	}
+	metadata[migrationLinkTruncationMetadataKey] = string(truncation)
+	return nil
+}
+
 func isHTTPURL(raw string) bool {
 	parsed, err := url.Parse(raw)
 	if err != nil {
@@ -155,79 +173,25 @@ type solrDocumentURLs struct {
 }
 
 func mapSolrURLs(source map[string]json.RawMessage) (solrDocumentURLs, error) {
-	urlValue := solrString(source["sku"])
-	if urlValue == "" {
+	sourceURL := solrString(source["sku"])
+	if sourceURL == "" {
 		return solrDocumentURLs{}, errors.New("YaCy row has no sku URL")
 	}
-	credentialsRedacted := false
-	parsed, err := url.Parse(urlValue)
-	legacyURLStatus := documentimport.PreservableLegacyURLStatus(urlValue)
-	if err != nil && legacyURLStatus == "" {
-		if redactedURL, redacted := redactMalformedURLUserinfo(urlValue); redacted {
-			urlValue = redactedURL
-			credentialsRedacted = true
-			parsed, err = url.Parse(urlValue)
-			legacyURLStatus = documentimport.PreservableLegacyURLStatus(urlValue)
-		}
-	}
+	normalizedURL, legacyURLStatus, credentialsRedacted, err := normalizeYaCyURL(sourceURL)
 	if err != nil {
-		legacyURLStatus = documentimport.PreservableLegacyURLStatus(urlValue)
-		if legacyURLStatus == "" {
-			return solrDocumentURLs{}, fmt.Errorf(
-				"YaCy sku is not a valid absolute URL (%s; %s)",
-				safeURLParseError(err),
-				safeURLParseContext(urlValue),
-			)
-		}
-	} else {
-		if !supportedImportedScheme(parsed.Scheme) {
-			return solrDocumentURLs{}, errors.New("YaCy sku uses an unsupported URL scheme")
-		}
-		if parsed.Host == "" {
-			return solrDocumentURLs{}, errors.New("YaCy sku has no host")
-		}
-		if parsed.User != nil {
-			parsed.User = nil
-			credentialsRedacted = true
-		}
-		parsed.Fragment = ""
-		urlValue = parsed.String()
+		return solrDocumentURLs{}, err
 	}
-	normalizedURL := urlValue
-	canonicalURL := solrString(source["canonical_s"])
-	if canonicalURL == "" {
-		canonicalURL = normalizedURL
+	canonicalURL, canonicalStatus, canonicalCredentialsRedacted, err := normalizeYaCyCanonicalURL(
+		solrString(source["canonical_s"]),
+		normalizedURL,
+	)
+	if err != nil {
+		return solrDocumentURLs{}, err
 	}
-	canonicalParsed, canonicalErr := url.Parse(canonicalURL)
-	if canonicalErr != nil {
-		if redactedURL, redacted := redactMalformedURLUserinfo(canonicalURL); redacted {
-			canonicalURL = redactedURL
-			credentialsRedacted = true
-			canonicalParsed, canonicalErr = url.Parse(canonicalURL)
-		}
-	}
-	if canonicalErr == nil && canonicalParsed.User != nil {
-		canonicalParsed.User = nil
-		canonicalURL = canonicalParsed.String()
-		credentialsRedacted = true
-	}
-	if canonicalStatus := documentimport.PreservableLegacyURLStatus(
-		canonicalURL,
-	); canonicalStatus != "" {
+	if canonicalStatus != "" {
 		legacyURLStatus = canonicalStatus
 	}
-	canonicalValid := canonicalErr == nil && supportedImportedScheme(canonicalParsed.Scheme) &&
-		canonicalParsed.Host != "" && canonicalParsed.User == nil && canonicalParsed.Fragment == ""
-	if !canonicalValid {
-		canonicalLegacyStatus := documentimport.PreservableLegacyURLStatus(canonicalURL)
-		if canonicalLegacyStatus != "" {
-			legacyURLStatus = canonicalLegacyStatus
-		} else {
-			return solrDocumentURLs{}, errors.New(
-				"YaCy canonical URL is not a supported credential-free absolute URL",
-			)
-		}
-	}
+	credentialsRedacted = credentialsRedacted || canonicalCredentialsRedacted
 	if len(normalizedURL) > documentimport.MaximumMigrationURLBytes ||
 		(len(normalizedURL) > yagocrawlcontract.MaximumCrawlURLBytes &&
 			legacyURLStatus != documentimport.LegacyURLStatusExceedsCrawlLimit) {
@@ -237,6 +201,71 @@ func mapSolrURLs(source map[string]json.RawMessage) (solrDocumentURLs, error) {
 		normalized: normalizedURL, canonical: canonicalURL, legacyURLStatus: legacyURLStatus,
 		credentialsRedacted: credentialsRedacted,
 	}, nil
+}
+
+func normalizeYaCyURL(raw string) (string, string, bool, error) {
+	parsedURL, err := url.Parse(raw)
+	legacyStatus := documentimport.PreservableLegacyURLStatus(raw)
+	credentialsRedacted := false
+	if err != nil && legacyStatus == "" {
+		if redactedURL, redacted := redactMalformedURLUserinfo(raw); redacted {
+			raw = redactedURL
+			credentialsRedacted = true
+			parsedURL, err = url.Parse(raw)
+			legacyStatus = documentimport.PreservableLegacyURLStatus(raw)
+		}
+	}
+	if err != nil {
+		if legacyStatus == "" {
+			return "", "", false, fmt.Errorf(
+				"YaCy sku is not a valid absolute URL (%s; %s)",
+				safeURLParseError(err),
+				safeURLParseContext(raw),
+			)
+		}
+		return raw, legacyStatus, credentialsRedacted, nil
+	}
+	if !supportedImportedScheme(parsedURL.Scheme) {
+		return "", "", false, errors.New("YaCy sku uses an unsupported URL scheme")
+	}
+	if parsedURL.Host == "" {
+		return "", "", false, errors.New("YaCy sku has no host")
+	}
+	if parsedURL.User != nil {
+		parsedURL.User = nil
+		credentialsRedacted = true
+	}
+	parsedURL.Fragment = ""
+	return parsedURL.String(), legacyStatus, credentialsRedacted, nil
+}
+
+func normalizeYaCyCanonicalURL(raw, normalized string) (string, string, bool, error) {
+	if raw == "" {
+		return normalized, "", false, nil
+	}
+	parsedURL, err := url.Parse(raw)
+	credentialsRedacted := false
+	if err != nil {
+		if redactedURL, redacted := redactMalformedURLUserinfo(raw); redacted {
+			raw = redactedURL
+			credentialsRedacted = true
+			parsedURL, err = url.Parse(raw)
+		}
+	}
+	if err == nil && parsedURL.User != nil {
+		parsedURL.User = nil
+		raw = parsedURL.String()
+		credentialsRedacted = true
+	}
+	legacyStatus := documentimport.PreservableLegacyURLStatus(raw)
+	valid := parsedURL != nil && err == nil && supportedImportedScheme(parsedURL.Scheme) &&
+		parsedURL.Host != "" && parsedURL.User == nil && parsedURL.Fragment == ""
+	if !valid && legacyStatus == "" {
+		return "", "", false, errors.New(
+			"YaCy canonical URL is not a supported credential-free absolute URL",
+		)
+	}
+	return raw, legacyStatus, credentialsRedacted, nil
 }
 
 func redactMalformedURLUserinfo(rawURL string) (string, bool) {
@@ -269,14 +298,16 @@ func safeURLParseError(err error) string {
 	if !errors.As(err, &urlErr) || urlErr.Err == nil {
 		return "other parser rejection"
 	}
-	switch urlErr.Err.(type) {
-	case url.EscapeError:
+	var escapeErr url.EscapeError
+	if errors.As(urlErr.Err, &escapeErr) {
 		if documentimport.PreservableLegacyURLStatus(urlErr.URL) ==
 			documentimport.LegacyURLStatusEncodedHostWhitespace {
 			return "percent-encoded whitespace in host"
 		}
 		return "invalid percent escape"
-	case url.InvalidHostError:
+	}
+	var invalidHostErr url.InvalidHostError
+	if errors.As(urlErr.Err, &invalidHostErr) {
 		return "invalid host character"
 	}
 	message := strings.ToLower(urlErr.Err.Error())
@@ -453,6 +484,18 @@ func isUTF8Boundary(value string, index int) bool {
 
 func mapSolrMetadata(source map[string]json.RawMessage) (map[string]string, error) {
 	metadata := make(map[string]string)
+	copyYaCyMetadataFields(source, metadata)
+	if err := addYaCyRedirectMetadata(source, metadata); err != nil {
+		return nil, err
+	}
+	addYaCySourceIDMetadata(source, metadata)
+	if err := validateYaCyMetadataSize(metadata); err != nil {
+		return nil, err
+	}
+	return metadata, nil
+}
+
+func copyYaCyMetadataFields(source map[string]json.RawMessage, metadata map[string]string) {
 	for sourceField, targetField := range map[string]string{
 		"collection_sxt":              "yacy.collections",
 		"exact_signature_l":           "yacy.exact_signature",
@@ -470,6 +513,9 @@ func mapSolrMetadata(source map[string]json.RawMessage) (map[string]string, erro
 			metadata[targetField] = string(raw)
 		}
 	}
+}
+
+func addYaCyRedirectMetadata(source map[string]json.RawMessage, metadata map[string]string) error {
 	if raw := source["httpstatus_redirect_s"]; len(raw) > 0 && string(raw) != "null" {
 		var value any
 		if err := json.Unmarshal(raw, &value); err == nil {
@@ -480,10 +526,14 @@ func mapSolrMetadata(source map[string]json.RawMessage) (map[string]string, erro
 					metadata["yacy.migration_credentials_redacted"] = "true"
 				}
 			} else {
-				return nil, errors.New("YaCy redirect metadata could not be encoded")
+				return errors.New("YaCy redirect metadata could not be encoded")
 			}
 		}
 	}
+	return nil
+}
+
+func addYaCySourceIDMetadata(source map[string]json.RawMessage, metadata map[string]string) {
 	if yacyID := solrString(source["id"]); yacyID != "" {
 		cleanID, redacted := redactURLCredentials(yacyID)
 		if value, ok := cleanID.(string); ok {
@@ -493,17 +543,20 @@ func mapSolrMetadata(source map[string]json.RawMessage) (map[string]string, erro
 			metadata["yacy.migration_credentials_redacted"] = "true"
 		}
 	}
+}
+
+func validateYaCyMetadataSize(metadata map[string]string) error {
 	metadataBytes := 0
 	for key, value := range metadata {
 		metadataBytes += len(key) + len(value)
 	}
 	if len(metadata) > yagocrawlcontract.MaximumDocumentMetadata ||
 		metadataBytes > documentimport.MaximumRecordMetadataBytes {
-		return nil, errors.New(
+		return errors.New(
 			"YaCy metadata exceeds Yago's document metadata limits",
 		)
 	}
-	return metadata, nil
+	return nil
 }
 
 func redactURLCredentials(value any) (any, bool) {

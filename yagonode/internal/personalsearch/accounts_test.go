@@ -6,17 +6,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/D4rk4/yago/yagonode/internal/boltvault"
+	"github.com/D4rk4/yago/yagonode/internal/memvault"
 )
 
 func openAccounts(t *testing.T, now func() time.Time) *Accounts {
 	t.Helper()
-	storage, err := boltvault.Open(filepath.Join(t.TempDir(), "state.db"), 0)
+	storage, err := memvault.Open(0)
 	if err != nil {
 		t.Fatal(err)
 	}

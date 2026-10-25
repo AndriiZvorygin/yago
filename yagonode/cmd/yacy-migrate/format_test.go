@@ -430,35 +430,39 @@ func TestMapSolrDocumentPreservesOtherInvalidHostWithoutRecrawl(t *testing.T) {
 		"https://legacy host.example.test/document#stored-fragment",
 	} {
 		t.Run(rawURL, func(t *testing.T) {
-			encoded, err := json.Marshal(rawURL)
-			if err != nil {
-				t.Fatal(err)
-			}
-			row := map[string]json.RawMessage{
-				"sku": encoded, "canonical_s": encoded,
-				"fresh_date_dt": json.RawMessage(`"2026-10-03T10:00:00Z"`),
-			}
-			record, err := mapSolrDocument(row, "fixture-export")
-			if err != nil {
-				t.Fatalf("map invalid-host YaCy identity: %v", err)
-			}
-			if record.Document.NormalizedURL != rawURL || record.Document.CanonicalURL != rawURL {
-				t.Fatal("migration changed the invalid-host source identity")
-			}
-			if record.NextVisitAt != nil {
-				t.Fatal("invalid-host legacy identity was scheduled for recrawl")
-			}
-			if record.Document.Metadata[documentimport.LegacyURLStatusMetadataKey] !=
-				documentimport.LegacyURLStatusInvalidHostCharacter {
-				t.Fatalf(
-					"invalid-host marker = %q",
-					record.Document.Metadata[documentimport.LegacyURLStatusMetadataKey],
-				)
-			}
-			if err := validateImportRecord(record); err != nil {
-				t.Fatalf("validate invalid-host record: %v", err)
-			}
+			assertPreservedInvalidHostURL(t, rawURL)
 		})
+	}
+}
+
+func assertPreservedInvalidHostURL(t *testing.T, rawURL string) {
+	t.Helper()
+	encoded, err := json.Marshal(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := mapSolrDocument(map[string]json.RawMessage{
+		"sku": encoded, "canonical_s": encoded,
+		"fresh_date_dt": json.RawMessage(`"2026-10-03T10:00:00Z"`),
+	}, "fixture-export")
+	if err != nil {
+		t.Fatalf("map invalid-host YaCy identity: %v", err)
+	}
+	if record.Document.NormalizedURL != rawURL || record.Document.CanonicalURL != rawURL {
+		t.Fatal("migration changed the invalid-host source identity")
+	}
+	if record.NextVisitAt != nil {
+		t.Fatal("invalid-host legacy identity was scheduled for recrawl")
+	}
+	if record.Document.Metadata[documentimport.LegacyURLStatusMetadataKey] !=
+		documentimport.LegacyURLStatusInvalidHostCharacter {
+		t.Fatalf(
+			"invalid-host marker = %q",
+			record.Document.Metadata[documentimport.LegacyURLStatusMetadataKey],
+		)
+	}
+	if err := validateImportRecord(record); err != nil {
+		t.Fatalf("validate invalid-host record: %v", err)
 	}
 }
 
@@ -585,37 +589,46 @@ func TestMapSolrDocumentPreservesFTPAndSMBWithoutHTTPRecrawl(t *testing.T) {
 		"ftp://archive.example.test/pub/item.pdf",
 		"smb://archive.example.test/share/item.pdf",
 	} {
-		t.Run(rawURL[:strings.Index(rawURL, ":")], func(t *testing.T) {
-			freshDate := json.RawMessage(`"2026-10-03T10:00:00Z"`)
-			protocol, stub, separator := strings.Cut(rawURL, "://")
-			stub = strings.TrimPrefix(stub, "archive.example.test/")
-			record, err := mapSolrDocument(map[string]json.RawMessage{
-				"sku":           json.RawMessage(fmt.Sprintf("%q", rawURL)),
-				"fresh_date_dt": freshDate,
-				"outboundlinks_protocol_sxt": json.RawMessage(fmt.Sprintf(
-					`[%q]`, "000-"+protocol,
-				)),
-				"outboundlinks_urlstub_sxt": json.RawMessage(fmt.Sprintf(
-					`[%q]`, "linked.example.test/"+stub,
-				)),
-			}, "fixture-export")
-			if err != nil {
-				t.Fatalf("map non-HTTP source row: %v", err)
-			}
-			if record.Document.NormalizedURL != rawURL || record.NextVisitAt != nil {
-				t.Fatalf("non-HTTP identity or schedule changed: %+v", record)
-			}
-			if record.Document.Metadata["yacy.fresh_until"] != string(freshDate) {
-				t.Fatal("source freshness metadata was not preserved")
-			}
-			if !separator || len(record.Document.Outlinks) != 1 ||
-				record.Document.Outlinks[0] != protocol+"://linked.example.test/"+stub {
-				t.Fatalf("non-HTTP link was not preserved: %#v", record.Document.Outlinks)
-			}
-			if err := validateImportRecord(record); err != nil {
-				t.Fatalf("validate non-HTTP source row: %v", err)
-			}
+		name, _, ok := strings.Cut(rawURL, ":")
+		if !ok {
+			t.Fatalf("test URL %q has no scheme separator", rawURL)
+		}
+		t.Run(name, func(t *testing.T) {
+			assertPreservedNonHTTPURL(t, rawURL)
 		})
+	}
+}
+
+func assertPreservedNonHTTPURL(t *testing.T, rawURL string) {
+	t.Helper()
+	freshDate := json.RawMessage(`"2026-10-03T10:00:00Z"`)
+	protocol, stub, separator := strings.Cut(rawURL, "://")
+	stub = strings.TrimPrefix(stub, "archive.example.test/")
+	record, err := mapSolrDocument(map[string]json.RawMessage{
+		"sku":           json.RawMessage(fmt.Sprintf("%q", rawURL)),
+		"fresh_date_dt": freshDate,
+		"outboundlinks_protocol_sxt": json.RawMessage(fmt.Sprintf(
+			`[%q]`, "000-"+protocol,
+		)),
+		"outboundlinks_urlstub_sxt": json.RawMessage(fmt.Sprintf(
+			`[%q]`, "linked.example.test/"+stub,
+		)),
+	}, "fixture-export")
+	if err != nil {
+		t.Fatalf("map non-HTTP source row: %v", err)
+	}
+	if record.Document.NormalizedURL != rawURL || record.NextVisitAt != nil {
+		t.Fatalf("non-HTTP identity or schedule changed: %+v", record)
+	}
+	if record.Document.Metadata["yacy.fresh_until"] != string(freshDate) {
+		t.Fatal("source freshness metadata was not preserved")
+	}
+	if !separator || len(record.Document.Outlinks) != 1 ||
+		record.Document.Outlinks[0] != protocol+"://linked.example.test/"+stub {
+		t.Fatalf("non-HTTP link was not preserved: %#v", record.Document.Outlinks)
+	}
+	if err := validateImportRecord(record); err != nil {
+		t.Fatalf("validate non-HTTP source row: %v", err)
 	}
 }
 

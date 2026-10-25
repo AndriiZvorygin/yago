@@ -19,7 +19,7 @@ type CrawlRequest struct {
 	// SourceMetadata preserves adapter-specific crawl-state fields that Yago
 	// does not interpret. It is carried with the durable order for audit and
 	// future migrations; ordinary crawl behavior ignores it.
-	SourceMetadata map[string]string `json:",omitempty"`
+	SourceMetadata *SourceMetadata `json:",omitempty"`
 }
 
 type CrawlRequestMode string

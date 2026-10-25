@@ -2,6 +2,7 @@ package recrawlfrontier
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -280,7 +281,10 @@ func importedScheduleRecordFound(
 	if err := f.vault.View(t.Context(), func(tx *vault.Txn) error {
 		var readErr error
 		record, found, readErr = f.records.Get(tx, vault.Key(string(hash)))
-		return readErr
+		if readErr != nil {
+			return fmt.Errorf("read schedule record: %w", readErr)
+		}
+		return nil
 	}); err != nil {
 		t.Fatalf("read scheduled record: %v", err)
 	}

@@ -12,7 +12,6 @@ import (
 	"github.com/D4rk4/yago/yagocrawlcontract"
 	"github.com/D4rk4/yago/yagonode/internal/adminui"
 	"github.com/D4rk4/yago/yagonode/internal/crawlbroker"
-	"github.com/D4rk4/yago/yagonode/internal/documentimport"
 	"github.com/D4rk4/yago/yagonode/internal/documentstore"
 	"github.com/D4rk4/yago/yagonode/internal/recrawlfrontier"
 )
@@ -34,6 +33,10 @@ type documentImportSubmitter interface {
 		yagocrawlcontract.IngestBatch,
 		yagocrawlcontract.CrawlProfile,
 	) error
+}
+
+type concurrentDocumentImportSubmitter interface {
+	MaximumConcurrentImports() int
 }
 
 type indexedImportRecord struct {
@@ -254,7 +257,7 @@ func (s *documentImportService) importDestinationSnapshots(
 
 func documentImportWorkerCount(submitter documentImportSubmitter, recordCount int) int {
 	maximum := 1
-	if concurrent, ok := submitter.(documentimport.ConcurrentSubmitter); ok {
+	if concurrent, ok := submitter.(concurrentDocumentImportSubmitter); ok {
 		maximum = concurrent.MaximumConcurrentImports()
 	}
 	if maximum < 1 {
@@ -267,6 +270,9 @@ func documentImportWorkerCount(submitter documentImportSubmitter, recordCount in
 }
 
 func importWorkerForURL(rawURL string, workerCount int) int {
+	if workerCount < 1 || workerCount > yagocrawlcontract.MaximumIngestBatchRecords {
+		return 0
+	}
 	hash := fnv.New32a()
 	_, _ = hash.Write([]byte(rawURL))
 	return int(hash.Sum32() % uint32(workerCount))

@@ -38,16 +38,6 @@ func (b *BleveDiskIndex) searchRequestedHits(
 	return set, orphans, err
 }
 
-func (b *BleveDiskIndex) searchRequestedHitPage(
-	ctx context.Context,
-	req SearchRequest,
-	size int,
-) (*bleve.SearchResult, error) {
-	result, _, err := b.searchRequestedHitPageWithStatus(ctx, req, size)
-
-	return result, err
-}
-
 func (b *BleveDiskIndex) searchRequestedHitPageWithStatus(
 	ctx context.Context,
 	req SearchRequest,

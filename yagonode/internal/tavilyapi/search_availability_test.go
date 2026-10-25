@@ -112,17 +112,7 @@ func assertSearchAvailabilityEndpointCase(
 ) {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	ctx := t.Context()
-	if test.expiredRequest {
-		expired, cancel := context.WithDeadline(ctx, time.Unix(0, 0))
-		defer cancel()
-		ctx = expired
-	}
-	if test.canceledRequest {
-		canceled, cancel := context.WithCancel(ctx)
-		cancel()
-		ctx = canceled
-	}
+	ctx := searchAvailabilityRequestContext(t, test)
 	req := httptest.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
@@ -134,33 +124,81 @@ func assertSearchAvailabilityEndpointCase(
 		&fakeSearcher{response: test.response, err: test.err},
 		&fakeDocuments{rows: map[string]documentstore.Document{}},
 	).ServeHTTP(rec, req)
-	if rec.Code != test.status {
-		t.Fatalf("status = %d, want %d body=%s",
-			rec.Code, test.status, rec.Body.String())
+	assertSearchAvailabilityStatus(t, rec, test.status)
+	assertSearchAvailabilityResponse(t, rec, test)
+}
+
+func searchAvailabilityRequestContext(
+	t *testing.T,
+	test searchAvailabilityEndpointCase,
+) context.Context {
+	t.Helper()
+	ctx := t.Context()
+	if test.expiredRequest {
+		expired, cancel := context.WithDeadline(ctx, time.Unix(0, 0))
+		defer cancel()
+		ctx = expired
 	}
-	if test.status == http.StatusConflict &&
+	if test.canceledRequest {
+		canceled, cancel := context.WithCancel(ctx)
+		cancel()
+		ctx = canceled
+	}
+	return ctx
+}
+
+func assertSearchAvailabilityStatus(t *testing.T, rec *httptest.ResponseRecorder, status int) {
+	t.Helper()
+	if rec.Code != status {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, status, rec.Body.String())
+	}
+	if status == http.StatusConflict &&
 		!strings.Contains(rec.Body.String(), `"search unavailable`) {
 		t.Fatalf("body = %s", rec.Body.String())
 	}
-	if test.status == http.StatusConflict &&
+	if status == http.StatusConflict &&
 		rec.Header().Get("Retry-After") != "1" {
 		t.Fatalf("Retry-After = %q", rec.Header().Get("Retry-After"))
 	}
+}
+
+func assertSearchAvailabilityResponse(
+	t *testing.T,
+	rec *httptest.ResponseRecorder,
+	test searchAvailabilityEndpointCase,
+) {
+	t.Helper()
 	if test.status == http.StatusOK && hasLocalSearchPartialFailure(test.response.PartialFailures) {
-		response := decodeSearchResponse(t, rec)
-		if response.Complete || len(response.PartialFailures) == 0 {
-			t.Fatalf("partial empty response = %+v", response)
-		}
-		if test.response.Coverage != nil &&
-			(response.Coverage == nil || response.Coverage.CompletedShards != 2 ||
-				response.Coverage.TotalShards != 8) {
-			t.Fatalf("partial coverage was lost: %+v", response)
-		}
-	} else if test.status == http.StatusOK && len(test.response.Results) == 0 &&
+		assertPartialSearchAvailabilityResponse(t, rec, test.response)
+		return
+	}
+	if test.status == http.StatusOK && len(test.response.Results) == 0 &&
 		len(test.response.PartialFailures) == 0 {
-		response := decodeSearchResponse(t, rec)
-		if !response.Complete || len(response.PartialFailures) != 0 {
-			t.Fatalf("honest empty response = %+v", response)
-		}
+		assertHonestEmptySearchAvailabilityResponse(t, rec)
+	}
+}
+
+func assertPartialSearchAvailabilityResponse(
+	t *testing.T,
+	rec *httptest.ResponseRecorder,
+	response searchcore.Response,
+) {
+	t.Helper()
+	actual := decodeSearchResponse(t, rec)
+	if actual.Complete || len(actual.PartialFailures) == 0 {
+		t.Fatalf("partial empty response = %+v", actual)
+	}
+	if response.Coverage != nil &&
+		(actual.Coverage == nil || actual.Coverage.CompletedShards != 2 ||
+			actual.Coverage.TotalShards != 8) {
+		t.Fatalf("partial coverage was lost: %+v", actual.Coverage)
+	}
+}
+
+func assertHonestEmptySearchAvailabilityResponse(t *testing.T, rec *httptest.ResponseRecorder) {
+	t.Helper()
+	response := decodeSearchResponse(t, rec)
+	if !response.Complete || len(response.PartialFailures) != 0 {
+		t.Fatalf("honest empty response = %+v", response)
 	}
 }

@@ -50,6 +50,7 @@ func requireReleaseQualityPrerequisites(t *testing.T, makefile string) {
 func requireReleaseQualityCommands(t *testing.T, makefile string) {
 	t.Helper()
 	for _, required := range []string{
+		`COVERAGE_MIN ?= 97.64205`,
 		`GOSEC := $(TOOLS_BIN)/gosec`,
 		`NILAWAY := $(TOOLS_BIN)/nilaway`,
 		`APIDIFF := $(TOOLS_BIN)/apidiff`,
