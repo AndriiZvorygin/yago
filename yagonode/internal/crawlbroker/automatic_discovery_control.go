@@ -28,16 +28,8 @@ func (r *ControlRegistry) SetAutomaticDiscoveryPriority(enabled bool) int {
 	defer r.mu.Unlock()
 	r.prioritizeAutomaticDiscovery = enabled
 	r.automaticDiscoveryPrioritySet = true
-	signalled := 0
-	for workerID := range r.workers {
-		if r.enqueueLocked(workerID, directive) {
-			signalled++
-		} else {
-			r.initialized[workerID] = false
-		}
-	}
 
-	return signalled
+	return r.broadcastSettingLocked(directive)
 }
 
 func (r *ControlRegistry) initialDirectivesLocked() []yagocrawlcontract.CrawlControlDirective {

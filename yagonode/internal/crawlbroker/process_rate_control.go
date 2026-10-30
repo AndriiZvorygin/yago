@@ -31,14 +31,6 @@ func (r *ControlRegistry) SetProcessPagesPerSecond(pagesPerSecond int) int {
 	defer r.mu.Unlock()
 	r.processPagesPerSecond = uint32(pagesPerSecond)
 	r.processRateSet = true
-	signalled := 0
-	for workerID := range r.workers {
-		if r.enqueueLocked(workerID, directive) {
-			signalled++
-		} else {
-			r.initialized[workerID] = false
-		}
-	}
 
-	return signalled
+	return r.broadcastSettingLocked(directive)
 }

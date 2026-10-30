@@ -23,14 +23,6 @@ func (r *ControlRegistry) SetMaximumActiveRuns(maximumActiveRuns int) int {
 	defer r.mu.Unlock()
 	r.maximumActiveRuns = uint32(maximumActiveRuns)
 	r.maximumActiveRunsSet = true
-	signalled := 0
-	for workerID := range r.workers {
-		if r.enqueueLocked(workerID, directive) {
-			signalled++
-		} else {
-			r.initialized[workerID] = false
-		}
-	}
 
-	return signalled
+	return r.broadcastSettingLocked(directive)
 }

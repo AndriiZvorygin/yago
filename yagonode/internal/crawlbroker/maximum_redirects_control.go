@@ -21,14 +21,6 @@ func (r *ControlRegistry) SetMaximumRedirects(maximum int) int {
 	defer r.mu.Unlock()
 	r.maximumRedirects = uint32(maximum)
 	r.maximumRedirectsSet = true
-	signalled := 0
-	for workerID := range r.workers {
-		if r.enqueueLocked(workerID, directive) {
-			signalled++
-		} else {
-			r.initialized[workerID] = false
-		}
-	}
 
-	return signalled
+	return r.broadcastSettingLocked(directive)
 }

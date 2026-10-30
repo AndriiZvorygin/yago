@@ -107,16 +107,8 @@ func (r *ControlRegistry) SetFetchWorkers(fetchWorkers int) int {
 	defer r.mu.Unlock()
 	r.fetchWorkers = uint32(fetchWorkers)
 	r.fetchWorkersSet = true
-	signalled := 0
-	for workerID := range r.workers {
-		if r.enqueueLocked(workerID, directive) {
-			signalled++
-		} else {
-			r.initialized[workerID] = false
-		}
-	}
 
-	return signalled
+	return r.broadcastSettingLocked(directive)
 }
 
 func (r *ControlRegistry) unregister(workerID string) bool {
