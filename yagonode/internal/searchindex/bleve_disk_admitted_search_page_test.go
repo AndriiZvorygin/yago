@@ -151,7 +151,7 @@ func TestBleveDiskProjectionReadDoesNotRetainNativeReadAdmission(t *testing.T) {
 		Title:         "Needle",
 		ExtractedText: "needle evidence",
 	}
-	encoded, err := encodeStoredCandidateProjection(document)
+	encoded, err := encodeStoredCandidateProjection(newStoredCandidateProjection(document))
 	if err != nil {
 		t.Fatal(err)
 	}

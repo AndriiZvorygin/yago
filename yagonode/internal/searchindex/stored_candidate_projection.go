@@ -65,6 +65,7 @@ type storedCandidateProjection struct {
 	Size                int                           `json:"z,omitempty"`
 	HasImages           bool                          `json:"ih,omitempty"`
 	Images              []documentstore.ImageMetadata `json:"i,omitempty"`
+	IndexedForm         string                        `json:"g,omitempty"`
 }
 
 type searchHitProjection struct {
@@ -73,8 +74,7 @@ type searchHitProjection struct {
 	candidate bool
 }
 
-func encodeStoredCandidateProjection(doc documentstore.Document) (string, error) {
-	projection := newStoredCandidateProjection(doc)
+func encodeStoredCandidateProjection(projection storedCandidateProjection) (string, error) {
 	encoded, err := json.Marshal(projection)
 	if err != nil {
 		return "", fmt.Errorf("marshal stored candidate: %w", err)

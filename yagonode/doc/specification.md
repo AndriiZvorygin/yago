@@ -710,6 +710,16 @@ it is not an assumed deployment dependency.
   cancellation SHALL remain failures. A directory without the set capability
   SHALL retain the one-document compatibility path. The Bleve overfetch tail
   SHALL remain unhydrated.
+* Receiving a document whose canonical stored fields are unchanged except for
+  `FetchedAt` and `IndexedAt` SHALL NOT rewrite its document record. Those two
+  timestamps SHALL remain those of the last substantive stored revision.
+  Recrawl scheduling SHALL continue recording each successful fetch separately.
+  Equality SHALL include all durable fields, not only the body or content hash.
+  Disk-backed ingestion SHALL still verify the full-text entry independently: an absent,
+  legacy, or different indexed form SHALL be written, and an identical committed
+  indexed form SHALL NOT be rewritten. A failed index write SHALL remain
+  retryable even when the document record was already committed. Duplicate
+  document identities in a batch SHALL retain last-write ordering.
 * Each Scorch shard SHALL use one in-memory persister worker with at most 32 MiB
   of segment input per flush, and SHALL cap a merged segment at 100,000
   documents. Merge planning SHALL use a 2 MiB floor segment size, and every

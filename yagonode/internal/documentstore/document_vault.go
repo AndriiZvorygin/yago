@@ -117,7 +117,7 @@ func (d documentVault) storeOne(
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("context: %w", err)
 	}
-	document, location, accepted, found, err := d.canonicalDocument(
+	revision, err := d.canonicalDocument(
 		tx,
 		document,
 		attempt.staged,
@@ -125,12 +125,14 @@ func (d documentVault) storeOne(
 	if err != nil {
 		return err
 	}
-	if !accepted {
+	if revision.kind == documentRevisionRejected {
 		attempt.receipt.Rejected++
 
 		return nil
 	}
-	if !found {
+	document = revision.document
+	location := revision.location
+	if revision.kind == documentRevisionFirst {
 		admission, planned := attempt.plan.admissions[document.NormalizedURL]
 		if !planned {
 			return fmt.Errorf("document admission was not reserved")
@@ -141,17 +143,19 @@ func (d documentVault) storeOne(
 			previousAdmission: attempt.plan.previousAdmissions[document.NormalizedURL],
 		}
 	}
-	if err := d.putStoredDocument(tx, location, document); err != nil {
-		return err
+	if revision.kind != documentRevisionUnchanged {
+		if err := d.putStoredDocument(tx, location, document); err != nil {
+			return err
+		}
 	}
 	attempt.staged[document.NormalizedURL] = stagedStoredDocument{
 		document: document,
 		location: location,
 	}
-	if found {
-		attempt.receipt.Updated++
-	} else {
+	if revision.kind == documentRevisionFirst {
 		attempt.receipt.Stored++
+	} else {
+		attempt.receipt.Updated++
 	}
 	attempt.receipt.CommittedDocuments = append(
 		attempt.receipt.CommittedDocuments,
@@ -240,7 +244,7 @@ func (d documentVault) CanonicalDocuments(
 			if err := ctx.Err(); err != nil {
 				return fmt.Errorf("context: %w", err)
 			}
-			stored, _, accepted, _, err := d.canonicalDocument(
+			revision, err := d.canonicalDocument(
 				tx,
 				document,
 				nil,
@@ -248,8 +252,8 @@ func (d documentVault) CanonicalDocuments(
 			if err != nil {
 				return err
 			}
-			if accepted {
-				canonical = append(canonical, stored)
+			if revision.kind != documentRevisionRejected {
+				canonical = append(canonical, revision.document)
 			}
 		}
 
@@ -266,10 +270,10 @@ func (d documentVault) canonicalDocument(
 	tx *vault.Txn,
 	document Document,
 	staged map[string]stagedStoredDocument,
-) (Document, storedDocumentLocation, bool, bool, error) {
+) (canonicalDocumentRevision, error) {
 	document = restoreSubmittedInlinks(normalizedDocument(document))
 	if document.NormalizedURL == "" {
-		return Document{}, storedDocumentLocation{}, false, false, nil
+		return canonicalDocumentRevision{kind: documentRevisionRejected}, nil
 	}
 	var location storedDocumentLocation
 	var previous Document
@@ -285,14 +289,14 @@ func (d documentVault) canonicalDocument(
 			document.NormalizedURL,
 		)
 		if err != nil {
-			return Document{}, storedDocumentLocation{}, false, false, err
+			return canonicalDocumentRevision{}, err
 		}
 	}
 	document = mergeDocumentDates(previous, document, found)
 	key := vault.Key(document.NormalizedURL)
 	storedAnchors, anchorsFound, err := d.inboundAnchors.Get(tx, key)
 	if err != nil {
-		return Document{}, storedDocumentLocation{}, false, false, fmt.Errorf(
+		return canonicalDocumentRevision{}, fmt.Errorf(
 			"read inbound anchors: %w",
 			err,
 		)
@@ -302,7 +306,7 @@ func (d documentVault) canonicalDocument(
 	}
 	document.Inlinks = canonicalAnchorTexts(document.Inlinks)
 
-	return document, location, true, found, nil
+	return classifiedDocumentRevision(previous, found, document, location), nil
 }
 
 func (d documentVault) Document(

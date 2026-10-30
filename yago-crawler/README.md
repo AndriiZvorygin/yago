@@ -147,6 +147,10 @@ Document ingest includes the fetched URL and any resolved
 metadata and bounded image URL/alt metadata when available. Links marked
 `rel=nofollow` are not submitted for frontier expansion or local outlink
 evidence unless the crawl profile opts in.
+A successful unchanged recrawl is still acknowledged and recorded for scheduling.
+The node leaves its stored document and full-text entry untouched when their
+content and evidence have not changed. Stored fetched/indexed dates then remain
+those of the last substantive document revision, rather than the latest recrawl.
 
 Every newly parsed live document is stamped with
 `CurrentExtractionGeneration`, currently `1`, before it crosses the ingest

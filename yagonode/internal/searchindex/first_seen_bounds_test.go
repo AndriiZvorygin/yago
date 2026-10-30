@@ -252,11 +252,13 @@ func TestBleveDiskCandidateSearchAppliesFirstSeenBounds(t *testing.T) {
 // satisfies the filter that reads it.
 func TestStoredCandidateProjectionRoundTripsFirstSeen(t *testing.T) {
 	firstSeen := time.Date(2026, 7, 20, 8, 0, 0, 0, time.UTC)
-	encoded, err := encodeStoredCandidateProjection(documentstore.Document{
-		NormalizedURL: "https://a.example/download",
-		ExtractedText: "golang download page",
-		FirstSeenAt:   firstSeen,
-	})
+	encoded, err := encodeStoredCandidateProjection(
+		newStoredCandidateProjection(documentstore.Document{
+			NormalizedURL: "https://a.example/download",
+			ExtractedText: "golang download page",
+			FirstSeenAt:   firstSeen,
+		}),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

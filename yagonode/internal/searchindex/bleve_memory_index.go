@@ -313,22 +313,25 @@ func fieldMatchWithAnalyzer(
 }
 
 func bleveDocumentFromStore(doc documentstore.Document) (bleveDocument, error) {
-	candidate, err := encodeStoredCandidateProjection(doc)
+	indexed := bleveDocument{
+		URL:      documentURL(doc),
+		Title:    doc.Title,
+		Headings: append([]string(nil), doc.Headings...),
+		Body:     doc.ExtractedText,
+		Anchors:  anchorTexts(doc.Inlinks),
+		Language: strings.ToLower(doc.Language),
+		Host:     documentHost(doc),
+		Analyzer: detectDocumentAnalyzer(analyzerDetectionText(doc), doc.Language),
+	}
+	projection := newStoredCandidateProjection(doc)
+	projection.IndexedForm = indexedFormIdentity(indexed)
+	candidate, err := encodeStoredCandidateProjection(projection)
 	if err != nil {
 		return bleveDocument{}, fmt.Errorf("encode search candidate: %w", err)
 	}
+	indexed.Candidate = candidate
 
-	return bleveDocument{
-		URL:       documentURL(doc),
-		Title:     doc.Title,
-		Headings:  append([]string(nil), doc.Headings...),
-		Body:      doc.ExtractedText,
-		Anchors:   anchorTexts(doc.Inlinks),
-		Language:  strings.ToLower(doc.Language),
-		Host:      documentHost(doc),
-		Analyzer:  detectDocumentAnalyzer(analyzerDetectionText(doc), doc.Language),
-		Candidate: candidate,
-	}, nil
+	return indexed, nil
 }
 
 // analyzerDetectionText assembles the text language detection runs on: the

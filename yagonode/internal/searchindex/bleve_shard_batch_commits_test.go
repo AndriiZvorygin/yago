@@ -65,11 +65,12 @@ func newControlledBatchShard(
 	}
 
 	return &controlledBatchShard{
-		staging:     staging,
-		started:     make(chan struct{}),
-		release:     release,
-		closed:      make(chan struct{}),
-		concurrency: &batchCommitConcurrency{},
+		bleveIndexContract: staging,
+		staging:            staging,
+		started:            make(chan struct{}),
+		release:            release,
+		closed:             make(chan struct{}),
+		concurrency:        &batchCommitConcurrency{},
 	}
 }
 

@@ -112,7 +112,7 @@ func TestBleveDiskIndexCreatesReopensAndSearches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBleveDiskIndex: %v", err)
 	}
-	index.now = func() time.Time { return time.Date(2026, 7, 2, 12, 0, 0, 0, time.FixedZone("x", 3600)) }
+	updated := index.lastUpdate()
 	if err := index.Index(t.Context(), doc); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestBleveDiskIndexCreatesReopensAndSearches(t *testing.T) {
 	}
 	if stats.Documents != 1 ||
 		stats.Backend != bleveDiskBackendName ||
-		stats.UpdatedAt != time.Date(2026, 7, 2, 11, 0, 0, 0, time.UTC) ||
+		stats.UpdatedAt != updated ||
 		stored.scans != 1 {
 		t.Fatalf("stats = %#v scans=%d", stats, stored.scans)
 	}

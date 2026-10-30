@@ -210,7 +210,9 @@ func TestStoredCandidateProjectionDecodeAndFieldSelection(t *testing.T) {
 	}}); err == nil {
 		t.Fatal("malformed projection accepted")
 	}
-	encoded, err := encodeStoredCandidateProjection(documentstore.Document{Title: "title"})
+	encoded, err := encodeStoredCandidateProjection(
+		newStoredCandidateProjection(documentstore.Document{Title: "title"}),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +244,7 @@ func TestStoredCandidateProjectionPresenceAndCompatibilityFallback(t *testing.T)
 		Title:         "candidate",
 		ExtractedText: "needle body",
 	}
-	encoded, err := encodeStoredCandidateProjection(doc)
+	encoded, err := encodeStoredCandidateProjection(newStoredCandidateProjection(doc))
 	if err != nil {
 		t.Fatal(err)
 	}

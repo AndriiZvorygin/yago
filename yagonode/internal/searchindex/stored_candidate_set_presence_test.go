@@ -398,7 +398,7 @@ func storedCandidateSetHits(
 	t.Helper()
 	hits := make([]*search.DocumentMatch, len(documents))
 	for index, document := range documents {
-		encoded, err := encodeStoredCandidateProjection(document)
+		encoded, err := encodeStoredCandidateProjection(newStoredCandidateProjection(document))
 		if err != nil {
 			t.Fatal(err)
 		}

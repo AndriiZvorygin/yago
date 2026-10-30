@@ -44,6 +44,7 @@ const (
 type BleveDiskIndex struct {
 	mu                  sync.RWMutex
 	mutationMu          sync.Mutex
+	unconfirmedWrites   unconfirmedIndexWrites
 	updatedAtMu         sync.RWMutex
 	shards              []bleve.Index
 	alias               bleve.Index
@@ -206,7 +207,14 @@ func (b *BleveDiskIndex) Index(
 	if err != nil {
 		return err
 	}
-	if err := diskShard(b.shards, id).Index(id, indexed); err != nil {
+	shardNumber := diskShardNumber(b.shards, id)
+	shard := b.shards[shardNumber]
+	if !b.unconfirmedWrites.contains(shardNumber) && shardHoldsIndexedForm(shard, id, indexed) {
+		return nil
+	}
+	err = shard.Index(id, indexed)
+	b.unconfirmedWrites.record(shardNumber, err)
+	if err != nil {
 		return fmt.Errorf("index document: %w", err)
 	}
 	b.markUpdated()

@@ -442,6 +442,13 @@ and tested together; use matching releases when upgrading a node and crawler.
   quota eviction, redirect cleanup, and crawler tombstones own ordinary lineage
   removal; an explicit full-index rebuild reconciles historical or crash-created
   drift from the authoritative document store.
+  An unchanged recrawl does not rewrite the stored document or its full-text
+  entry. Changes to titles, links, metadata, or other stored evidence still
+  update the document even when its body is unchanged. Fetched and indexed
+  dates on the stored document remain those of its last substantive revision;
+  recrawl scheduling separately records every successful fetch. An absent or
+  outdated full-text entry is repaired on ingestion, including after a failed
+  index write.
   After any startup rebuild and bounded segment consolidation, the node holds
   one Scorch snapshot at a time and sequentially loads every active persisted
   root into the operating-system page cache before lexical warm-up and

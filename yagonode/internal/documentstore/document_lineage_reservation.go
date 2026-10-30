@@ -130,12 +130,12 @@ func (d documentVault) CanonicalReservedDocuments(
 			if err := ctx.Err(); err != nil {
 				return fmt.Errorf("context: %w", err)
 			}
-			stored, _, accepted, _, err := d.canonicalDocument(tx, document, nil)
+			revision, err := d.canonicalDocument(tx, document, nil)
 			if err != nil {
 				return err
 			}
-			if accepted {
-				canonical = append(canonical, stored)
+			if revision.kind != documentRevisionRejected {
+				canonical = append(canonical, revision.document)
 			}
 		}
 
