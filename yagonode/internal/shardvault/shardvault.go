@@ -683,7 +683,11 @@ func (b *shardBucket) Put(key vault.Key, value []byte) error {
 	if err != nil {
 		return err
 	}
-	if err := bucket.Put(key, encodeValue(value)); err != nil {
+	encoded := encodeValue(value)
+	if holdsIdenticalValue(bucket, key, encoded) {
+		return nil
+	}
+	if err := bucket.Put(key, encoded); err != nil {
 		return fmt.Errorf("store: %w", err)
 	}
 	b.txn.engine.noteWordKey(b.name, key)

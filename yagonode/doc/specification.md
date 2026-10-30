@@ -798,6 +798,9 @@ it is not an assumed deployment dependency.
   exact across restart and partial multi-shard retry. Opening a vault after such
   writes with an older binary is an unsupported downgrade; rollback requires a
   coordinated pre-upgrade backup.
+* A sharded-vault write whose stored bytes already equal the new stored form
+  SHALL NOT rewrite the record. Any difference, including a stored value that
+  fails its integrity check, SHALL be written.
 * The main-vault quota SHALL remain a soft admission and eviction target for
   logical live rows. It SHALL NOT be described as a filesystem or aggregate data
   limit and SHALL exclude Bleve, node and crawler checkpoint databases, allocated
