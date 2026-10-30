@@ -89,7 +89,6 @@ func (d documentVault) prepareOutboundAnchorTargetMutation(
 		document:         document,
 		documentLocation: location,
 		targetURL:        targetURL,
-		visitDocument:    documentFound,
 	}
 	anchorsChanged := !anchorsFound || !slices.Equal(previousAnchors, anchors)
 	switch {
@@ -102,6 +101,8 @@ func (d documentVault) prepareOutboundAnchorTargetMutation(
 		mutation.document.Inlinks = append([]AnchorText(nil), anchors...)
 		mutation.storeDocument = true
 	}
+	mutation.visitDocument = documentFound &&
+		(mutation.storeDocument || replacement.affectsTargetAnchors(targetURL, anchors))
 	mutation.encodedBytes = outboundAnchorTargetMutationEncodedBytes(mutation)
 
 	return mutation, nil
