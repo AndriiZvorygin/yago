@@ -62,6 +62,16 @@ func TestBuildPostingsUsesYaCyWordHash(t *testing.T) {
 	}
 }
 
+func TestBuildPostingsPreservesRelativeURLCompatibility(t *testing.T) {
+	page := pageparse.ParsedPage{
+		URL:  "relative/path",
+		Text: "indexable words",
+	}
+	if postings := buildPostings(t, page); len(postings) == 0 {
+		t.Fatal("relative URL unexpectedly dropped its postings")
+	}
+}
+
 func TestBuildPostingsAreAcceptableRWILines(t *testing.T) {
 	page := pageparse.ParsedPage{
 		URL:      "http://example.com/path?q=a&b=c",

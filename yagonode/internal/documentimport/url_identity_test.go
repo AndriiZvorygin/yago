@@ -23,30 +23,31 @@ func TestValidateURLIdentityPreservesOnlyMarkedLegacyYaCyHost(t *testing.T) {
 	}
 }
 
-func TestValidateURLIdentityAllowsMarkedNonCrawlableLongIdentity(t *testing.T) {
-	longURL := "https://archive.example.test/" + strings.Repeat("a", 2200)
-	status := PreservableLegacyURLStatus(longURL)
-	if status != LegacyURLStatusExceedsCrawlLimit {
-		t.Fatalf("legacy status = %q, want over-crawl-limit marker", status)
+func TestValidateURLIdentityEnforcesRollbackSafeLimit(t *testing.T) {
+	prefix := "https://archive.example.test/"
+	atLimit := prefix + strings.Repeat("a", MaximumMigrationURLBytes-len(prefix))
+	if len(atLimit) != MaximumMigrationURLBytes {
+		t.Fatalf("boundary URL length = %d", len(atLimit))
 	}
-	if err := ValidateURLIdentity(longURL, ""); err == nil {
-		t.Fatal("unmarked long URL identity was accepted")
+	if err := ValidateURLIdentity(atLimit, ""); err != nil {
+		t.Fatalf("URL at rollback-safe limit was rejected: %v", err)
 	}
-	if err := ValidateURLIdentity(longURL, LegacyURLStatusInvalidEscape); err == nil {
-		t.Fatal("long URL with a mismatched marker was accepted")
-	}
-	if err := ValidateURLIdentity(longURL, status); err != nil {
-		t.Fatalf("marked archival URL identity was rejected: %v", err)
-	}
-	if IsPreservableLegacyURL(
-		"https://user:secret@archive.example.test/" + strings.Repeat("a", 2200),
-	) {
-		t.Fatal("credential-bearing long URL was preservable")
-	}
-	tooLong := "https://archive.example.test/" +
-		strings.Repeat("a", MaximumMigrationURLBytes)
+	tooLong := atLimit + "a"
 	if IsPreservableLegacyURL(tooLong) {
-		t.Fatal("URL beyond the bounded migration allowance was preservable")
+		t.Fatal("URL beyond the rollback-safe limit was preservable")
+	}
+	for _, marker := range []string{"", LegacyURLStatusInvalidEscape} {
+		if err := ValidateURLIdentity(tooLong, marker); err == nil {
+			t.Fatalf("over-limit URL with marker %q was accepted", marker)
+		}
+	}
+	credentialPrefix := "https://user:secret@archive.example.test/"
+	credentialURL := credentialPrefix + strings.Repeat(
+		"a",
+		MaximumMigrationURLBytes-len(credentialPrefix),
+	)
+	if IsPreservableLegacyURL(credentialURL) {
+		t.Fatal("credential-bearing long URL was preservable")
 	}
 }
 

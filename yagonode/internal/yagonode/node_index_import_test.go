@@ -47,6 +47,17 @@ func TestImportWorkerForURLHandlesWorkerCountBounds(t *testing.T) {
 	}
 }
 
+func TestDocumentImportWorkerCountCapsConcurrentWorkers(t *testing.T) {
+	if got := documentImportWorkerCount(importConcurrencyFixture(128), 128); got != 64 {
+		t.Fatalf("worker count = %d, want the 64-worker bound", got)
+	}
+	for _, maximum := range []int{-1, 0} {
+		if got := documentImportWorkerCount(importConcurrencyFixture(maximum), 4); got != 1 {
+			t.Errorf("worker count with maximum %d = %d, want the one-worker fallback", maximum, got)
+		}
+	}
+}
+
 type failingImportDocumentDirectory struct{ err error }
 
 func (d failingImportDocumentDirectory) Document(
@@ -155,6 +166,42 @@ func (f *importSubmitterFixture) SubmitImport(
 }
 
 func (*importSubmitterFixture) MaximumConcurrentImports() int { return 1 }
+
+type cancelingImportSubmitter struct {
+	cancel context.CancelFunc
+}
+
+func (s cancelingImportSubmitter) SubmitImport(
+	context.Context,
+	yagocrawlcontract.IngestBatch,
+	yagocrawlcontract.CrawlProfile,
+) error {
+	s.cancel()
+	return nil
+}
+
+type importConcurrencyFixture int
+
+func (importConcurrencyFixture) SubmitImport(
+	context.Context,
+	yagocrawlcontract.IngestBatch,
+	yagocrawlcontract.CrawlProfile,
+) error {
+	return nil
+}
+
+func (f importConcurrencyFixture) MaximumConcurrentImports() int { return int(f) }
+
+type incompleteBatchImportDocumentDirectory struct {
+	*batchImportDocumentDirectory
+}
+
+func (*incompleteBatchImportDocumentDirectory) Documents(
+	context.Context,
+	[]string,
+) ([]documentstore.Document, []bool, error) {
+	return nil, nil, nil
+}
 
 type concurrentImportDirectory struct {
 	mu        sync.RWMutex
@@ -319,6 +366,42 @@ func TestDocumentImportUsesBatchedDestinationSnapshotAndPreservesDuplicates(t *t
 	}
 	if documents.documents[conflictURL].ContentHash != "destination" {
 		t.Fatal("conflicting import changed the pre-existing destination document")
+	}
+}
+
+func TestDocumentImportRejectsIncompleteDestinationSnapshot(t *testing.T) {
+	documents := &incompleteBatchImportDocumentDirectory{
+		batchImportDocumentDirectory: &batchImportDocumentDirectory{
+			documents: make(map[string]documentstore.Document),
+		},
+	}
+	service := &documentImportService{
+		documents: documents,
+		ingest:    new(importSubmitterFixture),
+		frontier:  new(importScheduleFixture),
+		profile:   importTestProfile(),
+	}
+	if _, err := service.ImportDocuments(t.Context(), []adminui.IndexImportRecord{
+		importTestRecord("row", "https://snapshot.example/", "hash", nil),
+	}); err == nil {
+		t.Fatal("incomplete destination snapshot was accepted")
+	}
+}
+
+func TestDocumentImportReturnsEmptyResultsForEmptyBatch(t *testing.T) {
+	profiles := new(importScheduleFixture)
+	service := &documentImportService{
+		documents: importDocumentDirectory{},
+		ingest:    new(importSubmitterFixture),
+		frontier:  profiles,
+		profile:   importTestProfile(),
+	}
+	results, err := service.ImportDocuments(t.Context(), nil)
+	if err != nil || len(results) != 0 {
+		t.Fatalf("empty import = %#v, %v", results, err)
+	}
+	if len(profiles.profiles) != 1 {
+		t.Fatalf("migration profiles registered = %d, want one", len(profiles.profiles))
 	}
 }
 
@@ -640,6 +723,59 @@ func TestDocumentImportHonorsCancellationBeforeEachRecord(t *testing.T) {
 		importTestRecord("row", "https://cancel.example/", "hash", nil),
 	}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("ImportDocuments error = %v, want context canceled", err)
+	}
+}
+
+func TestDocumentImportReportsCancellationAfterIngestCompletes(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	service := &documentImportService{
+		documents:       importDocumentDirectory{},
+		ingest:          cancelingImportSubmitter{cancel: cancel},
+		frontier:        new(importScheduleFixture),
+		profile:         importTestProfile(),
+		profileRecorded: true,
+	}
+	if _, err := service.ImportDocuments(ctx, []adminui.IndexImportRecord{
+		importTestRecord("row", "https://cancel-after-ingest.example/", "hash", nil),
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ImportDocuments error = %v, want context canceled", err)
+	}
+}
+
+func TestImportDocumentRejectsCanceledContextBeforeLookup(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	submitter := new(importSubmitterFixture)
+	service := &documentImportService{ingest: submitter, profile: importTestProfile()}
+	_, _, err := service.importDocument(ctx, importTestRecord(
+		"canceled", "https://cancel.example/", "hash", nil,
+	), importDestination{known: true})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("importDocument error = %v, want context canceled", err)
+	}
+	if len(submitter.batches) != 0 {
+		t.Fatalf("canceled import submitted %d batches", len(submitter.batches))
+	}
+}
+
+func TestDocumentImportDoesNotScheduleConflictingDestination(t *testing.T) {
+	service := &documentImportService{
+		frontier: new(importScheduleFixture),
+		profile:  importTestProfile(),
+	}
+	visit := time.Now().UTC().Add(time.Hour)
+	if err := service.scheduleImportBatch(t.Context(), []adminui.IndexImportRecord{
+		importTestRecord("eligible", "https://eligible.example/", "matching", &visit),
+		importTestRecord("conflict", "https://conflict.example/", "source", &visit),
+	}, []adminui.IndexImportResult{
+		{ID: "eligible", Status: "imported"},
+		{ID: "conflict", Status: "conflict"},
+	}); err != nil {
+		t.Fatalf("schedule conflicting import: %v", err)
+	}
+	if got := service.frontier.(*importScheduleFixture).urls; len(got) != 1 ||
+		got[0] != "https://eligible.example/" {
+		t.Fatalf("scheduled documents = %#v, want only the eligible URL", got)
 	}
 }
 

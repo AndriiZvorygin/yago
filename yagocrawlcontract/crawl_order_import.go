@@ -19,9 +19,6 @@ const (
 	MaximumCrawlOrderImportMetadataBytes = 1 << 20
 )
 
-// CrawlOrderImportBatch is the bounded, idempotent admin interchange for
-// recovering a source crawler's pending frontier. Source-specific provenance
-// belongs in CrawlProfile.SourceMetadata and CrawlRequest.SourceMetadata.
 type CrawlOrderImportBatch struct {
 	Version  int            `json:"version"`
 	SourceID string         `json:"sourceId"`
@@ -31,10 +28,6 @@ type CrawlOrderImportBatch struct {
 	DryRun   bool           `json:"dryRun,omitempty"`
 }
 
-// ComputeBatchID returns the stable content identity used to make retries
-// idempotent. DryRun and SourceID are deliberately excluded: the former must
-// not change the identity of a later real import, and the latter namespaces
-// the same payload when it comes from distinct exports.
 func (b CrawlOrderImportBatch) ComputeBatchID() (string, error) {
 	payload := struct {
 		Profile  CrawlProfile
@@ -51,13 +44,10 @@ func (b CrawlOrderImportBatch) ComputeBatchID() (string, error) {
 	return hex.EncodeToString(digest[:]), nil
 }
 
-// IdempotencyKey namespaces an accepted batch within its source export.
 func (b CrawlOrderImportBatch) IdempotencyKey() string {
 	return "frontier:" + b.SourceID + ":" + b.BatchID
 }
 
-// Validate checks the bounded, versioned frontier-import envelope before it
-// can be persisted as a crawl order.
 func (b CrawlOrderImportBatch) Validate() error {
 	if err := validateCrawlOrderImportEnvelope(b); err != nil {
 		return err

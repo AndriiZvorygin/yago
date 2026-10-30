@@ -112,6 +112,17 @@ func (r *crawlRuntime) ImportDocuments(
 	return results, nil
 }
 
+func (r *crawlRuntime) ImportCrawlOrder(
+	ctx context.Context,
+	batch yagocrawlcontract.CrawlOrderImportBatch,
+) (adminui.CrawlOrderImportResult, error) {
+	result, err := r.frontierImport.ImportCrawlOrder(ctx, batch)
+	if err != nil {
+		return adminui.CrawlOrderImportResult{}, fmt.Errorf("import crawl order through crawl runtime: %w", err)
+	}
+	return result, nil
+}
+
 func (r *crawlRuntime) dispatchQueue() crawldispatch.CrawlOrderQueue {
 	var queue crawldispatch.CrawlOrderQueue = formatStampingQueue{
 		inner: crawlProfileRegisteringQueue{

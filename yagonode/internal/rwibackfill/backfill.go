@@ -603,7 +603,7 @@ func buildArtifacts(document documentstore.Document) (yagomodel.RWIPageArtifacts
 	if loadedAt.IsZero() {
 		loadedAt = document.IndexedAt
 	}
-	artifacts, err := yagomodel.BuildRWIPageArtifacts(yagomodel.RWIPage{
+	artifacts := yagomodel.BuildRWIPageArtifacts(yagomodel.RWIPage{
 		URL:               document.NormalizedURL,
 		Title:             document.Title,
 		Language:          document.Language,
@@ -617,7 +617,7 @@ func buildArtifacts(document documentstore.Document) (yagomodel.RWIPageArtifacts
 		ModifiedAt:        document.ModifiedAt,
 		FreshUntil:        importedFreshness(document.Metadata["yacy.fresh_until"]),
 	}, yagocrawlcontract.MaximumIngestPostings)
-	return artifacts, err == nil
+	return artifacts, true
 }
 
 func supportedIndexedURL(raw string) bool {

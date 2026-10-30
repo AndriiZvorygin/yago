@@ -112,6 +112,7 @@ type postingRows struct {
 	receiveErr error
 	unknownURL bool
 	busyCount  int
+	busySignal chan struct{}
 	calls      int
 	maxBatch   int
 }
@@ -127,6 +128,9 @@ func (r *postingRows) Receive(
 	}
 	if r.busyCount > 0 {
 		r.busyCount--
+		if r.busySignal != nil {
+			r.busySignal <- struct{}{}
+		}
 		return rwi.Receipt{Busy: true}, nil
 	}
 	if r.failCount > 0 {
@@ -716,21 +720,33 @@ func TestBackfillPostingRetryStopsWhenPauseIsRequested(t *testing.T) {
 		importedDocument("https://example.test/posting-pause", "200"),
 	})
 	postings.busyCount = 1
+	postings.busySignal = make(chan struct{}, 1)
 	if _, err := backfill.Start(t.Context(), 0, false); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	<-backfill.wake
 	backfill.wake = make(chan struct{})
-	go func() {
-		time.Sleep(time.Millisecond)
-		backfill.pause.Store(true)
-		backfill.wake <- struct{}{}
-	}()
 	state, _, err := backfill.repository.load(t.Context())
 	if err != nil {
 		t.Fatalf("load checkpoint: %v", err)
 	}
-	backfill.execute(t.Context(), state)
+	done := make(chan struct{})
+	go func() {
+		backfill.execute(t.Context(), state)
+		close(done)
+	}()
+	select {
+	case <-postings.busySignal:
+	case <-time.After(5 * time.Second):
+		t.Fatal("posting receiver did not report backpressure")
+	}
+	backfill.pause.Store(true)
+	backfill.signal()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("backfill did not stop after pause was requested")
+	}
 	status, err := backfill.Status(t.Context())
 	if err != nil || status.State != statePaused || postings.calls != 1 {
 		t.Fatalf("posting pause status=%+v calls=%d error=%v", status, postings.calls, err)

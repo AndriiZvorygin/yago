@@ -220,7 +220,7 @@ func prepareFrontierSession(
 		}
 		seekOffset = state.Offset
 	}
-	if _, err := input.Seek(seekOffset, io.SeekStart); err != nil {
+	if err := seekFrontierImportInput(input, seekOffset); err != nil {
 		return nil, fmt.Errorf("seek YaCy frontier checkpoint: %w", err)
 	}
 	reader.Reset(input)
@@ -229,6 +229,11 @@ func prepareFrontierSession(
 		profiles: source.profiles, seen: seen, endpoint: endpoint,
 		statePath: statePath, state: state,
 	}, nil
+}
+
+func seekFrontierImportInput(input io.Seeker, offset int64) error {
+	_, err := input.Seek(offset, io.SeekStart)
+	return err
 }
 
 func loadValidatedFrontierCheckpoint(
@@ -469,9 +474,6 @@ func validateYaCyRecrawlCutoff(raw string) error {
 	if raw == "" || raw == "eternity" {
 		return nil
 	}
-	// YaCy stores an absolute millisecond cutoff date here (Long.MAX_VALUE
-	// means eternity); Yago stores a duration after fetch. Preserve the raw
-	// source field below instead of inventing an interval conversion.
 	cutoff, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || cutoff < 0 {
 		return errors.New("invalid YaCy recrawl cutoff")
@@ -528,6 +530,7 @@ type frontierBatchRun struct {
 	blockedInvalid int64
 	runRows        int
 	offset         int64
+	maximumSeen    int
 }
 
 func newFrontierBatchRun(
@@ -540,6 +543,7 @@ func newFrontierBatchRun(
 		ctx: ctx, opts: opts, progress: progress, session: session,
 		client:   &http.Client{Timeout: 90 * time.Second},
 		batchEnd: session.state.Offset, offset: session.state.Offset,
+		maximumSeen: maximumFrontierSeenURLs,
 	}
 }
 
@@ -649,13 +653,21 @@ func (run *frontierBatchRun) addRequestRow(row yaCyFrontierRecord, lineEnd int64
 
 func (run *frontierBatchRun) recordSeen(row yaCyFrontierRecord) (bool, error) {
 	identity := row.ProfileHandle + "\x00" + row.URL
-	if _, duplicate := run.session.seen[identity]; duplicate {
+	maximum := run.maximumSeen
+	if maximum == 0 {
+		maximum = maximumFrontierSeenURLs
+	}
+	return addFrontierSeen(run.session.seen, identity, maximum)
+}
+
+func addFrontierSeen(seen map[string]struct{}, identity string, maximum int) (bool, error) {
+	if _, duplicate := seen[identity]; duplicate {
 		return true, nil
 	}
-	if len(run.session.seen) >= maximumFrontierSeenURLs {
+	if len(seen) >= maximum {
 		return false, errors.New("frontier deduplication safety limit reached")
 	}
-	run.session.seen[identity] = struct{}{}
+	seen[identity] = struct{}{}
 	return false, nil
 }
 
@@ -712,11 +724,7 @@ func (run *frontierBatchRun) mappedBatch() (yagocrawlcontract.CrawlOrderImportBa
 		return yagocrawlcontract.CrawlOrderImportBatch{},
 			fmt.Errorf("validate mapped frontier batch at byte %d: %w", run.batchEnd, err)
 	}
-	encoded, err := json.Marshal(batch)
-	if err != nil {
-		return yagocrawlcontract.CrawlOrderImportBatch{},
-			fmt.Errorf("size frontier import batch: %w", err)
-	}
+	encoded, _ := json.Marshal(batch)
 	if len(encoded) > yagocrawlcontract.MaximumCrawlOrderImportBatchBytes {
 		return yagocrawlcontract.CrawlOrderImportBatch{}, fmt.Errorf(
 			"mapped frontier batch exceeds the %d-byte limit; rerun with a smaller --batch-records value",
@@ -814,10 +822,7 @@ func sendFrontierImportBatch(
 	endpoint, apiKey string,
 	batch yagocrawlcontract.CrawlOrderImportBatch,
 ) (frontierImportResponse, error) {
-	encoded, err := json.Marshal(batch)
-	if err != nil {
-		return frontierImportResponse{}, fmt.Errorf("encode frontier import batch: %w", err)
-	}
+	encoded, _ := json.Marshal(batch)
 	request, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
@@ -857,6 +862,15 @@ func rebuildFrontierSeen(
 	end int64,
 	profiles map[string]frontierSourceProfile,
 ) (map[string]struct{}, error) {
+	return rebuildFrontierSeenWithLimit(input, end, profiles, maximumFrontierSeenURLs)
+}
+
+func rebuildFrontierSeenWithLimit(
+	input *os.File,
+	end int64,
+	profiles map[string]frontierSourceProfile,
+	maximum int,
+) (map[string]struct{}, error) {
 	if _, err := input.Seek(0, io.SeekStart); err != nil {
 		return nil, fmt.Errorf("seek YaCy frontier for checkpoint recovery: %w", err)
 	}
@@ -888,10 +902,9 @@ func rebuildFrontierSeen(
 			return nil, errors.New("saved frontier references a missing YaCy profile")
 		}
 		identity := row.ProfileHandle + "\x00" + row.URL
-		if len(seen) >= maximumFrontierSeenURLs {
-			return nil, errors.New("frontier deduplication safety limit reached")
+		if _, err := addFrontierSeen(seen, identity, maximum); err != nil {
+			return nil, err
 		}
-		seen[identity] = struct{}{}
 	}
 	if position != end {
 		return nil, errors.New("frontier checkpoint is not at a record boundary")
@@ -947,7 +960,7 @@ func loadFrontierImportCheckpoint(path string) (frontierImportCheckpoint, bool, 
 	return state, true, nil
 }
 
-func hashOpenFile(file *os.File) (string, error) {
+func hashOpenFile(file io.ReadSeeker) (string, error) {
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return "", fmt.Errorf("seek YaCy import file for fingerprint: %w", err)
 	}

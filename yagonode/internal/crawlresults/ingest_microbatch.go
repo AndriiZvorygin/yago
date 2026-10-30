@@ -102,9 +102,6 @@ func splitIngestRemovals(group []IngestDelivery) ([]IngestDelivery, []IngestDeli
 }
 
 func splitIngestGroupByImportMode(group []IngestDelivery) [][]IngestDelivery {
-	if len(group) == 0 {
-		return nil
-	}
 	segments := make([][]IngestDelivery, 0, 2)
 	start := 0
 	for index := 1; index <= len(group); index++ {

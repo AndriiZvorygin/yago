@@ -645,28 +645,25 @@ func TestMapSolrDocumentDerivesIDWhenYaCyIDIsAbsent(t *testing.T) {
 	}
 }
 
-func TestMapSolrDocumentPreservesLongYaCyIdentityWithoutRecrawl(t *testing.T) {
-	rawURL := "https://archive.example.test/" + strings.Repeat("a", 2200)
+func TestMapSolrDocumentEnforcesRollbackSafeURLLimit(t *testing.T) {
+	prefix := "https://archive.example.test/"
+	atLimit := prefix + strings.Repeat("a", documentimport.MaximumMigrationURLBytes-len(prefix))
 	record, err := mapSolrDocument(map[string]json.RawMessage{
-		"sku":           json.RawMessage(fmt.Sprintf("%q", rawURL)),
-		"canonical_s":   json.RawMessage(fmt.Sprintf("%q", rawURL)),
-		"fresh_date_dt": json.RawMessage(`"2026-10-03T10:00:00Z"`),
+		"sku":         json.RawMessage(fmt.Sprintf("%q", atLimit)),
+		"canonical_s": json.RawMessage(fmt.Sprintf("%q", atLimit)),
 	}, "fixture-source")
 	if err != nil {
-		t.Fatalf("map long YaCy URL identity: %v", err)
+		t.Fatalf("map URL at rollback-safe limit: %v", err)
 	}
-	if record.Document.NormalizedURL != rawURL || record.Document.CanonicalURL != rawURL {
-		t.Fatal("long YaCy URL identity was changed")
+	if record.Document.NormalizedURL != atLimit || record.Document.CanonicalURL != atLimit {
+		t.Fatal("URL at the rollback-safe limit was changed")
 	}
-	if record.Document.Metadata[documentimport.LegacyURLStatusMetadataKey] !=
-		documentimport.LegacyURLStatusExceedsCrawlLimit {
-		t.Fatal("long URL lacks its non-crawlable migration marker")
-	}
-	if record.NextVisitAt != nil {
-		t.Fatal("long non-crawlable URL was scheduled for recrawl")
-	}
-	if err := validateImportRecord(record); err != nil {
-		t.Fatalf("validate long URL import record: %v", err)
+	overLimit := atLimit + "a"
+	if _, err := mapSolrDocument(map[string]json.RawMessage{
+		"sku":         json.RawMessage(fmt.Sprintf("%q", overLimit)),
+		"canonical_s": json.RawMessage(fmt.Sprintf("%q", overLimit)),
+	}, "fixture-source"); err == nil {
+		t.Fatal("URL beyond the rollback-safe limit was accepted")
 	}
 }
 

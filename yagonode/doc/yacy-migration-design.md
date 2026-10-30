@@ -71,13 +71,11 @@ document identities, not claims that malformed hosts are fetchable. Other
 malformed or unsupported URL rows still fail rather than being rewritten or
 silently dropped.
 
-YaCy also contains valid HTTP(S), FTP, or SMB identities above Yago's ordinary
-2,048-byte crawl URL limit. The migration preserves credential-free parsed
-identities up to 16 KiB with
-`yacy.migration_url_status=exceeds_yago_crawl_url_limit`. That explicit marker
-allows document storage only; it does not widen crawl or outbound-link limits,
-and the importer suppresses recrawl for the identity. Larger or unsafe
-identities remain rejected.
+Document URL identities remain limited to 2,048 bytes, matching the persisted
+key format accepted by the previous Yago release. This keeps rollback safe.
+Longer primary or canonical identities are rejected during export or import
+validation rather than written into a store that the previous release cannot
+reopen.
 
 If a primary URL or canonical URL contains URL userinfo, the adapter strips
 userinfo, records `yacy.migration_credentials_redacted=true`, and disables

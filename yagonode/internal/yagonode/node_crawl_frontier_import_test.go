@@ -3,13 +3,19 @@ package yagonode
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/D4rk4/yago/yagocrawlcontract"
 	"github.com/D4rk4/yago/yagonode/internal/adminui"
+	"github.com/D4rk4/yago/yagonode/internal/documentstore"
 )
 
-type frontierPresenceFixture struct{ existing map[string]bool }
+type frontierPresenceFixture struct {
+	existing map[string]bool
+	present  []bool
+	err      error
+}
 
 func (f frontierPresenceFixture) DocumentExists(
 	_ context.Context,
@@ -22,6 +28,12 @@ func (f frontierPresenceFixture) DocumentsExist(
 	_ context.Context,
 	urls []string,
 ) ([]bool, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.present != nil {
+		return append([]bool(nil), f.present...), nil
+	}
 	found := make([]bool, len(urls))
 	for index, rawURL := range urls {
 		found[index] = f.existing[rawURL]
@@ -34,6 +46,7 @@ type frontierOrderQueueFixture struct {
 	order yagocrawlcontract.CrawlOrder
 	seen  map[string]bool
 	calls int
+	err   error
 }
 
 func (f *frontierOrderQueueFixture) PublishOnce(
@@ -42,6 +55,9 @@ func (f *frontierOrderQueueFixture) PublishOnce(
 	order yagocrawlcontract.CrawlOrder,
 ) (bool, error) {
 	f.calls++
+	if f.err != nil {
+		return false, f.err
+	}
 	if f.seen[key] {
 		return true, nil
 	}
@@ -138,6 +154,93 @@ func TestCrawlOrderImportDoesNotPublishWhenProfilePersistenceFails(t *testing.T)
 	if queue.calls != 0 {
 		t.Fatal("order was published before profile persistence succeeded")
 	}
+}
+
+func TestCrawlOrderImportRejectsInvalidAndUnavailableInputs(t *testing.T) {
+	valid := validFrontierImportBatch(t, "https://example.test/page")
+	tests := []struct {
+		name     string
+		batch    yagocrawlcontract.CrawlOrderImportBatch
+		docs     documentstore.DocumentSetPresence
+		wantText string
+	}{
+		{
+			name:     "invalid batch",
+			batch:    invalidFrontierImportBatch(valid),
+			docs:     frontierPresenceFixture{},
+			wantText: "validate imported frontier",
+		},
+		{
+			name:     "missing document lookup",
+			batch:    valid,
+			wantText: "document presence lookup unavailable",
+		},
+		{
+			name:     "lookup failure",
+			batch:    valid,
+			docs:     frontierPresenceFixture{err: errors.New("presence unavailable")},
+			wantText: "check imported frontier URLs",
+		},
+		{
+			name:     "incomplete lookup",
+			batch:    valid,
+			docs:     frontierPresenceFixture{present: []bool{}},
+			wantText: "incomplete result",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := &crawlOrderImportService{
+				documents: test.docs,
+				orders:    &frontierOrderQueueFixture{seen: make(map[string]bool)},
+				profiles:  new(frontierProfileWriterFixture),
+			}
+			if _, err := service.ImportCrawlOrder(t.Context(), test.batch); err == nil ||
+				!strings.Contains(err.Error(), test.wantText) {
+				t.Fatalf("ImportCrawlOrder error = %v, want %q", err, test.wantText)
+			}
+		})
+	}
+}
+
+func TestCrawlOrderImportReturnsQueuePersistenceFailure(t *testing.T) {
+	batch := validFrontierImportBatch(t, "https://example.test/page")
+	service := &crawlOrderImportService{
+		documents: frontierPresenceFixture{existing: map[string]bool{}},
+		orders: &frontierOrderQueueFixture{
+			seen: make(map[string]bool),
+			err:  errors.New("queue unavailable"),
+		},
+		profiles: new(frontierProfileWriterFixture),
+	}
+	if _, err := service.ImportCrawlOrder(t.Context(), batch); err == nil ||
+		!strings.Contains(err.Error(), "persist imported crawl frontier") {
+		t.Fatalf("queue persistence error = %v", err)
+	}
+}
+
+func TestCrawlRuntimeDelegatesCrawlOrderImport(t *testing.T) {
+	batch := validFrontierImportBatch(t, "https://runtime.example/page")
+	queue := &frontierOrderQueueFixture{seen: make(map[string]bool)}
+	service := &crawlOrderImportService{
+		documents: frontierPresenceFixture{existing: map[string]bool{}},
+		orders:    queue,
+		profiles:  new(frontierProfileWriterFixture),
+	}
+	runtime := &crawlRuntime{frontierImport: service}
+	result, err := runtime.ImportCrawlOrder(t.Context(), batch)
+	if err != nil || result.EnqueuedRequests != 1 || queue.calls != 1 {
+		t.Fatalf("runtime import result = %+v, queue calls=%d, err=%v", result, queue.calls, err)
+	}
+	if _, err := runtime.ImportCrawlOrder(t.Context(), invalidFrontierImportBatch(batch)); err == nil ||
+		!strings.Contains(err.Error(), "import crawl order through crawl runtime") {
+		t.Fatalf("runtime import error = %v", err)
+	}
+}
+
+func invalidFrontierImportBatch(batch yagocrawlcontract.CrawlOrderImportBatch) yagocrawlcontract.CrawlOrderImportBatch {
+	batch.Version++
+	return batch
 }
 
 func validFrontierImportBatch(

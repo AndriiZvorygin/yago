@@ -5,6 +5,8 @@ import (
 	"unicode"
 )
 
+const MinimumRWIWordLength = 2
+
 func TokenizeRWIText(text string, maximum int) []string {
 	tokenizer := rwiTokenizer{
 		runes:   []rune(text),
@@ -102,7 +104,7 @@ func (t *rwiTokenizer) consumeWordRune(index int, current rune) bool {
 }
 
 func (t *rwiTokenizer) flush() bool {
-	if len(t.word) >= 2 {
+	if len(t.word) >= MinimumRWIWordLength {
 		t.words = append(t.words, strings.ToLower(string(t.word)))
 	}
 	t.word = nil

@@ -231,8 +231,9 @@ language. This includes legacy pages served as Windows-1251 without a `lang`
 attribute.
 
 Crawler RWI postings and URL metadata use the same YaCy-compatible artifact
-builder as the optional migration backfill. Imported text is not fetched again
-to produce peer-index records.
+builder as the optional migration backfill. Both paths use the single tokenizer
+implementation in `yagomodel`. Imported text is not fetched again to produce
+peer-index records.
 
 PDF extraction follows the document structure rather than scanning every decoded
 stream. When Page objects are available, it selects their referenced `/Contents`

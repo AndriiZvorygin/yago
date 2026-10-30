@@ -158,7 +158,6 @@ func TestImportCorpusFollowsOnlyCommittedExportBytesUntilComplete(t *testing.T) 
 		}, io.Discard)
 	}()
 
-	// Bytes not yet committed by the exporter must remain invisible to the importer.
 	appendTestExportRecord(t, input, cliTestRecord("fixture-a", "https://a.example.test/"))
 	time.Sleep(40 * time.Millisecond)
 	if got := requests.Load(); got != 0 {

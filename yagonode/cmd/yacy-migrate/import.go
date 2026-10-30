@@ -467,13 +467,10 @@ func (session *importSession) nextBatchUsingBounds(
 ) ([]documentimport.Record, int64, error) {
 	batch := make([]documentimport.Record, 0, maximumRecords)
 	batchEnd := session.state.Offset
-	emptyRequest, err := json.Marshal(documentimport.Request{
+	emptyRequest, _ := json.Marshal(documentimport.Request{
 		Version: 1,
 		Records: []documentimport.Record{},
 	})
-	if err != nil {
-		return nil, 0, fmt.Errorf("size empty import request: %w", err)
-	}
 	requestBaseBytes := len(emptyRequest)
 	recordBytes := 0
 	for len(batch) < maximumRecords {

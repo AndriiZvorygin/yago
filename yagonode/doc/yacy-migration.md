@@ -34,12 +34,11 @@ retained verbatim, tagged in
 preserve the source identity and document without pretending the malformed
 host is fetchable. Other malformed URLs still stop the export.
 
-YaCy may also contain valid, credential-free URLs longer than Yago's ordinary
-2,048-byte crawl identity limit. The migration can retain these as searchable
-document identities up to 16 KiB, tagged
-`yacy.migration_url_status=exceeds_yago_crawl_url_limit`; they are explicitly
-non-crawlable and never receive a recrawl schedule. Ordinary crawler URL limits
-remain unchanged. Identities above the migration bound still stop export.
+Document URL identities are limited to 2,048 bytes, matching the persisted-key
+format accepted by the previous Yago release. This keeps rollback compatible.
+YaCy rows with longer primary or canonical identities are rejected and reported
+by the exporter instead of being imported into a store that the previous
+release cannot reopen.
 
 When an indexed URL, canonical URL, source ID, or redirect contains URL
 userinfo, the adapter removes that userinfo before writing the interchange

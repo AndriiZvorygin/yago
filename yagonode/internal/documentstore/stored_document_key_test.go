@@ -42,7 +42,8 @@ func TestBboltDocumentStoreRoundTripsMigrationSizedURLIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	longURL := "https://a.example.test/" + strings.Repeat("a", 2200)
+	urlPrefix := "https://a.example.test/"
+	longURL := urlPrefix + strings.Repeat("a", maximumStoredDocumentURLIdentityBytes-len(urlPrefix))
 	shortURL := "https://b.example.test/"
 	if _, err := receiver.Receive(t.Context(), []Document{
 		{NormalizedURL: longURL, Title: "imported long identity"},

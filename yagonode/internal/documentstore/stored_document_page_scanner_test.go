@@ -657,7 +657,7 @@ func TestResumableCursorHelperBoundariesAndFilteredEntries(t *testing.T) {
 			document: Document{NormalizedURL: "https://not-the-key.example/"},
 		},
 		{
-			key:      []byte("malformed ordered key"),
+			key:      []byte("short"),
 			document: Document{NormalizedURL: "https://ignored.example/"},
 		},
 	}

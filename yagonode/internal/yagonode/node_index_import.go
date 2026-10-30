@@ -418,9 +418,6 @@ func (s *documentImportService) scheduleImport(
 	ctx context.Context,
 	record adminui.IndexImportRecord,
 ) error {
-	if record.NextVisitAt == nil {
-		return nil
-	}
 	if _, err := s.frontier.ScheduleAtIfAbsent(
 		ctx,
 		record.Document.NormalizedURL,

@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,286 @@ import (
 	"github.com/D4rk4/yago/yagocrawlcontract"
 	"github.com/D4rk4/yago/yagonode/internal/documentimport"
 )
+
+func TestFollowImportCheckpointAndOptionBoundaries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "input")
+	if err := os.WriteFile(path, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint, _ := url.Parse("https://yago.example.test/admin/index/import")
+	base := importCheckpoint{
+		FollowExportCheckpoint: "export.state", DestinationFingerprint: destinationFingerprint(endpoint),
+		Offset: 3, FollowExportOffset: 3,
+	}
+	if err := validateFollowImportCheckpoint(base, true, info, endpoint, "export.state"); err != nil {
+		t.Fatalf("valid follow checkpoint rejected: %v", err)
+	}
+	if err := validateFollowImportCheckpoint(importCheckpoint{}, false, info, endpoint, "export.state"); err != nil {
+		t.Fatalf("new follow checkpoint rejected: %v", err)
+	}
+	for _, state := range []importCheckpoint{
+		{FollowExportCheckpoint: "other", Offset: 1},
+		{FollowExportCheckpoint: "export.state", DestinationFingerprint: "other", Offset: 1},
+		{FollowExportCheckpoint: "export.state", DestinationFingerprint: destinationFingerprint(endpoint), Offset: -1},
+		{FollowExportCheckpoint: "export.state", DestinationFingerprint: destinationFingerprint(endpoint), Offset: info.Size() + 1},
+		{FollowExportCheckpoint: "export.state", DestinationFingerprint: destinationFingerprint(endpoint), Offset: 2, FollowExportOffset: 1},
+	} {
+		if err := validateFollowImportCheckpoint(state, true, info, endpoint, "export.state"); err == nil {
+			t.Errorf("invalid follow checkpoint %+v accepted", state)
+		}
+	}
+
+	valid := importOptions{
+		Input: path, Endpoint: endpoint.String(), APIKey: "key",
+		FollowExportCheckpoint: "export.state", BatchRecords: 1,
+	}
+	for _, edit := range []func(*importOptions){
+		func(o *importOptions) { o.DryRun = true },
+		func(o *importOptions) { o.BatchRecords = -1 },
+		func(o *importOptions) { o.BatchRecords = importMaximumRecords + 1 },
+		func(o *importOptions) { o.MaxRecords = -1 },
+		func(o *importOptions) { o.FollowExportCheckpoint = o.Input },
+		func(o *importOptions) { o.State = "export.state" },
+	} {
+		opts := valid
+		edit(&opts)
+		if _, err := validateImportOptions(opts); err == nil {
+			t.Errorf("invalid import options %+v accepted", opts)
+		}
+	}
+}
+
+func TestImportSessionFollowBoundariesWaitAndFileFailures(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := waitForFollowedExport(ctx); err == nil {
+		t.Fatal("cancelled followed-export wait succeeded")
+	}
+	session := &importSession{options: importOptions{FollowExportCheckpoint: "missing"}}
+	if err := session.refreshFollowedExport(); err == nil {
+		t.Fatal("missing followed export checkpoint was accepted")
+	}
+	if _, err := session.finishOrWaitForExport(ctx, io.Discard); err == nil {
+		t.Fatal("cancelled followed-export wait was ignored")
+	}
+	session.options.FollowExportCheckpoint = ""
+	if done, err := session.finishOrWaitForExport(ctx, io.Discard); err != nil || !done {
+		t.Fatalf("ordinary import completion = %t, %v", done, err)
+	}
+	for _, records := range []int{0, 1, importMaximumRecords} {
+		session.options.BatchRecords = records
+		got := session.batchLimit(0)
+		want := records
+		if want == 0 {
+			want = importMaximumRecords
+		}
+		if got != want {
+			t.Errorf("batch limit for configured=%d is %d, want %d", records, got, want)
+		}
+	}
+	session.options.BatchRecords = 20
+	if got := session.batchLimit(3); got != 3 {
+		t.Fatalf("remaining-record batch limit = %d, want 3", got)
+	}
+	closedPath := filepath.Join(t.TempDir(), "closed")
+	file, err := os.Create(closedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	session.file = file
+	if err := session.refreshImportFileInfo(); err == nil {
+		t.Fatal("closed input file was accepted")
+	}
+	if err := session.refreshFollowExportBoundary(); err == nil {
+		t.Fatal("closed input file with a follow checkpoint was accepted")
+	}
+}
+
+func TestOpenImportSessionRejectsMissingInputAndFinishedFollowFileErrors(t *testing.T) {
+	missing := importOptions{
+		Input:    filepath.Join(t.TempDir(), "missing.jsonl"),
+		Endpoint: "https://yago.example.test/admin/index/import", APIKey: "key", BatchRecords: 1,
+	}
+	if _, err := openImportSession(missing); err == nil {
+		t.Fatal("missing import input was accepted")
+	}
+	input := filepath.Join(t.TempDir(), "input.jsonl")
+	writeInterchangeFixture(t, input, nil)
+	file, err := os.Open(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	session := &importSession{
+		options: importOptions{FollowExportCheckpoint: "export.state"},
+		file:    file, statePath: statePath, followExportComplete: true,
+	}
+	if done, err := session.finishOrWaitForExport(context.Background(), errorWriter{}); !done || err == nil {
+		t.Fatalf("finished follow progress write = %t, %v", done, err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if done, err := session.finishOrWaitForExport(context.Background(), io.Discard); !done || err == nil {
+		t.Fatalf("finished follow with closed input = %t, %v", done, err)
+	}
+}
+
+func TestFollowImportCompletionBoundaryAndRecordRecrawlGuard(t *testing.T) {
+	input := filepath.Join(t.TempDir(), "input.jsonl")
+	writeInterchangeFixture(t, input, nil)
+	file, err := os.Open(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	info, _ := file.Stat()
+	statePath := filepath.Join(t.TempDir(), "import.state")
+	followPath := filepath.Join(t.TempDir(), "export.state")
+	session := &importSession{
+		options: importOptions{Input: input, State: statePath, FollowExportCheckpoint: followPath},
+		file:    file, info: info, statePath: statePath, followExportComplete: true,
+		state: importCheckpoint{Offset: 1}, followExportOffset: 2,
+	}
+	if done, err := session.finishOrWaitForExport(context.Background(), io.Discard); !done || err == nil {
+		t.Fatalf("boundary mismatch completion = %t, %v", done, err)
+	}
+	session.state.Offset = session.followExportOffset
+	session.statePath = filepath.Join(t.TempDir(), "missing", "state.json")
+	if done, err := session.finishOrWaitForExport(context.Background(), io.Discard); !done || err == nil {
+		t.Fatalf("checkpoint write failure = %t, %v", done, err)
+	}
+	session.statePath = filepath.Join(t.TempDir(), "state.json")
+	if done, err := session.finishOrWaitForExport(context.Background(), errorWriter{}); !done || err == nil {
+		t.Fatalf("summary writer failure = %t, %v", done, err)
+	}
+	record := validImportRecord()
+	future := time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC)
+	record.NextVisitAt = &future
+	record.Document.NormalizedURL = "https://bad%40host.example.test/page"
+	record.Document.Metadata = map[string]string{
+		documentimport.LegacyURLStatusMetadataKey: documentimport.LegacyURLStatusInvalidHostEscape,
+	}
+	if err := validateImportRecord(record); err == nil {
+		t.Fatal("legacy malformed URL was allowed to recrawl")
+	}
+}
+
+func TestOpenFollowImportRejectsCheckpointMismatchAndMissingExport(t *testing.T) {
+	input := filepath.Join(t.TempDir(), "input.jsonl")
+	writeInterchangeFixture(t, input, nil)
+	statePath := filepath.Join(t.TempDir(), "import.state")
+	endpoint := &url.URL{Scheme: "https", Host: "yago.example.test", Path: "/admin/index/import"}
+	if err := saveCheckpoint(statePath, importCheckpoint{
+		Version: 1, SourceID: "fixture-source",
+		FollowExportCheckpoint: "different.export.state",
+		DestinationFingerprint: destinationFingerprint(endpoint),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	opts := importOptions{
+		Input: input, Endpoint: endpoint.String(), APIKey: "key",
+		State: statePath, FollowExportCheckpoint: filepath.Join(t.TempDir(), "export.state"),
+	}
+	if _, err := openImportSession(opts); err == nil {
+		t.Fatal("checkpoint for another followed export was accepted")
+	}
+	opts.State = filepath.Join(t.TempDir(), "new-import.state")
+	if _, err := openImportSession(opts); err == nil {
+		t.Fatal("new import without the export checkpoint was accepted")
+	}
+	session := &importSession{options: opts}
+	if err := session.importDocuments(context.Background(), io.Discard); err == nil {
+		t.Fatal("import loop ignored the missing followed-export checkpoint")
+	}
+	if err := waitForFollowedExport(context.Background()); err != nil {
+		t.Fatalf("active followed-export wait: %v", err)
+	}
+}
+
+func TestFollowExportBoundaryChecksSourceOffsetsAndFileState(t *testing.T) {
+	input := filepath.Join(t.TempDir(), "input.jsonl")
+	writeInterchangeFixture(t, input, nil)
+	file, err := os.Open(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	info, _ := file.Stat()
+	checkpointPath := filepath.Join(t.TempDir(), "export.state")
+	session := &importSession{
+		options: importOptions{FollowExportCheckpoint: checkpointPath},
+		file:    file, info: info, state: importCheckpoint{SourceID: "source"},
+	}
+	if err := session.refreshFollowExportBoundary(); err == nil {
+		t.Fatal("missing export checkpoint was accepted")
+	}
+	session.options.FollowExportCheckpoint = t.TempDir()
+	if err := session.refreshFollowExportBoundary(); err == nil {
+		t.Fatal("unreadable export checkpoint was accepted")
+	}
+	session.options.FollowExportCheckpoint = checkpointPath
+	for _, state := range []exportCheckpoint{
+		{Version: 1, SourceID: "other", SourceFingerprint: "fingerprint", Cursor: "*"},
+		{Version: 1, SourceID: "source", SourceFingerprint: "changed", Cursor: "*"},
+		{Version: 1, SourceID: "source", SourceFingerprint: "fingerprint", Cursor: "*", Offset: -1},
+		{Version: 1, SourceID: "source", SourceFingerprint: "fingerprint", Cursor: "*", Offset: info.Size() + 1},
+	} {
+		if err := saveCheckpoint(checkpointPath, state); err != nil {
+			t.Fatal(err)
+		}
+		session.state.FollowSourceFingerprint = "fingerprint"
+		session.state.FollowExportOffset = 0
+		session.state.Offset = 0
+		if err := session.refreshFollowExportBoundary(); err == nil {
+			t.Errorf("invalid export checkpoint %+v accepted", state)
+		}
+	}
+	valid := exportCheckpoint{
+		Version: 1, SourceID: "source", SourceFingerprint: "fingerprint", Cursor: "*", Offset: info.Size(),
+	}
+	if err := saveCheckpoint(checkpointPath, valid); err != nil {
+		t.Fatal(err)
+	}
+	session.state.FollowSourceFingerprint = ""
+	if err := session.refreshFollowExportBoundary(); err != nil {
+		t.Fatalf("valid export checkpoint rejected: %v", err)
+	}
+	if session.followExportOffset != info.Size() || session.state.FollowSourceFingerprint != "fingerprint" {
+		t.Fatalf("follow state was not advanced: %+v", session)
+	}
+	closed, err := os.Open(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	session.file = closed
+	if err := session.refreshFollowExportBoundary(); err == nil {
+		t.Fatal("closed interchange file was accepted")
+	}
+}
+
+func TestImportBatchRejectsRecordThatCannotBeEncoded(t *testing.T) {
+	record := validImportRecord()
+	outOfRange := time.Date(10000, time.January, 1, 0, 0, 0, 0, time.UTC)
+	record.NextVisitAt = &outOfRange
+	session := new(importSession)
+	_, _, err := session.nextBatchUsing(func() (*pendingRecord, bool, error) {
+		return &pendingRecord{value: record, end: 10}, false, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "size import record") {
+		t.Fatalf("unencodable record error = %v", err)
+	}
+}
 
 func TestValidateImportOptionsAndCheckpoint(t *testing.T) {
 	infoPath := filepath.Join(t.TempDir(), "input.jsonl")

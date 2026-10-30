@@ -108,7 +108,7 @@ func buildOpsMux(
 	if importer, ok := assembled.crawl.(adminui.IndexImporter); ok {
 		options.IndexImport = importer
 	}
-	if importer, ok := assembled.crawl.(adminui.CrawlOrderImporter); ok {
+	if importer := crawlOrderImporter(assembled.crawl); importer != nil {
 		options.CrawlOrderImport = importer
 	}
 	options.RWIBackfill = newNodeRWIBackfillAdmin(assembled.rwiBackfill)

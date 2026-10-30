@@ -111,17 +111,12 @@ type (
 	CrawlOrderImportBatch = yagocrawlcontract.CrawlOrderImportBatch
 )
 
-// CrawlOrderImportResult reports what happened to one bounded frontier batch.
-// It deliberately contains counts only; source URLs must not enter logs or
-// routine API responses.
 type CrawlOrderImportResult struct {
 	EnqueuedRequests int  `json:"enqueuedRequests"`
 	AlreadyIndexed   int  `json:"alreadyIndexed"`
 	DuplicateBatch   bool `json:"duplicateBatch,omitempty"`
 }
 
-// CrawlOrderImporter persists imported requests on the node's ordinary durable
-// crawl-order queue. It does not start crawler workers.
 type CrawlOrderImporter interface {
 	ImportCrawlOrder(context.Context, CrawlOrderImportBatch) (CrawlOrderImportResult, error)
 }

@@ -230,7 +230,7 @@ func assembleNode(
 		return node{}, err
 	}
 	peerWire.queues.bindCrawl(surfaces.crawl)
-	backfill, err := openNodeRWIBackfill(vault, storage)
+	backfill, err := openRuntimeNodeRWIBackfill(vault, storage)
 	if err != nil {
 		return node{}, err
 	}

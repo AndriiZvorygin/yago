@@ -1,6 +1,7 @@
 package yagomodel_test
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ func TestBuildRWIPageArtifactsPreservesSourceDatesAndPositions(t *testing.T) {
 	loadedAt := time.Date(2024, 3, 4, 5, 6, 7, 0, time.UTC)
 	modifiedAt := time.Date(2023, 2, 1, 0, 0, 0, 0, time.UTC)
 	freshUntil := time.Date(2024, 4, 5, 0, 0, 0, 0, time.UTC)
-	artifacts, err := yagomodel.BuildRWIPageArtifacts(yagomodel.RWIPage{
+	artifacts := yagomodel.BuildRWIPageArtifacts(yagomodel.RWIPage{
 		URL:               "https://example.test/path",
 		Title:             "Example, title",
 		Language:          "fr-CA",
@@ -28,9 +29,6 @@ func TestBuildRWIPageArtifactsPreservesSourceDatesAndPositions(t *testing.T) {
 		ModifiedAt: modifiedAt,
 		FreshUntil: freshUntil,
 	}, 8)
-	if err != nil {
-		t.Fatalf("BuildRWIPageArtifacts: %v", err)
-	}
 	if len(artifacts.Postings) != 2 {
 		t.Fatalf("posting rows = %d, want 2", len(artifacts.Postings))
 	}
@@ -70,7 +68,7 @@ func TestBuildRWIPageArtifactsPreservesSourceDatesAndPositions(t *testing.T) {
 }
 
 func TestBuildRWIPageArtifactsClampsNegativeCardinalsToZero(t *testing.T) {
-	artifacts, err := yagomodel.BuildRWIPageArtifacts(yagomodel.RWIPage{
+	artifacts := yagomodel.BuildRWIPageArtifacts(yagomodel.RWIPage{
 		URL:               "https://example.test/negative",
 		WordCount:         -1,
 		LocalLinkCount:    -1,
@@ -79,9 +77,6 @@ func TestBuildRWIPageArtifactsClampsNegativeCardinalsToZero(t *testing.T) {
 			{Word: "negative", Frequency: -1, FirstPosition: -1},
 		},
 	}, 1)
-	if err != nil {
-		t.Fatalf("BuildRWIPageArtifacts: %v", err)
-	}
 	posting := artifacts.Postings[0]
 	for key, want := range map[string]string{
 		yagomodel.ColTextWordCount:     yagomodel.FormatRWICardinal(0),
@@ -96,14 +91,31 @@ func TestBuildRWIPageArtifactsClampsNegativeCardinalsToZero(t *testing.T) {
 	}
 }
 
-func TestBuildRWIPageArtifactsRejectsInvalidLimitAndURL(t *testing.T) {
-	page := yagomodel.RWIPage{URL: "https://example.test/"}
-	if _, err := yagomodel.BuildRWIPageArtifacts(page, 0); err == nil {
-		t.Fatal("zero posting limit was accepted")
+func TestBuildRWIPageArtifactsPreservesLegacyURLAndZeroDateBehavior(t *testing.T) {
+	artifacts := yagomodel.BuildRWIPageArtifacts(yagomodel.RWIPage{
+		URL:   "relative/path",
+		Words: []yagomodel.RWIWord{{Word: "legacy", Frequency: 1}},
+	}, 1)
+	if len(artifacts.Postings) != 1 {
+		t.Fatalf("postings = %d, want 1", len(artifacts.Postings))
 	}
-	page.URL = "not a URL"
-	if _, err := yagomodel.BuildRWIPageArtifacts(page, 1); err == nil {
-		t.Fatal("invalid URL was accepted")
+	metadata := artifacts.Metadata.Properties
+	for _, key := range []string{"mod", "load", "fresh"} {
+		if metadata[key] != "00010101" {
+			t.Errorf("metadata %s = %q, want 00010101", key, metadata[key])
+		}
+	}
+}
+
+func TestBuildRWIPageArtifactsTreatsNonpositivePostingLimitAsEmpty(t *testing.T) {
+	page := yagomodel.RWIPage{
+		URL:   "https://example.test/",
+		Words: []yagomodel.RWIWord{{Word: "sample", Frequency: 1}},
+	}
+	for _, maximum := range []int{0, -1} {
+		if artifacts := yagomodel.BuildRWIPageArtifacts(page, maximum); len(artifacts.Postings) != 0 {
+			t.Errorf("maximum %d produced %d postings", maximum, len(artifacts.Postings))
+		}
 	}
 }
 
@@ -128,6 +140,25 @@ func TestTokenizeRWITextUsesYaCyWordBoundaries(t *testing.T) {
 			if got[index] != test.want[index] {
 				t.Fatalf("TokenizeRWIText(%q) = %q, want %q", test.text, got, test.want)
 			}
+		}
+	}
+}
+
+func TestTokenizeRWITextStopsAtTheRequestedWordBoundary(t *testing.T) {
+	for _, test := range []struct {
+		text    string
+		maximum int
+		want    []string
+	}{
+		{text: "alpha beta", maximum: 1, want: []string{"alpha"}},
+		{text: "alpha.beta", maximum: 1, want: []string{"alpha"}},
+		{text: "1,2.", maximum: 1, want: []string{"1,2."}},
+		{text: "1,2!", maximum: 0, want: []string{"1,2!"}},
+		{text: "12a", maximum: 1, want: []string{"12"}},
+		{text: "1,2a", maximum: 0, want: []string{"1,2"}},
+	} {
+		if got := yagomodel.TokenizeRWIText(test.text, test.maximum); !reflect.DeepEqual(got, test.want) {
+			t.Errorf("TokenizeRWIText(%q, %d) = %q, want %q", test.text, test.maximum, got, test.want)
 		}
 	}
 }

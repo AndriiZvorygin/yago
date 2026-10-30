@@ -1,8 +1,6 @@
 package yagomodel
 
 import (
-	"fmt"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -34,19 +32,12 @@ type RWIPageArtifacts struct {
 	Metadata URIMetadataRow
 }
 
-func BuildRWIPageArtifacts(page RWIPage, maximumPostings int) (RWIPageArtifacts, error) {
-	if maximumPostings < 1 {
-		return RWIPageArtifacts{}, fmt.Errorf("maximum postings must be positive")
-	}
-	parsedURL, err := url.Parse(page.URL)
-	if err != nil || parsedURL.Scheme == "" ||
-		(parsedURL.Host == "" && parsedURL.Scheme != "file") {
-		return RWIPageArtifacts{}, fmt.Errorf("page URL is not absolute")
-	}
-	urlHash, err := HashURL(page.URL)
-	if err != nil {
-		return RWIPageArtifacts{}, fmt.Errorf("hash page URL: %w", err)
-	}
+func BuildRWIPageArtifacts(page RWIPage, maximumPostings int) RWIPageArtifacts {
+	return buildRWIPageArtifacts(page, max(0, maximumPostings))
+}
+
+func buildRWIPageArtifacts(page RWIPage, maximumPostings int) RWIPageArtifacts {
+	urlHash, _ := HashURL(page.URL)
 	language := normalizeRWILanguage(page.Language)
 	shared := map[string]string{
 		ColURLHash:           urlHash.String(),
@@ -71,9 +62,6 @@ func BuildRWIPageArtifacts(page RWIPage, maximumPostings int) (RWIPageArtifacts,
 		})
 	}
 	day := func(value time.Time) string {
-		if value.IsZero() {
-			return ""
-		}
 		return value.UTC().Format("20060102")
 	}
 	metadata := URIMetadataRow{Properties: map[string]string{
@@ -90,10 +78,7 @@ func BuildRWIPageArtifacts(page RWIPage, maximumPostings int) (RWIPageArtifacts,
 		"llocal":    strconv.Itoa(max(page.LocalLinkCount, 0)),
 		"lother":    strconv.Itoa(max(page.ExternalLinkCount, 0)),
 	}}
-	if _, err := ParseURIMetadataRow(metadata.String()); err != nil {
-		return RWIPageArtifacts{}, fmt.Errorf("validate generated URL metadata: %w", err)
-	}
-	return RWIPageArtifacts{Postings: postings, Metadata: metadata}, nil
+	return RWIPageArtifacts{Postings: postings, Metadata: metadata}
 }
 
 func normalizeRWILanguage(language string) string {

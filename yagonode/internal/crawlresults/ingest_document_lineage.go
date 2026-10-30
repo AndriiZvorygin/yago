@@ -39,9 +39,6 @@ func (c *IngestConsumer) reserveIngestDocumentLineages(
 		return nil, nil
 	}
 	if len(deliveries) > 0 && allImportOnly(deliveries) {
-		// Imported URL identities may be valid archival keys that are intentionally
-		// not crawlable under the ordinary URL limit. They do not publish outbound
-		// crawl lineage, so don't send them through the crawler's anchor reservation.
 		return nil, nil
 	}
 	urls := make([]string, 0, len(deliveries)*3)

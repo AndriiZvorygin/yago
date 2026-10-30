@@ -1,7 +1,6 @@
 package pageindex
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/D4rk4/yago/yago-crawler/internal/pageparse"
@@ -14,7 +13,7 @@ func BuildRWIPageArtifacts(
 	page pageparse.ParsedPage,
 	stats pageparse.PageStats,
 	loadedAt time.Time,
-) (yagomodel.RWIPageArtifacts, error) {
+) yagomodel.RWIPageArtifacts {
 	frequency := make(map[string]int)
 	firstPosition := make(map[string]int)
 	order := make([]string, 0)
@@ -41,7 +40,7 @@ func BuildRWIPageArtifacts(
 			FirstPosition: firstPosition[word],
 		})
 	}
-	artifacts, err := yagomodel.BuildRWIPageArtifacts(yagomodel.RWIPage{
+	return yagomodel.BuildRWIPageArtifacts(yagomodel.RWIPage{
 		URL:               page.URL,
 		Title:             page.Title,
 		Language:          NormalizeLanguage(page.Language),
@@ -55,17 +54,10 @@ func BuildRWIPageArtifacts(
 		ModifiedAt:        loadedAt,
 		FreshUntil:        loadedAt,
 	}, yagocrawlcontract.MaximumIngestPostings)
-	if err != nil {
-		return yagomodel.RWIPageArtifacts{}, fmt.Errorf("build shared rwi artifacts: %w", err)
-	}
-	return artifacts, nil
 }
 
 func BuildPostings(page pageparse.ParsedPage, stats pageparse.PageStats) []yagomodel.RWIPosting {
-	artifacts, err := BuildRWIPageArtifacts(page, stats, time.Time{})
-	if err != nil {
-		return nil
-	}
+	artifacts := BuildRWIPageArtifacts(page, stats, time.Time{})
 	return artifacts.Postings
 }
 
@@ -74,9 +66,6 @@ func BuildMetadata(
 	stats pageparse.PageStats,
 	loadedAt time.Time,
 ) yagomodel.URIMetadataRow {
-	artifacts, err := BuildRWIPageArtifacts(page, stats, loadedAt)
-	if err != nil {
-		return yagomodel.URIMetadataRow{}
-	}
+	artifacts := BuildRWIPageArtifacts(page, stats, loadedAt)
 	return artifacts.Metadata
 }

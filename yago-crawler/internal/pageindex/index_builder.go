@@ -44,10 +44,7 @@ func (b *contentIndexBuilder) Build(
 	}
 	indexedAt := b.clock()
 	page.Language = resolveContentLanguage(page.Text, page.Language)
-	indexArtifacts, err := BuildRWIPageArtifacts(page, stats, indexedAt)
-	if err != nil {
-		return Artifacts{}, fmt.Errorf("build rwi artifacts: %w", err)
-	}
+	indexArtifacts := BuildRWIPageArtifacts(page, stats, indexedAt)
 	document := BuildDocument(page, stats, indexArtifacts.Metadata, indexedAt)
 	return Artifacts{
 		Postings: indexArtifacts.Postings,

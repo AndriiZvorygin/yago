@@ -34,8 +34,6 @@ func (r *IngestReceiver) Outstanding() int {
 	return int(r.outstanding.Load())
 }
 
-// MaximumConcurrentImports allows migration callers to fill the ingest
-// consumer's bounded micro-batch without exceeding its batch width.
 func (r *IngestReceiver) MaximumConcurrentImports() int {
 	return yagocrawlcontract.MaximumIngestBatchRecords
 }

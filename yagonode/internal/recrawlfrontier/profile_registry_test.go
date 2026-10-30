@@ -255,6 +255,93 @@ func TestScheduleRecrawlsAtIfAbsentRejectsInvalidBatchWithoutPartialWrites(t *te
 	}
 }
 
+func TestScheduleRecrawlsAtIfAbsentRejectsInvalidProfileTimeAndClosedStore(t *testing.T) {
+	f := openTestFrontier(t)
+	ctx := context.Background()
+	if err := f.ScheduleRecrawlsAtIfAbsent(ctx, "p", nil, time.Hour); err != nil {
+		t.Fatalf("empty batch: %v", err)
+	}
+	valid := []RecrawlSchedule{{URL: "https://valid.example/page", DueAt: testBase.Add(time.Hour)}}
+	for _, fixture := range []struct {
+		profile   string
+		schedules []RecrawlSchedule
+		interval  time.Duration
+	}{
+		{"", valid, time.Hour},
+		{"p", valid, 0},
+		{"p", valid, -time.Second},
+		{"p", []RecrawlSchedule{{URL: "", DueAt: testBase}}, time.Hour},
+		{"p", []RecrawlSchedule{{URL: "https://valid.example/page"}}, time.Hour},
+	} {
+		if err := f.ScheduleRecrawlsAtIfAbsent(
+			ctx, fixture.profile, fixture.schedules, fixture.interval,
+		); err == nil {
+			t.Errorf("invalid batch profile=%q schedules=%+v interval=%s was accepted",
+				fixture.profile, fixture.schedules, fixture.interval)
+		}
+	}
+	if err := f.ScheduleRecrawlsAtIfAbsent(ctx, "unknown", valid, time.Hour); err == nil {
+		t.Fatal("unknown profile was accepted")
+	}
+	if err := f.vault.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.ScheduleRecrawlsAtIfAbsent(ctx, "p", valid, time.Hour); err == nil {
+		t.Fatal("closed store was accepted")
+	}
+}
+
+func TestScheduleRecrawlsAtIfAbsentSurfacesReadAndWriteFailures(t *testing.T) {
+	url := "https://schedule-batch.example/imported"
+	profile := profileWithRecrawl("migration batch error", 0)
+	tests := []struct {
+		name  string
+		setup func(*testing.T, *Frontier, *ctrlEngine)
+	}{
+		{
+			name: "profile read",
+			setup: func(_ *testing.T, _ *Frontier, engine *ctrlEngine) {
+				engine.seed(profileBucket, profile.Handle, []byte("{"))
+			},
+		},
+		{
+			name: "record read",
+			setup: func(t *testing.T, frontier *Frontier, engine *ctrlEngine) {
+				recordImportedScheduleProfile(t, frontier, profile)
+				engine.seed(recordBucket, hashKey(t, url), []byte("{"))
+			},
+		},
+		{
+			name: "record write",
+			setup: func(t *testing.T, frontier *Frontier, engine *ctrlEngine) {
+				recordImportedScheduleProfile(t, frontier, profile)
+				engine.failPut[recordBucket] = true
+			},
+		},
+		{
+			name: "due write",
+			setup: func(t *testing.T, frontier *Frontier, engine *ctrlEngine) {
+				recordImportedScheduleProfile(t, frontier, profile)
+				engine.failPut[dueBucket] = true
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			frontier, engine := openCtrlFrontier(t)
+			test.setup(t, frontier, engine)
+			err := frontier.ScheduleRecrawlsAtIfAbsent(
+				context.Background(), profile.Handle,
+				[]RecrawlSchedule{{URL: url, DueAt: testBase.Add(time.Hour)}},
+				time.Hour,
+			)
+			if err == nil {
+				t.Fatal("recrawl batch storage failure was ignored")
+			}
+		})
+	}
+}
+
 func importedScheduleRecord(t *testing.T, f *Frontier, url string) scheduleRecord {
 	t.Helper()
 	record, found := importedScheduleRecordFound(t, f, url)

@@ -106,6 +106,40 @@ func TestCrawlOrderImportRejectsMalformedOrTamperedPayload(t *testing.T) {
 	}
 }
 
+func TestCrawlOrderImportHandlesUnavailableImporterServiceFailureAndBodyLimits(t *testing.T) {
+	batch := validCrawlOrderImportBatch(t)
+	body, err := json.Marshal(batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response := performCrawlOrderImportBody(t, New(Options{}), string(body))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("unconfigured importer status = %d", response.Code)
+	}
+
+	importer := &crawlOrderImporterFixture{err: errors.New("fixture secret failure")}
+	console := New(Options{CrawlOrderImport: importer})
+	response = performCrawlOrderImportBody(t, console, string(body))
+	if response.Code != http.StatusServiceUnavailable ||
+		strings.Contains(response.Body.String(), "fixture secret failure") {
+		t.Fatalf("failed import response = %d %s", response.Code, response.Body.String())
+	}
+	if importer.calls != 1 {
+		t.Fatalf("importer calls = %d, want 1", importer.calls)
+	}
+
+	response = performCrawlOrderImportBody(t, console, string(body)+string(body))
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("multiple JSON values status = %d", response.Code)
+	}
+	oversized := strings.Repeat("x", yagocrawlcontract.MaximumCrawlOrderImportBatchBytes+1)
+	response = performCrawlOrderImportBody(t, console, oversized)
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized body status = %d", response.Code)
+	}
+}
+
 type failedFrontierBody struct{}
 
 func (failedFrontierBody) Read([]byte) (int, error) { return 0, errors.New("fixture read failure") }

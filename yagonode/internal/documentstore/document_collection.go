@@ -4,13 +4,11 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/D4rk4/yago/yagomodel"
 	"github.com/D4rk4/yago/yagonode/internal/vault"
 )
 
-// Imported YaCy identities may exceed the ordinary crawl-contract URL ceiling.
-// Keep a bounded storage allowance for those opaque, non-fetchable records;
-// ordinary crawl requests remain limited by the crawl contract.
-const maximumStoredDocumentURLIdentityBytes = 16 << 10
+const maximumStoredDocumentURLIdentityBytes = yagomodel.MaximumURLIdentityBytes
 
 const (
 	bucketName                   vault.Name = "documents"

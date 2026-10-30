@@ -10,7 +10,9 @@ import (
 	"github.com/D4rk4/yago/yagonode/internal/contentcluster"
 	"github.com/D4rk4/yago/yagonode/internal/documentstore"
 	"github.com/D4rk4/yago/yagonode/internal/memvault"
+	"github.com/D4rk4/yago/yagonode/internal/rwi"
 	"github.com/D4rk4/yago/yagonode/internal/searchindex"
+	"github.com/D4rk4/yago/yagonode/internal/urlmeta"
 )
 
 type contentClusterScript struct {
@@ -313,6 +315,90 @@ func TestImportedDocumentsPreserveContentHashAndSkipDerivedClustering(t *testing
 	}
 	if _, err := consumer.prepareIngestDocumentClusters(t.Context(), nil, nil); err != nil {
 		t.Fatalf("prepare empty ingest cluster set: %v", err)
+	}
+}
+
+func TestAbsorbGroupSeparatesImportOnlyFromCrawlClustering(t *testing.T) {
+	storage, err := memvault.Open(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+	directory, documents, err := documentstore.Open(storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	urlDirectory, _, urls, err := urlmeta.Open(storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, postings, _, err := rwi.Open(storage, urlDirectory, rwi.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clusters := &contentClusterScript{
+		assignment: contentcluster.Assignment{
+			ClusterID:         "derived-cluster",
+			RepresentativeURL: "https://ordinary.example/one",
+		},
+		cluster: contentcluster.Cluster{
+			ID:                "derived-cluster",
+			RepresentativeURL: "https://ordinary.example/one",
+		},
+		clusterFound: true,
+	}
+	stream := stubStream{out: make(chan IngestDelivery, 4)}
+	acked := 0
+	for _, delivery := range []struct {
+		url        string
+		importOnly bool
+	}{
+		{url: "https://ordinary.example/one"},
+		{url: "https://import.example/one", importOnly: true},
+		{url: "https://ordinary.example/two"},
+		{url: "https://import.example/two", importOnly: true},
+	} {
+		stream.out <- IngestDelivery{
+			ImportOnly: delivery.importOnly,
+			Batch: yagocrawlcontract.IngestBatch{
+				SourceURL: delivery.url,
+				Document: yagocrawlcontract.DocumentIngest{
+					NormalizedURL: delivery.url,
+					ExtractedText: "a document with enough text to index",
+				},
+			},
+			Ack: func(context.Context) error {
+				acked++
+				return nil
+			},
+		}
+	}
+	close(stream.out)
+	consumer := NewIngestConsumerWithIndex(stream, documents, nil, urls, postings)
+	consumer.TrackContentClusters(clusters)
+	consumer.Run(t.Context())
+
+	if len(clusters.evidence) != 2 {
+		t.Fatalf("cluster evidence count = %d, want 2 ordinary crawl pages", len(clusters.evidence))
+	}
+	if acked != 4 {
+		t.Fatalf("acknowledged deliveries = %d, want 4", acked)
+	}
+	for _, check := range []struct {
+		url       string
+		clusterID string
+	}{
+		{url: "https://ordinary.example/one", clusterID: "derived-cluster"},
+		{url: "https://ordinary.example/two", clusterID: "derived-cluster"},
+		{url: "https://import.example/one"},
+		{url: "https://import.example/two"},
+	} {
+		doc, found, err := directory.Document(t.Context(), check.url)
+		if err != nil || !found || doc.ClusterID != check.clusterID {
+			t.Fatalf("stored document %s = %+v, found=%t, err=%v; cluster=%q",
+				check.url, doc, found, err, check.clusterID)
+		}
 	}
 }
 

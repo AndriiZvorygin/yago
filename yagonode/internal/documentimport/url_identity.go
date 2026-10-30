@@ -16,13 +16,9 @@ const (
 	LegacyURLStatusInvalidHostEscape     = "invalid_percent_escape_in_host"
 	LegacyURLStatusInvalidEscape         = "invalid_percent_escape_in_url"
 	LegacyURLStatusInvalidAuthority      = "invalid_source_authority"
-	LegacyURLStatusExceedsCrawlLimit     = "exceeds_yago_crawl_url_limit"
 	LegacyURLStatusControlCharacter      = "control_character_in_source_url"
 )
 
-// ValidateURLIdentity accepts ordinary crawlable URLs plus marked malformed
-// YaCy host identities. A legacy form is preserved opaquely and must
-// never be scheduled for recrawl.
 func ValidateURLIdentity(rawURL, legacyStatus string) error {
 	if len(rawURL) == 0 || len(rawURL) > MaximumMigrationURLBytes {
 		return errors.New("URL identity is empty or exceeds the supported limit")
@@ -39,24 +35,13 @@ func ValidateURLIdentity(rawURL, legacyStatus string) error {
 	return errors.New("URL identity is not supported for document import")
 }
 
-// IsPreservableLegacyURL identifies malformed YaCy host identities that are
-// safe to retain as opaque, non-fetchable document keys. It does not
-// normalize or rewrite the source URL.
 func IsPreservableLegacyURL(rawURL string) bool {
 	return PreservableLegacyURLStatus(rawURL) != ""
 }
 
-// PreservableLegacyURLStatus returns a stable marker for an opaque legacy
-// identity, or empty when the URL must be rejected. Malformed escapes and host
-// characters are retained only for supported schemes without credentials,
-// controls, or ambiguous authorities. Invalid hosts containing fragments or
-// backslashes remain opaque and are never fetched.
 func PreservableLegacyURLStatus(rawURL string) string {
 	if strings.IndexFunc(rawURL, unicode.IsControl) >= 0 {
 		return controlCharacterIdentityStatus(rawURL)
-	}
-	if len(rawURL) > yagocrawlcontract.MaximumCrawlURLBytes {
-		return overlongURLIdentityStatus(rawURL)
 	}
 	if status := malformedQueryPercentEscapeStatus(rawURL); status != "" {
 		return status
@@ -65,12 +50,8 @@ func PreservableLegacyURLStatus(rawURL string) string {
 	if !ok {
 		return ""
 	}
-	var urlErr *url.Error
-	if !errors.As(parseErr, &urlErr) {
-		return ""
-	}
 	var escapeErr url.EscapeError
-	if errors.As(urlErr.Err, &escapeErr) {
+	if errors.As(parseErr.Err, &escapeErr) {
 		if strings.ContainsAny(rawURL, "#\\") {
 			return ""
 		}
@@ -80,23 +61,10 @@ func PreservableLegacyURLStatus(rawURL string) string {
 		if status := invalidHostPercentEscapeStatus(rawURL, authority); status != "" {
 			return status
 		}
-		if status := malformedPercentEscapeURLStatus(rawURL, authority); status != "" {
-			return status
-		}
-		return malformedLegacyEscapeStatus(rawURL, authority)
+		return malformedPercentEscapeURLStatus(rawURL, authority)
 	}
 	var invalidHostErr url.InvalidHostError
-	if errors.As(urlErr.Err, &invalidHostErr) {
-		if strings.IndexFunc(authority, unicode.IsControl) >= 0 ||
-			strings.Contains(authority, "@") {
-			return ""
-		}
-		// Some historical YaCy exports marked percent-encoded '@' host
-		// identities as invalid host escapes. Keep that identity opaque for
-		// migration; the importer prevents opaque identities from recrawling.
-		if strings.Contains(strings.ToLower(authority), "%40") {
-			return LegacyURLStatusInvalidHostEscape
-		}
+	if errors.As(parseErr.Err, &invalidHostErr) {
 		return LegacyURLStatusInvalidHostCharacter
 	}
 	return preservableInvalidAuthorityStatus(rawURL, authority)
@@ -127,21 +95,6 @@ func controlCharacterIdentityStatus(rawURL string) string {
 	return LegacyURLStatusControlCharacter
 }
 
-func overlongURLIdentityStatus(rawURL string) string {
-	if len(rawURL) > MaximumMigrationURLBytes ||
-		strings.IndexFunc(rawURL, unicode.IsControl) >= 0 ||
-		strings.ContainsAny(rawURL, "#\\") || hasMalformedPercentEscape(rawURL) {
-		return ""
-	}
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Host == "" || parsed.User != nil ||
-		!isSupportedImportScheme(parsed.Scheme) ||
-		strings.Contains(strings.ToLower(parsed.Host), "%40") {
-		return ""
-	}
-	return LegacyURLStatusExceedsCrawlLimit
-}
-
 func preservableInvalidAuthorityStatus(rawURL, authority string) string {
 	if authority == "" || strings.Contains(authority, "@") ||
 		strings.Contains(strings.ToLower(authority), "%40") ||
@@ -154,20 +107,6 @@ func preservableInvalidAuthorityStatus(rawURL, authority string) string {
 		return ""
 	}
 	return LegacyURLStatusInvalidAuthority
-}
-
-func malformedLegacyEscapeStatus(rawURL, authority string) string {
-	if authority == "" || strings.Contains(authority, "@") ||
-		strings.Contains(strings.ToLower(authority), "%40") ||
-		strings.IndexFunc(rawURL, unicode.IsControl) >= 0 ||
-		strings.ContainsAny(rawURL, "#\\") || !hasMalformedPercentEscape(rawURL) {
-		return ""
-	}
-	separator := strings.Index(rawURL, "://")
-	if separator < 0 || !isSupportedImportScheme(rawURL[:separator]) {
-		return ""
-	}
-	return LegacyURLStatusInvalidEscape
 }
 
 func malformedQueryPercentEscapeStatus(rawURL string) string {
@@ -216,8 +155,6 @@ func invalidHostPercentEscapeStatus(rawURL, authority string) string {
 	if !isSupportedImportScheme(scheme) {
 		return ""
 	}
-	// url.Parse has already rejected this percent-bearing authority. Keep the
-	// original as an opaque identity; the importer will never schedule it.
 	return LegacyURLStatusInvalidHostEscape
 }
 
@@ -239,7 +176,7 @@ func isHexByte(value byte) bool {
 		(value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F')
 }
 
-func legacyAuthorityError(rawURL string) (string, error, bool) {
+func legacyAuthorityError(rawURL string) (string, *url.Error, bool) {
 	if len(rawURL) == 0 || len(rawURL) > yagocrawlcontract.MaximumCrawlURLBytes ||
 		strings.ContainsAny(rawURL, "\r\n\t") {
 		return "", nil, false
@@ -263,11 +200,7 @@ func legacyAuthorityError(rawURL string) (string, error, bool) {
 	if parseErr == nil {
 		return "", nil, false
 	}
-	var urlErr *url.Error
-	if !errors.As(parseErr, &urlErr) {
-		return "", nil, false
-	}
-	return authority, urlErr, true
+	return authority, &url.Error{Err: parseErr}, true
 }
 
 func encodedHostWhitespaceStatus(authority string, escapeErr url.EscapeError) string {
@@ -279,19 +212,14 @@ func encodedHostWhitespaceStatus(authority string, escapeErr url.EscapeError) st
 	if strings.Contains(decodedAuthority, "%") {
 		return ""
 	}
-	hasWhitespace := false
 	for _, r := range decodedAuthority {
 		if unicode.IsSpace(r) {
-			hasWhitespace = true
 			continue
 		}
 		if (r < 'a' || r > 'z') && (r < '0' || r > '9') &&
 			r != '.' && r != '-' {
 			return ""
 		}
-	}
-	if !hasWhitespace {
-		return ""
 	}
 	return LegacyURLStatusEncodedHostWhitespace
 }

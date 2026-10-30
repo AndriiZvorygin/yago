@@ -8,24 +8,18 @@ import (
 )
 
 type CrawlRequest struct {
-	URL           string
-	Mode          CrawlRequestMode
-	ReferrerURL   string
-	AnchorName    string
-	Depth         int
-	ProfileHandle string
-	Initiator     yagomodel.Hash
-	AppDate       time.Time
-	LastModified  time.Time
-	// SourceMetadata preserves adapter-specific crawl-state fields that Yago
-	// does not interpret. It is carried with the durable order for audit and
-	// future migrations; ordinary crawl behavior ignores it.
+	URL            string
+	Mode           CrawlRequestMode
+	ReferrerURL    string
+	AnchorName     string
+	Depth          int
+	ProfileHandle  string
+	Initiator      yagomodel.Hash
+	AppDate        time.Time
+	LastModified   time.Time
 	SourceMetadata *CrawlSourceMetadata `json:",omitempty"`
 }
 
-// ParseCrawlInitiator validates the raw hash representation used by a crawl
-// request. It lets protocol adapters use the crawl contract without importing
-// the model package directly.
 func ParseCrawlInitiator(raw []byte) (yagomodel.Hash, error) {
 	initiator, err := yagomodel.ParseHash(string(raw))
 	if err != nil {

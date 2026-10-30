@@ -72,8 +72,6 @@ func mapSolrDocument(
 	}
 	nextVisitAt := solrTimePointer(source["fresh_date_dt"])
 	if !isHTTPURL(urls.normalized) || urls.credentialsRedacted || urls.legacyURLStatus != "" {
-		// Yago's recrawl worker is an HTTP(S) client. Preserve YaCy's source
-		// freshness in metadata, but do not enqueue non-HTTP or invalid identities.
 		nextVisitAt = nil
 	}
 	id := solrString(source["id"])
@@ -103,12 +101,8 @@ func addSolrPreservationMetadata(
 	if err := addFullTitleMetadata(metadata, content.fullTitle); err != nil {
 		return err
 	}
-	if err := addFullHeadingMetadata(metadata, content.fullHeadings); err != nil {
-		return err
-	}
-	if err := addLinkTruncationMetadata(metadata, links); err != nil {
-		return err
-	}
+	addFullHeadingMetadata(metadata, content.fullHeadings)
+	addLinkTruncationMetadata(metadata, links)
 	return validateMigrationMetadata(metadata)
 }
 
@@ -124,25 +118,21 @@ func addFullTitleMetadata(metadata map[string]string, title string) error {
 	return nil
 }
 
-func addFullHeadingMetadata(metadata map[string]string, headings []solrFullHeading) error {
+func addFullHeadingMetadata(metadata map[string]string, headings []solrFullHeading) {
 	if len(headings) == 0 {
-		return nil
+		return
 	}
-	encoded, err := json.Marshal(headings)
-	if err != nil {
-		return errors.New("YaCy headings could not be encoded for migration metadata")
-	}
+	encoded, _ := json.Marshal(headings)
 	metadata["yacy.headings_full"] = string(encoded)
 	metadata["yacy.migration_headings_truncated"] = "true"
-	return nil
 }
 
-func addLinkTruncationMetadata(metadata map[string]string, links solrDocumentLinks) error {
+func addLinkTruncationMetadata(metadata map[string]string, links solrDocumentLinks) {
 	if links.outboundAvailable <= len(links.outbound) &&
 		links.inboundAvailable <= len(links.inbound) {
-		return nil
+		return
 	}
-	truncation, err := json.Marshal(migrationLinkTruncation{
+	truncation, _ := json.Marshal(migrationLinkTruncation{
 		Outbound: migrationLinkCount{
 			Available: links.outboundAvailable,
 			Stored:    len(links.outbound),
@@ -152,11 +142,7 @@ func addLinkTruncationMetadata(metadata map[string]string, links solrDocumentLin
 			Stored:    len(links.inbound),
 		},
 	})
-	if err != nil {
-		return errors.New("encode YaCy link truncation metadata")
-	}
 	metadata[migrationLinkTruncationMetadataKey] = string(truncation)
-	return nil
 }
 
 func isHTTPURL(raw string) bool {
@@ -202,9 +188,7 @@ func mapSolrURLs(source map[string]json.RawMessage) (solrDocumentURLs, error) {
 		legacyURLStatus = canonicalStatus
 	}
 	credentialsRedacted = credentialsRedacted || canonicalRedacted
-	if len(normalizedURL) > documentimport.MaximumMigrationURLBytes ||
-		(len(normalizedURL) > yagocrawlcontract.MaximumCrawlURLBytes &&
-			legacyURLStatus != documentimport.LegacyURLStatusExceedsCrawlLimit) {
+	if len(normalizedURL) > documentimport.MaximumMigrationURLBytes {
 		return solrDocumentURLs{}, errors.New("YaCy URL exceeds Yago's URL identity limit")
 	}
 	return solrDocumentURLs{
@@ -303,9 +287,6 @@ func redactMalformedURLUserinfo(rawURL string) (string, bool) {
 	return rawURL[:authorityStart] + authority[userinfoEnd+1:] + rawURL[authorityEnd:], true
 }
 
-// safeURLParseError classifies malformed source URLs without logging the URL
-// itself. YaCy exports can contain private URLs, and net/url errors may embed
-// the full input value in their Error string.
 func safeURLParseError(err error) string {
 	var urlErr *url.Error
 	if !errors.As(err, &urlErr) || urlErr.Err == nil {
@@ -336,8 +317,6 @@ func safeURLParseError(err error) string {
 	}
 }
 
-// safeURLParseContext reports only URL-shape categories. It must not include
-// the source value, which may contain private URLs or credential material.
 func safeURLParseContext(rawURL string) string {
 	if strings.IndexFunc(rawURL, unicode.IsControl) >= 0 {
 		return "control character in source URL"
@@ -514,9 +493,7 @@ func mapSolrMetadata(source map[string]json.RawMessage) (map[string]string, erro
 			metadata[targetField] = string(raw)
 		}
 	}
-	if err := mapSolrRedirectMetadata(source, metadata); err != nil {
-		return nil, err
-	}
+	mapSolrRedirectMetadata(source, metadata)
 	mapSolrSourceIDMetadata(source, metadata)
 	if err := validateSolrMetadataBounds(metadata); err != nil {
 		return nil, err
@@ -524,30 +501,24 @@ func mapSolrMetadata(source map[string]json.RawMessage) (map[string]string, erro
 	return metadata, nil
 }
 
-func mapSolrRedirectMetadata(source map[string]json.RawMessage, metadata map[string]string) error {
+func mapSolrRedirectMetadata(source map[string]json.RawMessage, metadata map[string]string) {
 	if raw := source["httpstatus_redirect_s"]; len(raw) > 0 && string(raw) != "null" {
 		var value any
 		if err := json.Unmarshal(raw, &value); err == nil {
 			clean, redacted := redactURLCredentials(value)
-			if encoded, err := json.Marshal(clean); err == nil {
-				metadata["yacy.redirect"] = string(encoded)
-				if redacted {
-					metadata["yacy.migration_credentials_redacted"] = "true"
-				}
-			} else {
-				return errors.New("YaCy redirect metadata could not be encoded")
+			encoded, _ := json.Marshal(clean)
+			metadata["yacy.redirect"] = string(encoded)
+			if redacted {
+				metadata["yacy.migration_credentials_redacted"] = "true"
 			}
 		}
 	}
-	return nil
 }
 
 func mapSolrSourceIDMetadata(source map[string]json.RawMessage, metadata map[string]string) {
 	if yacyID := solrString(source["id"]); yacyID != "" {
 		cleanID, redacted := redactURLCredentials(yacyID)
-		if value, ok := cleanID.(string); ok {
-			metadata["yacy.source_id"] = value
-		}
+		metadata["yacy.source_id"] = cleanID.(string)
 		if redacted {
 			metadata["yacy.migration_credentials_redacted"] = "true"
 		}
