@@ -27,6 +27,7 @@ type pagedDocumentEngine struct {
 	lastKeyReads     atomic.Int64
 	pageOverride     *vault.BucketPage
 	pageError        error
+	beforePageRead   func()
 	beforeUpdate     func()
 	lastKeyError     error
 }
@@ -151,6 +152,9 @@ func (b pagedDocumentBucket) ReadPageAfter(
 	if b.engine != nil {
 		b.engine.pageReads.Add(1)
 		b.engine.pageLimit.Store(int64(limit))
+		if b.engine.beforePageRead != nil {
+			b.engine.beforePageRead()
+		}
 	}
 	if b.pageError != nil {
 		return vault.BucketPage{}, b.pageError
@@ -459,6 +463,26 @@ func TestResumableStoredDocumentScanEmptyBoundaryAndReadFailure(t *testing.T) {
 		t.Context(), "", func(*Document, string, bool) (bool, error) { return true, nil },
 	); !errors.Is(err, sentinel) {
 		t.Fatalf("page read error = %v, want %v", err, sentinel)
+	}
+	boundaryDirectory, _, boundaryEngine := openPagedDocuments(t)
+	boundaryEngine.lastKeyError = sentinel
+	if err := boundaryDirectory.(ResumableStoredDocumentPageScanner).ScanStoredDocumentPagesFrom(
+		t.Context(), "", func(*Document, string, bool) (bool, error) { return true, nil },
+	); !errors.Is(err, sentinel) {
+		t.Fatalf("snapshot boundary read error = %v, want %v", err, sentinel)
+	}
+}
+
+func TestResumableStoredDocumentScanPropagatesAuthorityReadFailure(t *testing.T) {
+	directory, receiver, engine := openPagedDocuments(t)
+	receivePagedDocuments(t, receiver, "https://resume-authority-error.example/one")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	engine.beforePageRead = cancel
+	if err := directory.(ResumableStoredDocumentPageScanner).ScanStoredDocumentPagesFrom(
+		ctx, "", func(*Document, string, bool) (bool, error) { return true, nil },
+	); !errors.Is(err, context.Canceled) {
+		t.Fatalf("authoritative page read error = %v, want %v", err, context.Canceled)
 	}
 }
 
