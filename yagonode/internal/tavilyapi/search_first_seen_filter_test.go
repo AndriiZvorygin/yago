@@ -295,4 +295,19 @@ func TestFirstSeenWindowThatRetainsNothingAnswers200(t *testing.T) {
 	); err == nil {
 		t.Fatal("an unbounded request that retrieved nothing must still refuse")
 	}
+
+	localFailure, localFailureSearch, _ := firstSeenSearchEndpoint()
+	localFailureSearch.response.Results = nil
+	localFailureSearch.response.PartialFailures = []searchcore.PartialFailure{{
+		Source: searchcore.PartialFailureSourceLocalSearch,
+		Reason: "local backend failed",
+	}}
+	if _, err = localFailure.searchResponse(
+		t.Context(),
+		SearchRequest{Query: "golang", FirstSeenStart: "2026-07-01"},
+		time.Unix(100, 0),
+		"id-local-failure",
+	); err == nil {
+		t.Fatal("a failed local search with no rows must remain unavailable")
+	}
 }
