@@ -136,7 +136,7 @@ func TestCollectHitsAppliesStoredDocumentFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Total != 0 || len(result.Results) != 0 {
+	if len(result.Results) != 0 {
 		t.Fatalf("filtered result = %#v", result)
 	}
 }

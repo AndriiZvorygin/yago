@@ -290,9 +290,8 @@ func (b *BleveDiskIndex) searchHits(
 
 // collectHits hydrates the bleve hits into results. Hydrating a hit is a
 // vault read plus a zstd+JSON decode of the full page, so hits that can
-// neither reach the page nor change a count are never loaded: without
-// post-filters or facets the loop stops at a full page and the total comes
-// from bleve itself (PERF-03).
+// neither reach the page nor change a count are never loaded: the loop stops
+// at a full page and the total comes from bleve itself (PERF-03).
 func (b *BleveDiskIndex) collectHits(
 	ctx context.Context,
 	req SearchRequest,
@@ -300,12 +299,9 @@ func (b *BleveDiskIndex) collectHits(
 ) (SearchResultSet, []string, error) {
 	projections := b.prepareSearchHitProjections(result.Hits, req)
 	results := make([]SearchResult, 0, min(req.MaxResults, len(result.Hits)))
-	facets := newFacetCollector(req.WithFacets)
-	scanAll := req.WithFacets || hasPostFilters(req)
-	total := 0
 	var orphans []string
 	for index, hit := range result.Hits {
-		if !scanAll && len(results) >= req.MaxResults {
+		if len(results) >= req.MaxResults {
 			break
 		}
 		projection, present, err := projections.load(ctx, b, index, hit, req)
@@ -320,23 +316,17 @@ func (b *BleveDiskIndex) collectHits(
 		if !allowsDocument(projection.document, req) {
 			continue
 		}
-		facets.observe(projection.document)
-		total++
-		if len(results) < req.MaxResults {
-			mapped, err := projection.result(ctx, hit, req)
-			if err != nil {
-				return SearchResultSet{}, nil, err
-			}
-			results = append(results, mapped)
+		mapped, err := projection.result(ctx, hit, req)
+		if err != nil {
+			return SearchResultSet{}, nil, err
 		}
+		results = append(results, mapped)
 	}
-	if !scanAll {
-		total = max(bleveDocumentCount(result.Total)-len(orphans), len(results))
-	}
+	total := max(bleveDocumentCount(result.Total)-len(orphans), len(results))
 	rescoreStoredQuotedPhrasePrefix(results, req)
 	rescoreStoredProximity(results, req)
 
-	return SearchResultSet{Results: results, Total: total, Facets: facets.groups()}, orphans, nil
+	return SearchResultSet{Results: results, Total: total}, orphans, nil
 }
 
 // hasPostFilters reports whether the request carries a constraint only the
