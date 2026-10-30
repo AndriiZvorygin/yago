@@ -455,7 +455,7 @@ func webFallbackDefinitions() []settingDefinition {
 		{
 			key:         "web.fallback.backend",
 			title:       "Web fallback engines",
-			description: "Which keyless engines answer the web fallback; auto starts DuckDuckGo HTML first, then hedges DuckDuckGo Lite, Brave, Mojeek, and Bing at 50 ms intervals until one answer mentions the query.",
+			description: "Which keyless engines answer the web fallback; auto starts DuckDuckGo HTML first, then hedges DuckDuckGo Lite, Brave, and Mojeek at 50 ms intervals until one answer mentions the query.",
 			options: []settingOption{
 				{value: "auto", label: "Auto (hedged engines)"},
 				{value: "ddg", label: "DuckDuckGo only"},

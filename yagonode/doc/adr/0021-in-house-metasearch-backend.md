@@ -5,7 +5,9 @@ Date: 2026-07-03
 ## Status
 
 Accepted. Amended by ADR-0084 on 2026-09-07 for sparse-result supplementation
-and a shared 1.8-second response deadline.
+and a shared 1.8-second response deadline. Amended on 2026-10-30: `auto` no
+longer includes Bing, whose organic rows almost never passed verification;
+`bing` remains an explicit engine choice.
 
 ## Context
 

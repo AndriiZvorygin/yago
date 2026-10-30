@@ -15,7 +15,7 @@ func TestCoveredDistinctTermsRequiresIndependentTokenWitnesses(t *testing.T) {
 	if got := coveredDistinctTerms(result, []string{"game", "games"}); got != 1 {
 		t.Fatalf("covered terms = %d, want 1", got)
 	}
-	if resultCoversTerms(result, []string{"game", "games"}, 2) {
+	if resultCoversTerms(result, []string{"game", "games"}, []string{"game", "games"}, 2) {
 		t.Fatal("one inflected token satisfied two requirements")
 	}
 }

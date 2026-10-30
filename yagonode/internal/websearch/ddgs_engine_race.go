@@ -98,21 +98,9 @@ func (r *engineRace) run() ([]Result, bool, error) {
 		}
 	}
 
-	allRateLimited := true
-	var lastErr error
-	for preference, err := range r.errors {
-		if !r.limited[preference] {
-			allRateLimited = false
-		}
-		if err != nil {
-			lastErr = err
-		}
-	}
-	if allRateLimited {
-		return nil, true, nil
-	}
+	rateLimited, err := r.exhaustedOutcome()
 
-	return nil, false, lastErr
+	return nil, rateLimited, err
 }
 
 func (r *engineRace) launchNext() {

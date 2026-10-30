@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -135,9 +136,12 @@ func TestDDGSProviderDoesNotCacheEmptyAnswers(t *testing.T) {
 	}
 }
 
-func TestDDGSProviderAutoFallsBackToBing(t *testing.T) {
+func TestDDGSProviderAutoNeverQueriesBing(t *testing.T) {
+	var bingCalls atomic.Int32
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Host == "www.bing.com" {
+			bingCalls.Add(1)
+
 			return htmlResponse(http.StatusOK, listFixture), nil
 		}
 
@@ -146,11 +150,11 @@ func TestDDGSProviderAutoFallsBackToBing(t *testing.T) {
 	provider := NewDDGSProvider(DDGSConfig{Client: client, Backend: backendAuto, Now: fixedClock()})
 
 	results, err := provider.Search(context.Background(), "example", 10)
-	if err != nil {
-		t.Fatalf("search: %v", err)
+	if err != nil || len(results) != 0 {
+		t.Fatalf("results=%#v error=%v", results, err)
 	}
-	if len(results) != 3 {
-		t.Fatalf("results = %#v", results)
+	if bingCalls.Load() != 0 {
+		t.Fatalf("bing calls = %d, want 0", bingCalls.Load())
 	}
 }
 

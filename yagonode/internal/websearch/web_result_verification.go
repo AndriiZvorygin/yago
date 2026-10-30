@@ -2,7 +2,6 @@ package websearch
 
 import (
 	"math"
-	"strings"
 
 	"github.com/D4rk4/yago/yagonode/internal/searchcore"
 )
@@ -38,7 +37,8 @@ func VerifiedForQuery(query string, results []Result) []Result {
 }
 
 func resultsMentioningTerms(terms []string, results []Result) []Result {
-	minimumCoverage := minimumWebTermCoverage(terms)
+	coverageTerms := webCoverageTerms(terms)
+	minimumCoverage := minimumWebTermCoverage(coverageTerms)
 	kept := make([]Result, 0, len(results))
 	for _, result := range results {
 		mention := searchcore.Result{
@@ -46,7 +46,7 @@ func resultsMentioningTerms(terms []string, results []Result) []Result {
 			Snippet: result.Snippet,
 			URL:     result.URL,
 		}
-		if resultCoversTerms(mention, terms, minimumCoverage) {
+		if resultCoversTerms(mention, terms, coverageTerms, minimumCoverage) {
 			kept = append(kept, result)
 		}
 	}
@@ -55,14 +55,7 @@ func resultsMentioningTerms(terms []string, results []Result) []Result {
 }
 
 func minimumWebTermCoverage(terms []string) int {
-	distinct := make(map[string]struct{}, len(terms))
-	for _, term := range terms {
-		term = strings.ToLower(strings.TrimSpace(term))
-		if term != "" {
-			distinct[term] = struct{}{}
-		}
-	}
-	total := len(distinct)
+	total := len(distinctVerificationTerms(terms))
 	if total < 3 {
 		return total
 	}
@@ -71,7 +64,12 @@ func minimumWebTermCoverage(terms []string) int {
 	return max(1, min(total-1, minimum))
 }
 
-func resultCoversTerms(result searchcore.Result, terms []string, minimum int) bool {
+func resultCoversTerms(
+	result searchcore.Result,
+	terms []string,
+	coverageTerms []string,
+	minimum int,
+) bool {
 	return resultHasExactIdentifiers(result, terms) &&
-		(minimum <= 0 || coveredDistinctTerms(result, terms) >= minimum)
+		(minimum <= 0 || coveredDistinctTerms(result, coverageTerms) >= minimum)
 }

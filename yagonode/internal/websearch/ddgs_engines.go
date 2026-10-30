@@ -90,7 +90,6 @@ func backendsFor(name string) []engine {
 			engines[engineDDGLite],
 			engines[engineBrave],
 			engines[engineMojeek],
-			engines[engineBing],
 		}
 	}
 }
