@@ -26,7 +26,6 @@ func TestNewsCleanupCodecAndCursorFailures(t *testing.T) {
 		{name: "discard corrupt", run: assertCorruptNewsCleanupDiscarded},
 		{name: "discard corrupt failure", run: assertCorruptNewsCleanupDiscardFailure},
 		{name: "store failure", run: assertNewsCleanupStoreFailure},
-		{name: "clear failure", run: assertNewsCleanupClearFailure},
 		{name: "clear sequence failure", run: assertNewsCleanupSequenceClearFailure},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -53,7 +52,9 @@ func assertNewsCleanupReadCancellation(t *testing.T, _ error) {
 	pool := openStubPool(t, newNewsStubEngine())
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := pool.cleanupCursor(ctx, knownCleanupCursorKey); !errors.Is(err, context.Canceled) {
+	if _, err := vault.ReadCursorDiscardingCorrupt(
+		ctx, pool.vault, pool.cleanup, knownCleanupCursorKey, maximumNewsCleanupValueBytes,
+	); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cursor error = %v", err)
 	}
 }
@@ -65,7 +66,9 @@ func assertCorruptNewsCleanupDiscarded(t *testing.T, _ error) {
 	engine.buckets[cleanupBucket][string(knownCleanupCursorKey)] = []byte(
 		strings.Repeat("x", maximumNewsCleanupValueBytes+1),
 	)
-	cursor, err := pool.cleanupCursor(t.Context(), knownCleanupCursorKey)
+	cursor, err := vault.ReadCursorDiscardingCorrupt(
+		t.Context(), pool.vault, pool.cleanup, knownCleanupCursorKey, maximumNewsCleanupValueBytes,
+	)
 	if err != nil || cursor != nil || len(engine.buckets[cleanupBucket]) != 0 {
 		t.Fatalf("corrupt cursor = %q/%v", cursor, err)
 	}
@@ -79,8 +82,8 @@ func assertCorruptNewsCleanupDiscardFailure(t *testing.T, failure error) {
 		strings.Repeat("x", maximumNewsCleanupValueBytes+1),
 	)
 	engine.deleteErrors[cleanupBucket] = failure
-	if _, err := pool.cleanupCursor(
-		t.Context(), knownCleanupCursorKey,
+	if _, err := vault.ReadCursorDiscardingCorrupt(
+		t.Context(), pool.vault, pool.cleanup, knownCleanupCursorKey, maximumNewsCleanupValueBytes,
 	); !errors.Is(err, failure) {
 		t.Fatalf("cursor error = %v", err)
 	}
@@ -93,19 +96,6 @@ func assertNewsCleanupStoreFailure(t *testing.T, failure error) {
 	engine.putErrors[cleanupBucket] = failure
 	if err := pool.storeCleanupCursor(
 		t.Context(), knownCleanupCursorKey, vault.Key("row"),
-	); !errors.Is(err, failure) {
-		t.Fatalf("cursor error = %v", err)
-	}
-}
-
-func assertNewsCleanupClearFailure(t *testing.T, failure error) {
-	t.Helper()
-	engine := newNewsStubEngine()
-	pool := openStubPool(t, engine)
-	engine.buckets[cleanupBucket][string(knownCleanupCursorKey)] = []byte("row")
-	engine.deleteErrors[cleanupBucket] = failure
-	if err := pool.clearCleanupCursor(
-		t.Context(), knownCleanupCursorKey,
 	); !errors.Is(err, failure) {
 		t.Fatalf("cursor error = %v", err)
 	}
@@ -191,15 +181,6 @@ func TestNewsAdmissionCodecAndStorageFailures(t *testing.T) {
 		engine.deleteErrors[cleanupBucket] = failure
 		if _, _, err := pool.readNewsAdmission(t.Context()); !errors.Is(err, failure) {
 			t.Fatalf("read error = %v", err)
-		}
-	})
-	t.Run("clear failure", func(t *testing.T) {
-		engine := newNewsStubEngine()
-		pool := openStubPool(t, engine)
-		engine.buckets[cleanupBucket][string(newsAdmissionKey)] = valid
-		engine.deleteErrors[cleanupBucket] = failure
-		if err := pool.clearNewsAdmission(t.Context()); !errors.Is(err, failure) {
-			t.Fatalf("clear error = %v", err)
 		}
 	})
 }
@@ -638,9 +619,13 @@ func assertNewsEncodedSizeRead(t *testing.T, engine *newsStubEngine, bucket vaul
 
 func readNewsCleanupCursor(t *testing.T, pool *Pool) error {
 	t.Helper()
-	_, err := pool.cleanupCursor(t.Context(), queuedCleanupCursorKey)
+	if _, err := vault.ReadCursorDiscardingCorrupt(
+		t.Context(), pool.vault, pool.cleanup, queuedCleanupCursorKey, maximumNewsCleanupValueBytes,
+	); err != nil {
+		return fmt.Errorf("read queued news cleanup cursor: %w", err)
+	}
 
-	return err
+	return nil
 }
 
 func readNewsAdmissionIntent(t *testing.T, pool *Pool) error {
@@ -725,15 +710,6 @@ func TestNewsRotationCodecAndStorageFailures(t *testing.T) {
 		engine.deleteErrors[cleanupBucket] = failure
 		if _, _, err := pool.readNewsRotation(t.Context()); !errors.Is(err, failure) {
 			t.Fatalf("read error = %v", err)
-		}
-	})
-	t.Run("clear failure", func(t *testing.T) {
-		engine := newNewsStubEngine()
-		pool := openStubPool(t, engine)
-		engine.buckets[cleanupBucket][string(newsRotationKey)] = []byte("stored")
-		engine.deleteErrors[cleanupBucket] = failure
-		if err := pool.clearNewsRotation(t.Context()); !errors.Is(err, failure) {
-			t.Fatalf("clear error = %v", err)
 		}
 	})
 }

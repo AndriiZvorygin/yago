@@ -17,7 +17,9 @@ type newsPruneProgress struct {
 
 func (p *Pool) pruneKnownNews(ctx context.Context, now time.Time) error {
 	newest := newBoundedNewestNews(p.retention.knownRecords, -1)
-	after, err := p.cleanupCursor(ctx, knownCleanupCursorKey)
+	after, err := vault.ReadCursorDiscardingCorrupt(
+		ctx, p.vault, p.cleanup, knownCleanupCursorKey, maximumNewsCleanupValueBytes,
+	)
 	if err != nil {
 		return fmt.Errorf("read known news cleanup cursor: %w", err)
 	}
@@ -26,7 +28,7 @@ func (p *Pool) pruneKnownNews(ctx context.Context, now time.Time) error {
 			if !isStaleNewsCleanupCursor(err) {
 				return fmt.Errorf("restore known news cleanup: %w", err)
 			}
-			if err := p.clearCleanupCursor(ctx, knownCleanupCursorKey); err != nil {
+			if err := vault.DeleteKey(ctx, p.vault, p.cleanup, knownCleanupCursorKey); err != nil {
 				return fmt.Errorf("reset known news cleanup: %w", err)
 			}
 			after = nil
@@ -87,7 +89,9 @@ func (p *Pool) queuedNewsCleanupStart(
 	catalog queuedNewsEvidenceCatalog,
 ) (vault.Key, *boundedNewestNews, error) {
 	newest := newBoundedNewestNews(p.retention.queueRecords, p.retention.queueBytes)
-	after, err := p.cleanupCursor(ctx, queuedCleanupCursorKey)
+	after, err := vault.ReadCursorDiscardingCorrupt(
+		ctx, p.vault, p.cleanup, queuedCleanupCursorKey, maximumNewsCleanupValueBytes,
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read queued news cleanup cursor: %w", err)
 	}
@@ -101,7 +105,7 @@ func (p *Pool) queuedNewsCleanupStart(
 	if !isStaleNewsCleanupCursor(restoreErr) {
 		return nil, nil, fmt.Errorf("restore queued news cleanup: %w", restoreErr)
 	}
-	if err := p.clearCleanupCursor(ctx, queuedCleanupCursorKey); err != nil {
+	if err := vault.DeleteKey(ctx, p.vault, p.cleanup, queuedCleanupCursorKey); err != nil {
 		return nil, nil, fmt.Errorf("reset queued news cleanup: %w", err)
 	}
 

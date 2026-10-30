@@ -42,7 +42,7 @@ func (m *Mailbox) readMessageAdmission(ctx context.Context) (Message, bool, erro
 		if !errors.Is(err, vault.ErrCorruptValue) {
 			return Message{}, false, fmt.Errorf("read message admission: %w", err)
 		}
-		if err := m.clearMessageAdmission(ctx); err != nil {
+		if err := vault.DeleteKey(ctx, m.vault, m.cleanup, mailboxAdmissionKey); err != nil {
 			return Message{}, false, fmt.Errorf("discard invalid message admission: %w", err)
 		}
 	}
@@ -53,9 +53,11 @@ func (m *Mailbox) readMessageAdmission(ctx context.Context) (Message, bool, erro
 func (m *Mailbox) storedMessageAdmission(
 	tx *vault.Txn,
 ) (storedMessageAdmission, error) {
-	raw, present, err := m.storedMailboxCleanup(tx, mailboxAdmissionKey)
+	raw, present, err := m.cleanup.GetWithinSize(
+		tx, mailboxAdmissionKey, maximumMailboxCleanupValueBytes,
+	)
 	if err != nil {
-		return storedMessageAdmission{}, err
+		return storedMessageAdmission{}, fmt.Errorf("read message cleanup value: %w", err)
 	}
 	if !present {
 		return storedMessageAdmission{}, nil
@@ -73,21 +75,6 @@ func (m *Mailbox) storedMessageAdmission(
 	}
 
 	return storedMessageAdmission{message: message, found: true}, nil
-}
-
-func (m *Mailbox) clearMessageAdmission(ctx context.Context) error {
-	err := m.vault.Update(ctx, func(tx *vault.Txn) error {
-		if _, err := m.cleanup.Delete(tx, mailboxAdmissionKey); err != nil {
-			return fmt.Errorf("clear message admission: %w", err)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("discard message admission: %w", err)
-	}
-
-	return nil
 }
 
 func (m *Mailbox) reconcilePendingMessage(ctx context.Context) error {
@@ -114,10 +101,10 @@ func (m *Mailbox) reconcilePendingMessage(ctx context.Context) error {
 		return err
 	}
 	if found {
-		if err := m.clearMessageAdmission(ctx); err != nil {
+		if err := vault.DeleteKey(ctx, m.vault, m.cleanup, mailboxAdmissionKey); err != nil {
 			m.retentionNeedsReconciliation = true
 
-			return err
+			return fmt.Errorf("discard message admission: %w", err)
 		}
 	}
 	m.retentionNeedsReconciliation = false

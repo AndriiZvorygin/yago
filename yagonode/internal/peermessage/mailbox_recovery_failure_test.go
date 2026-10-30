@@ -3,6 +3,7 @@ package peermessage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -32,8 +33,6 @@ func TestMailboxAdmissionRecoverySurfacesStorageFailures(t *testing.T) {
 		{name: "reconcile read cancellation", exercise: mailboxAdmissionReconcileCancellation},
 		{name: "discard invalid", exercise: mailboxAdmissionDiscardInvalid},
 		{name: "discard invalid failure", exercise: mailboxAdmissionDiscardFailure},
-		{name: "clear failure", exercise: mailboxAdmissionClearFailure},
-		{name: "clear cancellation", exercise: mailboxAdmissionClearCancellation},
 		{name: "restore failure", exercise: mailboxAdmissionRestoreFailure},
 		{name: "prune failure", exercise: mailboxAdmissionPruneFailure},
 		{name: "finish failure", exercise: mailboxAdmissionFinishFailure},
@@ -79,24 +78,6 @@ func mailboxAdmissionDiscardFailure(t *testing.T, failure error) {
 	probe.deleteFailures[mailboxCleanupBucket] = failure
 	if _, _, err := mailbox.readMessageAdmission(t.Context()); !errors.Is(err, failure) {
 		t.Fatalf("discard error = %v", err)
-	}
-}
-
-func mailboxAdmissionClearFailure(t *testing.T, failure error) {
-	mailbox, probe := openMailboxProbe(t)
-	probe.buckets[mailboxCleanupBucket][string(mailboxAdmissionKey)] = []byte("pending")
-	probe.deleteFailures[mailboxCleanupBucket] = failure
-	if err := mailbox.clearMessageAdmission(t.Context()); !errors.Is(err, failure) {
-		t.Fatalf("clear error = %v", err)
-	}
-}
-
-func mailboxAdmissionClearCancellation(t *testing.T, _ error) {
-	mailbox, _ := openMailboxProbe(t)
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if err := mailbox.clearMessageAdmission(ctx); !errors.Is(err, context.Canceled) {
-		t.Fatalf("clear error = %v", err)
 	}
 }
 
@@ -159,9 +140,14 @@ func TestMailboxCleanupPointReadsRejectOversizedValuesBeforeDecode(t *testing.T)
 		{
 			name: "scrub cursor", key: mailboxScrubCursorKey,
 			read: func(mailbox *Mailbox) error {
-				_, err := mailbox.scrubCursor(t.Context())
+				if _, err := vault.ReadCursorDiscardingCorrupt(
+					t.Context(), mailbox.vault, mailbox.cleanup, mailboxScrubCursorKey,
+					maximumMailboxCleanupValueBytes,
+				); err != nil {
+					return fmt.Errorf("read message scrub cursor: %w", err)
+				}
 
-				return err
+				return nil
 			},
 		},
 	} {
@@ -233,7 +219,10 @@ func TestMailboxCleanupCursorFailurePaths(t *testing.T) {
 		mailbox, _ := openMailboxProbe(t)
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
-		if _, err := mailbox.scrubCursor(ctx); !errors.Is(err, context.Canceled) {
+		if _, err := vault.ReadCursorDiscardingCorrupt(
+			ctx, mailbox.vault, mailbox.cleanup, mailboxScrubCursorKey,
+			maximumMailboxCleanupValueBytes,
+		); !errors.Is(err, context.Canceled) {
 			t.Fatalf("cursor error = %v", err)
 		}
 	})
@@ -243,7 +232,10 @@ func TestMailboxCleanupCursorFailurePaths(t *testing.T) {
 			strings.Repeat("x", maximumMailboxCleanupValueBytes+1),
 		)
 		probe.deleteFailures[mailboxCleanupBucket] = failure
-		if _, err := mailbox.scrubCursor(t.Context()); !errors.Is(err, failure) {
+		if _, err := vault.ReadCursorDiscardingCorrupt(
+			t.Context(), mailbox.vault, mailbox.cleanup, mailboxScrubCursorKey,
+			maximumMailboxCleanupValueBytes,
+		); !errors.Is(err, failure) {
 			t.Fatalf("cursor error = %v", err)
 		}
 	})
@@ -257,14 +249,6 @@ func TestMailboxCleanupCursorFailurePaths(t *testing.T) {
 			err,
 			failure,
 		) {
-			t.Fatalf("cursor error = %v", err)
-		}
-	})
-	t.Run("clear failure", func(t *testing.T) {
-		mailbox, probe := openMailboxProbe(t)
-		probe.buckets[mailboxCleanupBucket][string(mailboxScrubCursorKey)] = []byte("row")
-		probe.deleteFailures[mailboxCleanupBucket] = failure
-		if err := mailbox.clearScrubCursor(t.Context()); !errors.Is(err, failure) {
 			t.Fatalf("cursor error = %v", err)
 		}
 	})

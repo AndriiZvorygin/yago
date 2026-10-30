@@ -45,9 +45,11 @@ func (p *Pool) readNewsAdmission(ctx context.Context) (newsAdmission, bool, erro
 	found := false
 	invalid := false
 	err := p.vault.View(ctx, func(tx *vault.Txn) error {
-		raw, present, err := p.storedNewsCleanup(tx, newsAdmissionKey)
+		raw, present, err := p.cleanup.GetWithinSize(
+			tx, newsAdmissionKey, maximumNewsCleanupValueBytes,
+		)
 		if err != nil {
-			return err
+			return fmt.Errorf("read news cleanup value: %w", err)
 		}
 		if !present {
 			return nil
@@ -68,7 +70,7 @@ func (p *Pool) readNewsAdmission(ctx context.Context) (newsAdmission, bool, erro
 		invalid = true
 	}
 	if invalid {
-		if err := p.clearNewsAdmission(ctx); err != nil {
+		if err := vault.DeleteKey(ctx, p.vault, p.cleanup, newsAdmissionKey); err != nil {
 			return newsAdmission{}, false, fmt.Errorf("discard invalid news admission: %w", err)
 		}
 	}
@@ -104,21 +106,6 @@ func validNewsQueue(queue Queue) bool {
 	}
 
 	return false
-}
-
-func (p *Pool) clearNewsAdmission(ctx context.Context) error {
-	err := p.vault.Update(ctx, func(tx *vault.Txn) error {
-		if _, err := p.cleanup.Delete(tx, newsAdmissionKey); err != nil {
-			return fmt.Errorf("clear news admission: %w", err)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("update cleared news admission: %w", err)
-	}
-
-	return nil
 }
 
 func (p *Pool) recoverNewsAdmission(ctx context.Context) error {
@@ -163,7 +150,7 @@ func (p *Pool) recoverNewsAdmission(ctx context.Context) error {
 			return fmt.Errorf("replay pending news admission: %w", err)
 		}
 	}
-	if err := p.clearNewsAdmission(ctx); err != nil {
+	if err := vault.DeleteKey(ctx, p.vault, p.cleanup, newsAdmissionKey); err != nil {
 		p.retentionNeedsReconciliation = true
 
 		return fmt.Errorf("finish pending news admission: %w", err)

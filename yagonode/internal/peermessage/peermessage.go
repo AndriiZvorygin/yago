@@ -49,7 +49,7 @@ func OpenMailbox(v *vault.Vault, now func() time.Time) (*Mailbox, error) {
 	if err := mailbox.reconcilePendingMessage(ctx); err != nil {
 		return nil, fmt.Errorf("reconcile peer messages: %w", err)
 	}
-	if err := mailbox.clearScrubCursor(ctx); err != nil {
+	if err := vault.DeleteKey(ctx, v, cleanup, mailboxScrubCursorKey); err != nil {
 		return nil, fmt.Errorf("finish peer message cleanup: %w", err)
 	}
 

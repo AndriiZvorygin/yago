@@ -157,7 +157,10 @@ func mailboxRepairMissingCursorValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	mailboxSetValueReadMissing(probe, mailboxCleanupBucket, mailboxScrubCursorKey)
-	after, err := mailbox.scrubCursor(t.Context())
+	after, err := vault.ReadCursorDiscardingCorrupt(
+		t.Context(), mailbox.vault, mailbox.cleanup, mailboxScrubCursorKey,
+		maximumMailboxCleanupValueBytes,
+	)
 	if err != nil || after != nil {
 		t.Fatalf("repaired cursor = %q/%v", after, err)
 	}
@@ -395,15 +398,14 @@ func mailboxClose(t *testing.T, mailbox *Mailbox) {
 
 func TestMailboxCleanupReadMissingIsTypedCorruption(t *testing.T) {
 	mailbox, probe := openMailboxProbe(t)
-	key := vault.Key("missing-after-size")
-	probe.buckets[mailboxCleanupBucket][string(key)] = []byte("value")
-	mailboxSetValueReadMissing(probe, mailboxCleanupBucket, key)
-	err := mailbox.vault.View(t.Context(), func(tx *vault.Txn) error {
-		_, _, err := mailbox.storedMailboxCleanup(tx, key)
-
-		return err
-	})
-	if !errors.Is(err, vault.ErrCorruptValue) {
-		t.Fatalf("cleanup read error = %v", err)
+	probe.buckets[mailboxCleanupBucket][string(mailboxScrubCursorKey)] = []byte("row")
+	mailboxSetValueReadMissing(probe, mailboxCleanupBucket, mailboxScrubCursorKey)
+	after, err := vault.ReadCursorDiscardingCorrupt(
+		t.Context(), mailbox.vault, mailbox.cleanup, mailboxScrubCursorKey,
+		maximumMailboxCleanupValueBytes,
+	)
+	if err != nil || after != nil {
+		t.Fatalf("cleanup cursor = %q, error %v", after, err)
 	}
+	mailboxAssertValueAbsent(t, probe, mailboxCleanupBucket, mailboxScrubCursorKey)
 }

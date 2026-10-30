@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/D4rk4/yago/yagonode/internal/vault"
 )
 
 func (p *Pool) storeNewsRecord(
@@ -36,7 +38,7 @@ func (p *Pool) storeNewsRecord(
 
 		return false, err
 	}
-	if err := p.clearNewsAdmission(ctx); err != nil {
+	if err := vault.DeleteKey(ctx, p.vault, p.cleanup, newsAdmissionKey); err != nil {
 		p.retentionNeedsReconciliation = true
 
 		return false, fmt.Errorf("finish news admission: %w", err)

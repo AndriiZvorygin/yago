@@ -14,7 +14,9 @@ type mailboxScrubProgress struct {
 }
 
 func (m *Mailbox) scrubMessages(ctx context.Context) error {
-	after, err := m.scrubCursor(ctx)
+	after, err := vault.ReadCursorDiscardingCorrupt(
+		ctx, m.vault, m.cleanup, mailboxScrubCursorKey, maximumMailboxCleanupValueBytes,
+	)
 	if err != nil {
 		return fmt.Errorf("read message scrub cursor: %w", err)
 	}
@@ -23,7 +25,7 @@ func (m *Mailbox) scrubMessages(ctx context.Context) error {
 		return fmt.Errorf("validate message scrub cursor: %w", err)
 	}
 	if !valid {
-		if err := m.clearScrubCursor(ctx); err != nil {
+		if err := vault.DeleteKey(ctx, m.vault, m.cleanup, mailboxScrubCursorKey); err != nil {
 			return fmt.Errorf("reset message scrub cursor: %w", err)
 		}
 		after = nil

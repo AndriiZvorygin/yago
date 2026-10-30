@@ -48,7 +48,7 @@ func (m *Mailbox) Receive(ctx context.Context, message Message) error {
 
 		return fmt.Errorf("write message: %w", err)
 	}
-	if err := m.clearMessageAdmission(ctx); err != nil {
+	if err := vault.DeleteKey(ctx, m.vault, m.cleanup, mailboxAdmissionKey); err != nil {
 		m.retentionNeedsReconciliation = true
 
 		return fmt.Errorf("write message: finish message admission: %w", err)

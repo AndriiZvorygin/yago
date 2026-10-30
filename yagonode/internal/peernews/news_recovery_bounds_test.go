@@ -30,7 +30,7 @@ func TestNewsRecoveryIntentsAdmitMaximumEscapableRecords(t *testing.T) {
 	if err != nil || !found || decodedAdmission.record.WireForm() != record.WireForm() {
 		t.Fatalf("decoded admission = %#v/%t/%v", decodedAdmission, found, err)
 	}
-	if err := pool.clearNewsAdmission(t.Context()); err != nil {
+	if err := vault.DeleteKey(t.Context(), pool.vault, pool.cleanup, newsAdmissionKey); err != nil {
 		t.Fatal(err)
 	}
 
@@ -49,7 +49,7 @@ func TestNewsRecoveryIntentsAdmitMaximumEscapableRecords(t *testing.T) {
 	if err != nil || !found || decodedRotation.original.WireForm() != record.WireForm() {
 		t.Fatalf("decoded rotation = %#v/%t/%v", decodedRotation, found, err)
 	}
-	if err := pool.clearNewsRotation(t.Context()); err != nil {
+	if err := vault.DeleteKey(t.Context(), pool.vault, pool.cleanup, newsRotationKey); err != nil {
 		t.Fatal(err)
 	}
 

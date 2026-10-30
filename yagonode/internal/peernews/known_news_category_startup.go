@@ -8,7 +8,9 @@ import (
 )
 
 func (p *Pool) pruneKnownNewsCategories(ctx context.Context) error {
-	after, err := p.cleanupCursor(ctx, categoryCleanupCursorKey)
+	after, err := vault.ReadCursorDiscardingCorrupt(
+		ctx, p.vault, p.cleanup, categoryCleanupCursorKey, maximumNewsCleanupValueBytes,
+	)
 	if err != nil {
 		return fmt.Errorf("read known news category cleanup cursor: %w", err)
 	}
@@ -17,7 +19,9 @@ func (p *Pool) pruneKnownNewsCategories(ctx context.Context) error {
 			if !isStaleNewsCleanupCursor(err) {
 				return fmt.Errorf("restore known news category cleanup: %w", err)
 			}
-			if err := p.clearCleanupCursor(ctx, categoryCleanupCursorKey); err != nil {
+			if err := vault.DeleteKey(
+				ctx, p.vault, p.cleanup, categoryCleanupCursorKey,
+			); err != nil {
 				return fmt.Errorf("reset known news category cleanup: %w", err)
 			}
 			after = nil

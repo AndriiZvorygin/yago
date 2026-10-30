@@ -46,61 +46,6 @@ func registerMailboxCleanup(v *vault.Vault) (*vault.Keyspace[string], error) {
 	return cleanup, nil
 }
 
-func (m *Mailbox) scrubCursor(ctx context.Context) (vault.Key, error) {
-	var after vault.Key
-	err := m.vault.View(ctx, func(tx *vault.Txn) error {
-		value, found, err := m.storedMailboxCleanup(tx, mailboxScrubCursorKey)
-		if err != nil {
-			return err
-		}
-		if found {
-			after = vault.Key(value)
-		}
-
-		return nil
-	})
-	if err != nil {
-		if !errors.Is(err, vault.ErrCorruptValue) {
-			return nil, fmt.Errorf("read message scrub cursor: %w", err)
-		}
-		if err := m.clearScrubCursor(ctx); err != nil {
-			return nil, fmt.Errorf("discard message scrub cursor: %w", err)
-		}
-	}
-
-	return after, nil
-}
-
-func (m *Mailbox) storedMailboxCleanup(
-	tx *vault.Txn,
-	key vault.Key,
-) (string, bool, error) {
-	size, found, err := m.cleanup.EncodedSize(tx, key)
-	if err != nil {
-		return "", found, fmt.Errorf("measure message cleanup value: %w", err)
-	}
-	if !found {
-		return "", false, nil
-	}
-	if size > maximumMailboxCleanupValueBytes {
-		return "", true, fmt.Errorf(
-			"%w: invalid message cleanup value size %d", vault.ErrCorruptValue, size,
-		)
-	}
-
-	value, present, err := m.cleanup.Get(tx, key)
-	if err != nil {
-		return "", true, fmt.Errorf("read message cleanup value: %w", err)
-	}
-	if !present {
-		return "", true, fmt.Errorf(
-			"%w: message cleanup value disappeared during read", vault.ErrCorruptValue,
-		)
-	}
-
-	return value, true, nil
-}
-
 func (m *Mailbox) storeScrubCursor(ctx context.Context, after vault.Key) error {
 	err := m.vault.Update(ctx, func(tx *vault.Txn) error {
 		if err := m.cleanup.Put(tx, mailboxScrubCursorKey, string(after)); err != nil {
@@ -111,21 +56,6 @@ func (m *Mailbox) storeScrubCursor(ctx context.Context, after vault.Key) error {
 	})
 	if err != nil {
 		return fmt.Errorf("persist message scrub cursor: %w", err)
-	}
-
-	return nil
-}
-
-func (m *Mailbox) clearScrubCursor(ctx context.Context) error {
-	err := m.vault.Update(ctx, func(tx *vault.Txn) error {
-		if _, err := m.cleanup.Delete(tx, mailboxScrubCursorKey); err != nil {
-			return fmt.Errorf("clear message scrub cursor: %w", err)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("discard message scrub cursor: %w", err)
 	}
 
 	return nil

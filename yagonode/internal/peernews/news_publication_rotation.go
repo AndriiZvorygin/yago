@@ -182,7 +182,7 @@ func (p *Pool) finishPublicationRotation(ctx context.Context, recorded bool) err
 	if !recorded {
 		return nil
 	}
-	if err := p.clearNewsRotation(ctx); err != nil {
+	if err := vault.DeleteKey(ctx, p.vault, p.cleanup, newsRotationKey); err != nil {
 		p.retentionNeedsReconciliation = true
 
 		return fmt.Errorf("finish news publication rotation: %w", err)

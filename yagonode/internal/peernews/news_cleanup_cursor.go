@@ -46,65 +46,6 @@ func validateNewsCleanupCursor(value string) error {
 	return nil
 }
 
-func (p *Pool) cleanupCursor(ctx context.Context, name vault.Key) (vault.Key, error) {
-	var after vault.Key
-	corrupt := false
-	err := p.vault.View(ctx, func(tx *vault.Txn) error {
-		value, found, err := p.storedNewsCleanup(tx, name)
-		if err != nil {
-			return err
-		}
-		if found {
-			after = vault.Key(value)
-		}
-
-		return nil
-	})
-	if err != nil {
-		if !errors.Is(err, vault.ErrCorruptValue) {
-			return nil, fmt.Errorf("read news cleanup cursor: %w", err)
-		}
-		corrupt = true
-	}
-	if corrupt {
-		if err := p.clearCleanupCursor(ctx, name); err != nil {
-			return nil, fmt.Errorf("discard news cleanup cursor: %w", err)
-		}
-	}
-
-	return after, nil
-}
-
-func (p *Pool) storedNewsCleanup(
-	tx *vault.Txn,
-	key vault.Key,
-) (string, bool, error) {
-	size, found, err := p.cleanup.EncodedSize(tx, key)
-	if err != nil {
-		return "", found, fmt.Errorf("inspect news cleanup value: %w", err)
-	}
-	if !found {
-		return "", false, nil
-	}
-	if size > maximumNewsCleanupValueBytes {
-		return "", true, fmt.Errorf(
-			"%w: invalid news cleanup value size %d", vault.ErrCorruptValue, size,
-		)
-	}
-
-	value, present, err := p.cleanup.Get(tx, key)
-	if err != nil {
-		return "", true, fmt.Errorf("read news cleanup value: %w", err)
-	}
-	if !present {
-		return "", true, fmt.Errorf(
-			"%w: news cleanup value disappeared during read", vault.ErrCorruptValue,
-		)
-	}
-
-	return value, true, nil
-}
-
 func (p *Pool) storeCleanupCursor(ctx context.Context, name, after vault.Key) error {
 	err := p.vault.Update(ctx, func(tx *vault.Txn) error {
 		if err := p.cleanup.Put(tx, name, string(after)); err != nil {
@@ -120,29 +61,14 @@ func (p *Pool) storeCleanupCursor(ctx context.Context, name, after vault.Key) er
 	return nil
 }
 
-func (p *Pool) clearCleanupCursor(ctx context.Context, name vault.Key) error {
-	err := p.vault.Update(ctx, func(tx *vault.Txn) error {
-		if _, err := p.cleanup.Delete(tx, name); err != nil {
-			return fmt.Errorf("clear news cleanup cursor: %w", err)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("update cleared news cleanup cursor: %w", err)
-	}
-
-	return nil
-}
-
 func (p *Pool) clearCleanupCursors(ctx context.Context) error {
 	for _, name := range []vault.Key{
 		knownCleanupCursorKey,
 		categoryCleanupCursorKey,
 		queuedCleanupCursorKey,
 	} {
-		if err := p.clearCleanupCursor(ctx, name); err != nil {
-			return err
+		if err := vault.DeleteKey(ctx, p.vault, p.cleanup, name); err != nil {
+			return fmt.Errorf("update cleared news cleanup cursor: %w", err)
 		}
 	}
 

@@ -50,34 +50,14 @@ func (p *Pool) storedKnownCategoryEvidence(
 	tx *vault.Txn,
 	key vault.Key,
 ) (string, bool, error) {
-	size, found, err := p.knownCategories.EncodedSize(tx, key)
+	category, found, err := p.knownCategories.GetWithinSize(
+		tx, key, maximumKnownCategoryEvidenceBytes,
+	)
 	if err != nil {
-		return "", found, fmt.Errorf("inspect known news category: %w", err)
-	}
-	if !found {
-		return "", false, nil
-	}
-	if size > maximumKnownCategoryEvidenceBytes {
-		return "", true, fmt.Errorf(
-			"%w: %w: known news category size %d",
-			vault.ErrCorruptValue,
-			ErrBadNewsRecord,
-			size,
-		)
+		return "", found, fmt.Errorf("read known news category: %w", err)
 	}
 
-	category, present, err := p.knownCategories.Get(tx, key)
-	if err != nil {
-		return "", true, fmt.Errorf("read known news category: %w", err)
-	}
-	if !present {
-		return "", true, fmt.Errorf(
-			"%w: known news category disappeared during read",
-			vault.ErrCorruptValue,
-		)
-	}
-
-	return category, true, nil
+	return category, found, nil
 }
 
 func decodeKnownCategoryEvidence(encoded string) (string, string, bool, error) {

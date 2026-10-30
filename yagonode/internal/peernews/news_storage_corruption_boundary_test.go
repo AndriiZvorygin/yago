@@ -3,6 +3,7 @@ package peernews
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -20,9 +21,14 @@ func TestNewsCleanupOperationalReadsDoNotDiscardState(t *testing.T) {
 			name: "cursor",
 			key:  knownCleanupCursorKey,
 			read: func(pool *Pool) error {
-				_, err := pool.cleanupCursor(t.Context(), knownCleanupCursorKey)
+				if _, err := vault.ReadCursorDiscardingCorrupt(
+					t.Context(), pool.vault, pool.cleanup, knownCleanupCursorKey,
+					maximumNewsCleanupValueBytes,
+				); err != nil {
+					return fmt.Errorf("read known news cleanup cursor: %w", err)
+				}
 
-				return err
+				return nil
 			},
 		},
 		{
@@ -143,7 +149,10 @@ func TestNewsSizeReadMismatchIsCorruption(t *testing.T) {
 		engine.missingReads[cleanupBucket] = map[string]bool{
 			string(knownCleanupCursorKey): true,
 		}
-		cursor, err := pool.cleanupCursor(t.Context(), knownCleanupCursorKey)
+		cursor, err := vault.ReadCursorDiscardingCorrupt(
+			t.Context(), pool.vault, pool.cleanup, knownCleanupCursorKey,
+			maximumNewsCleanupValueBytes,
+		)
 		if err != nil || cursor != nil || len(engine.buckets[cleanupBucket]) != 0 {
 			t.Fatalf("cleanup cursor = %q, error %v", cursor, err)
 		}

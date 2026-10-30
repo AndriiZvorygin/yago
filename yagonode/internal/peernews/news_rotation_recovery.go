@@ -48,9 +48,11 @@ func (p *Pool) readNewsRotation(ctx context.Context) (newsRotation, bool, error)
 	found := false
 	invalid := false
 	err := p.vault.View(ctx, func(tx *vault.Txn) error {
-		raw, present, err := p.storedNewsCleanup(tx, newsRotationKey)
+		raw, present, err := p.cleanup.GetWithinSize(
+			tx, newsRotationKey, maximumNewsCleanupValueBytes,
+		)
 		if err != nil {
-			return err
+			return fmt.Errorf("read news cleanup value: %w", err)
 		}
 		if !present {
 			return nil
@@ -71,7 +73,7 @@ func (p *Pool) readNewsRotation(ctx context.Context) (newsRotation, bool, error)
 		invalid = true
 	}
 	if invalid {
-		if err := p.clearNewsRotation(ctx); err != nil {
+		if err := vault.DeleteKey(ctx, p.vault, p.cleanup, newsRotationKey); err != nil {
 			return newsRotation{}, false, fmt.Errorf("discard invalid news rotation: %w", err)
 		}
 	}
@@ -103,21 +105,6 @@ func decodeNewsRotation(raw string) (newsRotation, bool) {
 	}, true
 }
 
-func (p *Pool) clearNewsRotation(ctx context.Context) error {
-	err := p.vault.Update(ctx, func(tx *vault.Txn) error {
-		if _, err := p.cleanup.Delete(tx, newsRotationKey); err != nil {
-			return fmt.Errorf("clear news rotation: %w", err)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("update cleared news rotation: %w", err)
-	}
-
-	return nil
-}
-
 func (p *Pool) recoverNewsRotation(ctx context.Context) error {
 	rotation, found, err := p.readNewsRotation(ctx)
 	if err != nil || !found {
@@ -133,7 +120,7 @@ func (p *Pool) recoverNewsRotation(ctx context.Context) error {
 
 		return fmt.Errorf("reconcile pending news rotation: %w", err)
 	}
-	if err := p.clearNewsRotation(ctx); err != nil {
+	if err := vault.DeleteKey(ctx, p.vault, p.cleanup, newsRotationKey); err != nil {
 		p.retentionNeedsReconciliation = true
 
 		return fmt.Errorf("finish pending news rotation: %w", err)
