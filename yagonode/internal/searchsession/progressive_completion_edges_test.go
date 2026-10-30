@@ -76,6 +76,19 @@ func TestStableWindowProgressiveCompletionEdgePaths(t *testing.T) {
 		t.Fatal("completion without a partial response returned a refined page")
 	}
 
+	globalRequest := searchcore.Request{
+		Query: request.Query, Limit: request.Limit, Source: searchcore.SourceGlobal,
+	}
+	localPartial := sampledCompletionResponse(globalRequest)
+	localPartial.Request.Source = searchcore.SourceLocal
+	globalKey := sessionKey(globalRequest)
+	stable.fullSearches[globalKey] = &fullSearchCompletion{
+		done: make(chan struct{}), partialResponse: &localPartial,
+	}
+	if _, ok := stable.refinedFirstPage(t.Context(), globalKey, globalRequest); ok {
+		t.Fatal("local partial response crossed into a global search session")
+	}
+
 	if _, err := NewStableWindow(
 		panicSearchSessionSearcher{},
 	).Search(t.Context(), request); err == nil {

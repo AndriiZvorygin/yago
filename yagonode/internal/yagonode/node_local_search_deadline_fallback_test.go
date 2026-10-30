@@ -17,6 +17,7 @@ type localDeadlineFallbackProbe struct {
 	wait     bool
 	calls    int
 	deadline time.Time
+	cancel   context.CancelFunc
 }
 
 type progressiveDeadlineFallbackIndex struct{ stubSearchIndex }
@@ -59,6 +60,9 @@ func (s *localDeadlineFallbackProbe) Search(
 ) (searchcore.Response, error) {
 	s.calls++
 	s.deadline, _ = ctx.Deadline()
+	if s.cancel != nil {
+		s.cancel()
+	}
 	if s.wait {
 		<-ctx.Done()
 		return s.response, fmt.Errorf("probe search: %w", ctx.Err())
@@ -89,6 +93,28 @@ func TestLocalSearchDeadlineFallbackKeepsFullTextWhenItFinishes(t *testing.T) {
 			primary.calls,
 			fallback.calls,
 			err,
+		)
+	}
+}
+
+func TestLocalSearchDeadlineFallbackHonorsCallerCancellationDuringPrimary(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	primary := &localDeadlineFallbackProbe{
+		response: searchcore.Response{
+			Results: []searchcore.Result{{URL: "https://primary.example/"}},
+		},
+		err: context.Canceled, cancel: cancel,
+	}
+	fallback := &localDeadlineFallbackProbe{}
+	response, err := (localSearchDeadlineFallback{
+		primary: primary, fallback: fallback,
+	}).Search(ctx, plainLocalFallbackRequest())
+	if !errors.Is(err, context.Canceled) || primary.calls != 1 || fallback.calls != 0 ||
+		len(response.Results) != 1 {
+		t.Fatalf(
+			"response=%#v primary=%d fallback=%d error=%v",
+			response, primary.calls, fallback.calls, err,
 		)
 	}
 }
@@ -236,6 +262,10 @@ func TestLocalSearchDeadlineFallbackUsesRandomizedFallbackAfterPartialPrimary(t 
 	primary := &localDeadlineFallbackProbe{
 		response: searchcore.Response{
 			Results: []searchcore.Result{{URL: "https://fixed-order.example/"}},
+			PartialFailures: []searchcore.PartialFailure{{
+				Source: searchcore.PartialFailureSourceLocalSearch,
+				Reason: "partial local result set",
+			}},
 		},
 		err: context.DeadlineExceeded,
 	}
@@ -447,6 +477,22 @@ func TestLocalSearchNeedsRandomFallbackForIncompleteCoverage(t *testing.T) {
 		Coverage: &searchcore.SearchCoverage{Complete: true},
 	}) {
 		t.Fatal("complete coverage requested randomized fallback")
+	}
+	if !localSearchNeedsRandomFallback(searchcore.Response{
+		PartialFailures: []searchcore.PartialFailure{{
+			Source: searchcore.PartialFailureSourceLocalSearch,
+			Reason: "local search failed",
+		}},
+	}) {
+		t.Fatal("local-search failure did not request randomized fallback")
+	}
+	if localSearchNeedsRandomFallback(searchcore.Response{
+		PartialFailures: []searchcore.PartialFailure{{
+			Source: searchcore.PartialFailureSourceRemoteYaCy,
+			Reason: "peer search failed",
+		}},
+	}) {
+		t.Fatal("remote peer failure incorrectly requested local randomized fallback")
 	}
 }
 

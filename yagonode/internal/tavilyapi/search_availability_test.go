@@ -31,6 +31,17 @@ func TestSearchEndpointDistinguishesIncompleteEmptySearch(t *testing.T) {
 	}
 }
 
+func TestSearchAvailabilityErrorDoesNotMislabelCallerCancellation(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		if err := searchAvailabilityError(0, 1, cause); err != nil {
+			t.Errorf("caller cause %v became source unavailability: %v", cause, err)
+		}
+	}
+	if err := searchAvailabilityError(0, 1, nil); !errors.Is(err, errSearchUnavailable) {
+		t.Fatalf("missing source without caller cancellation = %v, want unavailable", err)
+	}
+}
+
 func searchAvailabilityEndpointCases() []searchAvailabilityEndpointCase {
 	cases := append(searchAvailabilityBaseCases(), searchAvailabilityCallerCases()...)
 
