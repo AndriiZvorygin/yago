@@ -146,13 +146,17 @@ func TestRemoteCrawlQueueStateIndexCapacityBounds(t *testing.T) {
 		name   string
 		bucket vault.Name
 		raw    []byte
-		scan   func(*vault.Txn, collections, queueStateSnapshot) error
+		scan   func(*vault.Txn, queueStateSnapshot) error
 		fill   func(queueStateSnapshot)
 	}{
 		{
 			name: "pending", bucket: remoteCrawlPendingBucket,
-			raw:  remoteCrawlRawJSON(t, pendingRecord{Sequence: 1}),
-			scan: scanPendingIndex,
+			raw: remoteCrawlRawJSON(t, pendingRecord{Sequence: 1}),
+			scan: func(tx *vault.Txn, snapshot queueStateSnapshot) error {
+				return scanQueueStateIndex(
+					tx, registered.pending, "pending", snapshot.pendingRecords,
+				)
+			},
 			fill: func(snapshot queueStateSnapshot) {
 				for index := range MaximumQueueCapacity {
 					snapshot.pendingRecords[string(sequenceKey(uint64(index)))] = pendingRecord{}
@@ -161,8 +165,12 @@ func TestRemoteCrawlQueueStateIndexCapacityBounds(t *testing.T) {
 		},
 		{
 			name: "expiry", bucket: remoteCrawlLeaseExpiryBucket,
-			raw:  remoteCrawlRawJSON(t, leaseExpiryRecord{Sequence: 1}),
-			scan: scanLeaseExpiryIndex,
+			raw: remoteCrawlRawJSON(t, leaseExpiryRecord{Sequence: 1}),
+			scan: func(tx *vault.Txn, snapshot queueStateSnapshot) error {
+				return scanQueueStateIndex(
+					tx, registered.leaseExpiries, "lease expiry", snapshot.leaseExpiries,
+				)
+			},
 			fill: func(snapshot queueStateSnapshot) {
 				for index := range MaximumQueueCapacity {
 					snapshot.leaseExpiries[string(sequenceKey(uint64(index)))] = leaseExpiryRecord{}
@@ -171,8 +179,12 @@ func TestRemoteCrawlQueueStateIndexCapacityBounds(t *testing.T) {
 		},
 		{
 			name: "lease count", bucket: remoteCrawlLeaseCountBucket,
-			raw:  remoteCrawlRawUint64(1),
-			scan: scanLeaseCountIndex,
+			raw: remoteCrawlRawUint64(1),
+			scan: func(tx *vault.Txn, snapshot queueStateSnapshot) error {
+				return scanQueueStateIndex(
+					tx, registered.leaseCounts, "lease count", snapshot.leasesByPeer,
+				)
+			},
 			fill: func(snapshot queueStateSnapshot) {
 				for index := range MaximumQueueCapacity {
 					snapshot.leasesByPeer[string(sequenceKey(uint64(index)))] = 1
@@ -186,7 +198,7 @@ func TestRemoteCrawlQueueStateIndexCapacityBounds(t *testing.T) {
 			test.fill(snapshot)
 			engine.putRaw(test.bucket, vault.Key("entry"), test.raw)
 			err := storage.View(t.Context(), func(tx *vault.Txn) error {
-				return test.scan(tx, registered, snapshot)
+				return test.scan(tx, snapshot)
 			})
 			if err == nil {
 				t.Fatal("oversized queue index accepted")

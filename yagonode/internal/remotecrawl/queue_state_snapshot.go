@@ -75,80 +75,40 @@ func readActualQueueState(
 	collections collections,
 ) (queueStateSnapshot, error) {
 	snapshot := newQueueStateSnapshot()
-	if err := scanPendingIndex(tx, collections, snapshot); err != nil {
+	if err := scanQueueStateIndex(
+		tx, collections.pending, "pending", snapshot.pendingRecords,
+	); err != nil {
 		return queueStateSnapshot{}, err
 	}
-	if err := scanLeaseExpiryIndex(tx, collections, snapshot); err != nil {
+	if err := scanQueueStateIndex(
+		tx, collections.leaseExpiries, "lease expiry", snapshot.leaseExpiries,
+	); err != nil {
 		return queueStateSnapshot{}, err
 	}
-	if err := scanLeaseCountIndex(tx, collections, snapshot); err != nil {
+	if err := scanQueueStateIndex(
+		tx, collections.leaseCounts, "lease count", snapshot.leasesByPeer,
+	); err != nil {
 		return queueStateSnapshot{}, err
 	}
 
 	return snapshot, nil
 }
 
-func scanPendingIndex(
+func scanQueueStateIndex[Record any](
 	tx *vault.Txn,
-	collections collections,
-	snapshot queueStateSnapshot,
+	index *vault.Collection[Record],
+	indexName string,
+	records map[string]Record,
 ) error {
-	if err := collections.pending.Scan(tx, nil, func(
-		key vault.Key,
-		record pendingRecord,
-	) (bool, error) {
-		if len(snapshot.pendingRecords) >= MaximumQueueCapacity {
-			return false, fmt.Errorf("remote crawl pending index exceeds maximum capacity")
+	if err := index.Scan(tx, nil, func(key vault.Key, record Record) (bool, error) {
+		if len(records) >= MaximumQueueCapacity {
+			return false, fmt.Errorf("remote crawl %s index exceeds maximum capacity", indexName)
 		}
-		snapshot.pendingRecords[string(key)] = record
+		records[string(key)] = record
 
 		return true, nil
 	}); err != nil {
-		return fmt.Errorf("scan remote crawl pending index: %w", err)
-	}
-
-	return nil
-}
-
-func scanLeaseExpiryIndex(
-	tx *vault.Txn,
-	collections collections,
-	snapshot queueStateSnapshot,
-) error {
-	if err := collections.leaseExpiries.Scan(tx, nil, func(
-		key vault.Key,
-		record leaseExpiryRecord,
-	) (bool, error) {
-		if len(snapshot.leaseExpiries) >= MaximumQueueCapacity {
-			return false, fmt.Errorf("remote crawl lease expiry index exceeds maximum capacity")
-		}
-		snapshot.leaseExpiries[string(key)] = record
-
-		return true, nil
-	}); err != nil {
-		return fmt.Errorf("scan remote crawl lease expiry index: %w", err)
-	}
-
-	return nil
-}
-
-func scanLeaseCountIndex(
-	tx *vault.Txn,
-	collections collections,
-	snapshot queueStateSnapshot,
-) error {
-	if err := collections.leaseCounts.Scan(tx, nil, func(
-		key vault.Key,
-		total uint64,
-	) (bool, error) {
-		if len(snapshot.leasesByPeer) >= MaximumQueueCapacity {
-			return false, fmt.Errorf("remote crawl lease count index exceeds maximum capacity")
-		}
-		snapshot.leasesByPeer[string(key)] = total
-
-		return true, nil
-	}); err != nil {
-		return fmt.Errorf("scan remote crawl lease count index: %w", err)
+		return fmt.Errorf("scan remote crawl %s index: %w", indexName, err)
 	}
 
 	return nil

@@ -184,32 +184,7 @@ func lengthAfterDeleteAndOverwrite(t *testing.T, open func(int64) (*vault.Vault,
 }
 
 func scanVisitsPrefixInOrder(t *testing.T, open func(int64) (*vault.Vault, error)) {
-	ctx := context.Background()
-	v := openVault(t, open, 0)
-	words := register(t, v, "words")
-
-	if err := v.Update(ctx, func(tx *vault.Txn) error {
-		for _, key := range []string{"qa", "pb", "pa"} {
-			if err := words.Put(tx, vault.Key(key), key); err != nil {
-				return wrapTest(err)
-			}
-		}
-
-		return nil
-	}); err != nil {
-		t.Fatalf("Update: %v", err)
-	}
-
-	var visited []string
-	if err := v.View(ctx, func(tx *vault.Txn) error {
-		return words.Scan(tx, vault.Key("p"), func(_ vault.Key, value string) (bool, error) {
-			visited = append(visited, value)
-
-			return true, nil
-		})
-	}); err != nil {
-		t.Fatalf("View: %v", err)
-	}
+	visited := seedWordsAndScan(t, open, []string{"qa", "pb", "pa"}, vault.Key("p"), true)
 
 	if len(visited) != 2 || visited[0] != "pa" || visited[1] != "pb" {
 		t.Fatalf("scan visited = %v, want [pa pb]", visited)
@@ -217,12 +192,28 @@ func scanVisitsPrefixInOrder(t *testing.T, open func(int64) (*vault.Vault, error
 }
 
 func scanStopsWhenAsked(t *testing.T, open func(int64) (*vault.Vault, error)) {
+	visited := seedWordsAndScan(t, open, []string{"a", "b", "c"}, nil, false)
+
+	if len(visited) != 1 || visited[0] != "a" {
+		t.Fatalf("scan visited = %v, want [a]", visited)
+	}
+}
+
+func seedWordsAndScan(
+	t *testing.T,
+	open func(int64) (*vault.Vault, error),
+	seededWords []string,
+	prefix vault.Key,
+	keepScanning bool,
+) []string {
+	t.Helper()
+
 	ctx := context.Background()
 	v := openVault(t, open, 0)
 	words := register(t, v, "words")
 
 	if err := v.Update(ctx, func(tx *vault.Txn) error {
-		for _, key := range []string{"a", "b", "c"} {
+		for _, key := range seededWords {
 			if err := words.Put(tx, vault.Key(key), key); err != nil {
 				return wrapTest(err)
 			}
@@ -235,18 +226,16 @@ func scanStopsWhenAsked(t *testing.T, open func(int64) (*vault.Vault, error)) {
 
 	var visited []string
 	if err := v.View(ctx, func(tx *vault.Txn) error {
-		return words.Scan(tx, nil, func(_ vault.Key, value string) (bool, error) {
+		return words.Scan(tx, prefix, func(_ vault.Key, value string) (bool, error) {
 			visited = append(visited, value)
 
-			return false, nil
+			return keepScanning, nil
 		})
 	}); err != nil {
 		t.Fatalf("View: %v", err)
 	}
 
-	if len(visited) != 1 || visited[0] != "a" {
-		t.Fatalf("scan visited = %v, want [a]", visited)
-	}
+	return visited
 }
 
 func crossCollectionAtomicRollback(t *testing.T, open func(int64) (*vault.Vault, error)) {
