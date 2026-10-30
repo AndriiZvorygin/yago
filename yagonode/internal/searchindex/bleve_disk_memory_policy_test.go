@@ -24,6 +24,9 @@ func TestBleveDiskScorchConfigurationBoundsMergeMemory(t *testing.T) {
 	if merge["ReclaimDeletesWeight"] != diskReclaimDeletesWeight {
 		t.Fatalf("reclaim weight = %#v", merge["ReclaimDeletesWeight"])
 	}
+	if merge["FloorSegmentFileSize"] != diskMergeFloorSegmentBytes {
+		t.Fatalf("merge floor segment bytes = %#v", merge["FloorSegmentFileSize"])
+	}
 	if configuration["numSnapshotsToKeep"] != diskSnapshotsKept {
 		t.Fatalf("snapshots kept = %#v", configuration["numSnapshotsToKeep"])
 	}

@@ -712,7 +712,10 @@ it is not an assumed deployment dependency.
   SHALL remain unhydrated.
 * Each Scorch shard SHALL use one in-memory persister worker with at most 32 MiB
   of segment input per flush, and SHALL cap a merged segment at 100,000
-  documents. Before the disk index becomes available, a shard above one root
+  documents. Merge planning SHALL use a 2 MiB floor segment size, and every
+  existing shard SHALL open with the current merge policy instead of its stored
+  one. A one-document flush beside a larger eligible segment SHALL NOT rewrite
+  that segment; small flush segments beyond the tier budget SHALL still merge. Before the disk index becomes available, a shard above one root
   file segment per 100,000 live documents SHALL pass the existing
   filesystem-reserve admission and force-merge one shard at a time. Every merge
   SHALL preserve the live document total. A bounded planner stall MAY retain at

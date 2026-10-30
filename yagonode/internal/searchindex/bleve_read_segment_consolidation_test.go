@@ -585,6 +585,9 @@ func writePersistedBleveReadSegments(
 	documents []documentstore.Document,
 ) {
 	t.Helper()
+	originalOpenBleveDisk := openBleveDisk
+	t.Cleanup(func() { openBleveDisk = originalOpenBleveDisk })
+	openBleveDisk = bleve.Open
 	empty, err := NewBleveDiskIndex(t.Context(), root, directory, nil)
 	if err != nil {
 		t.Fatal(err)

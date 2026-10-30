@@ -76,7 +76,7 @@ func diskShardPath(root string, shard int) string {
 
 var (
 	newBleveDisk                      = newBleveShard
-	openBleveDisk                     = bleve.Open
+	openBleveDisk                     = openBleveShardWithCurrentPolicy
 	removeBleveDisk                   = os.RemoveAll
 	persistBleveDiskSegmentGeneration = persistCurrentBleveSegmentGeneration
 )

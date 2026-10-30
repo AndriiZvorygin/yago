@@ -1,8 +1,9 @@
 package searchindex
 
 const (
-	diskInMemoryMergeBytes = 32 << 20
-	diskPersisterWorkers   = 1
+	diskInMemoryMergeBytes     = 32 << 20
+	diskPersisterWorkers       = 1
+	diskMergeFloorSegmentBytes = 2 << 20
 )
 
 func bleveDiskScorchConfiguration() map[string]interface{} {
@@ -10,6 +11,7 @@ func bleveDiskScorchConfiguration() map[string]interface{} {
 		"scorchMergePlanOptions": map[string]interface{}{
 			"MaxSegmentSize":       diskMaxSegmentDocs,
 			"ReclaimDeletesWeight": diskReclaimDeletesWeight,
+			"FloorSegmentFileSize": diskMergeFloorSegmentBytes,
 		},
 		"scorchPersisterOptions": map[string]interface{}{
 			"MaxSizeInMemoryMergePerWorker": diskInMemoryMergeBytes,
