@@ -172,22 +172,49 @@ func TestSearchSafetyTrainEndpointRejectsInvalidRequests(t *testing.T) {
 }
 
 func TestSearchSafetyRollbackEndpoint(t *testing.T) {
+	rolledBack := &safetyModelCatalogFixture{
+		rolledBack: true,
+		status:     safetymodel.Status{Active: true, Revision: "v0"},
+		snapshot:   []byte(`{"revision":"v0"}`),
+	}
+	activeModel := httptest.NewRecorder()
+	writeSafetyModelResponse(activeModel, rolledBack)
 	tests := []struct {
 		name    string
 		catalog safetyModelCatalog
 		method  string
 		want    int
+		body    string
 	}{
-		{"method", &safetyModelCatalogFixture{}, http.MethodGet, http.StatusMethodNotAllowed},
-		{"unavailable", nil, http.MethodPost, http.StatusServiceUnavailable},
+		{
+			"method",
+			&safetyModelCatalogFixture{},
+			http.MethodGet,
+			http.StatusMethodNotAllowed,
+			"method not allowed\n",
+		},
+		{
+			"unavailable",
+			nil,
+			http.MethodPost,
+			http.StatusServiceUnavailable,
+			"content safety model catalog unavailable\n",
+		},
 		{
 			"failure",
 			&safetyModelCatalogFixture{rollbackErr: errors.New("disk")},
 			http.MethodPost,
 			http.StatusInternalServerError,
+			"rollback content safety model: disk\n",
 		},
-		{"empty", &safetyModelCatalogFixture{}, http.MethodPost, http.StatusConflict},
-		{"success", &safetyModelCatalogFixture{rolledBack: true}, http.MethodPost, http.StatusOK},
+		{
+			"empty",
+			&safetyModelCatalogFixture{},
+			http.MethodPost,
+			http.StatusConflict,
+			"content safety model rollback is unavailable\n",
+		},
+		{"success", rolledBack, http.MethodPost, http.StatusOK, activeModel.Body.String()},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -201,11 +228,15 @@ func TestSearchSafetyRollbackEndpoint(t *testing.T) {
 					nil,
 				),
 			)
-			if recorder.Code != test.want {
+			if recorder.Code != test.want || recorder.Body.String() != test.body {
 				t.Fatalf("status = %d, body = %q", recorder.Code, recorder.Body.String())
 			}
 			if test.name == "method" && recorder.Header().Get("Allow") != http.MethodPost {
 				t.Fatalf("Allow = %q", recorder.Header().Get("Allow"))
+			}
+			if test.name == "success" &&
+				recorder.Header().Get("Content-Type") != "application/json" {
+				t.Fatalf("Content-Type = %q", recorder.Header().Get("Content-Type"))
 			}
 		})
 	}

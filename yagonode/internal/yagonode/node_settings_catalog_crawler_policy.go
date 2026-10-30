@@ -34,17 +34,17 @@ func crawlerRuntimePolicyDefinitions() []settingDefinition {
 		crawlerAllowedPrivateCIDRsDefinition(),
 		crawlerBrowserSandboxDefinition(),
 		crawlerBrowserFailureThresholdDefinition(),
-		crawlerConnectTimeoutDefinition(),
-		crawlerCrawlDelayDefinition(),
+		crawlerRuntimeDurationDefinition(crawlerConnectTimeoutSetting),
+		crawlerRuntimeDurationDefinition(crawlerCrawlDelaySetting),
 		crawlerFrontierStateMaximumDefinition(),
-		crawlerHeaderTimeoutDefinition(),
+		crawlerRuntimeDurationDefinition(crawlerHeaderTimeoutSetting),
 		crawlerMaximumDepthDefinition(),
 		crawlerMaximumHostConcurrencyDefinition(),
-		crawlerRequestTimeoutDefinition(),
+		crawlerRuntimeDurationDefinition(crawlerRequestTimeoutSetting),
 		crawlerRunPagesPerMinuteDefinition(),
 		crawlerSitemapURLLimitDefinition(),
-		crawlerTLSTimeoutDefinition(),
-		crawlerShutdownGraceDefinition(),
+		crawlerRuntimeDurationDefinition(crawlerTLSTimeoutSetting),
+		crawlerRuntimeDurationDefinition(crawlerShutdownGraceSetting),
 		crawlerUserAgentDefinition(),
 	)
 
@@ -210,8 +210,8 @@ func crawlerSitemapURLLimitDefinition() settingDefinition {
 	})
 }
 
-func crawlerConnectTimeoutDefinition() settingDefinition {
-	return crawlerRuntimeDurationDefinition(crawlerRuntimeDurationSetting{
+var (
+	crawlerConnectTimeoutSetting = crawlerRuntimeDurationSetting{
 		key:         settingKeyCrawlerConnectTimeout,
 		title:       "Crawler connect timeout",
 		description: "Maximum time to establish an origin TCP connection. Connected crawlers restart automatically.",
@@ -223,11 +223,8 @@ func crawlerConnectTimeoutDefinition() settingDefinition {
 		write: func(policy *yagocrawlcontract.CrawlerRuntimePolicy, value time.Duration) {
 			policy.ConnectTimeout = value
 		},
-	})
-}
-
-func crawlerCrawlDelayDefinition() settingDefinition {
-	return crawlerRuntimeDurationDefinition(crawlerRuntimeDurationSetting{
+	}
+	crawlerCrawlDelaySetting = crawlerRuntimeDurationSetting{
 		key:         settingKeyCrawlerCrawlDelay,
 		title:       "Default crawl delay",
 		description: "Minimum delay between fetch starts for the same host when a profile has no larger delay. Zero disables the default delay. Connected crawlers restart automatically.",
@@ -237,11 +234,8 @@ func crawlerCrawlDelayDefinition() settingDefinition {
 		write: func(policy *yagocrawlcontract.CrawlerRuntimePolicy, value time.Duration) {
 			policy.CrawlDelay = value
 		},
-	})
-}
-
-func crawlerHeaderTimeoutDefinition() settingDefinition {
-	return crawlerRuntimeDurationDefinition(crawlerRuntimeDurationSetting{
+	}
+	crawlerHeaderTimeoutSetting = crawlerRuntimeDurationSetting{
 		key:         settingKeyCrawlerHeaderTimeout,
 		title:       "Crawler response-header timeout",
 		description: "Maximum wait for origin response headers after a request is written. Connected crawlers restart automatically.",
@@ -251,11 +245,8 @@ func crawlerHeaderTimeoutDefinition() settingDefinition {
 		write: func(policy *yagocrawlcontract.CrawlerRuntimePolicy, value time.Duration) {
 			policy.HeaderTimeout = value
 		},
-	})
-}
-
-func crawlerRequestTimeoutDefinition() settingDefinition {
-	return crawlerRuntimeDurationDefinition(crawlerRuntimeDurationSetting{
+	}
+	crawlerRequestTimeoutSetting = crawlerRuntimeDurationSetting{
 		key:         settingKeyCrawlerRequestTimeout,
 		title:       "Crawler request timeout",
 		description: "Whole-request deadline covering connection, redirects, headers, and response body. Connected crawlers restart automatically.",
@@ -265,11 +256,8 @@ func crawlerRequestTimeoutDefinition() settingDefinition {
 		write: func(policy *yagocrawlcontract.CrawlerRuntimePolicy, value time.Duration) {
 			policy.RequestTimeout = value
 		},
-	})
-}
-
-func crawlerTLSTimeoutDefinition() settingDefinition {
-	return crawlerRuntimeDurationDefinition(crawlerRuntimeDurationSetting{
+	}
+	crawlerTLSTimeoutSetting = crawlerRuntimeDurationSetting{
 		key:         settingKeyCrawlerTLSTimeout,
 		title:       "Crawler TLS handshake timeout",
 		description: "Maximum time for an origin TLS handshake. Connected crawlers restart automatically.",
@@ -279,11 +267,8 @@ func crawlerTLSTimeoutDefinition() settingDefinition {
 		write: func(policy *yagocrawlcontract.CrawlerRuntimePolicy, value time.Duration) {
 			policy.TLSTimeout = value
 		},
-	})
-}
-
-func crawlerShutdownGraceDefinition() settingDefinition {
-	return crawlerRuntimeDurationDefinition(crawlerRuntimeDurationSetting{
+	}
+	crawlerShutdownGraceSetting = crawlerRuntimeDurationSetting{
 		key:         settingKeyCrawlerShutdownGrace,
 		title:       "Crawler shutdown grace",
 		description: "Maximum drain time for fetch workers and final progress delivery during stop or automatic policy restart. Connected crawlers restart automatically.",
@@ -293,8 +278,8 @@ func crawlerShutdownGraceDefinition() settingDefinition {
 		write: func(policy *yagocrawlcontract.CrawlerRuntimePolicy, value time.Duration) {
 			policy.ShutdownGrace = value
 		},
-	})
-}
+	}
+)
 
 func crawlerUserAgentDefinition() settingDefinition {
 	return settingDefinition{

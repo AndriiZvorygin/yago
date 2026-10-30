@@ -3,7 +3,6 @@ package yagonode
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/D4rk4/yago/yagonode/internal/rankingmodel"
@@ -50,45 +49,16 @@ func (endpoint searchRankingModelEndpoint) ServeHTTP(
 	writeRankingModelResponse(w, endpoint.catalog)
 }
 
-type searchRankingRollbackEndpoint struct {
-	catalog rankingModelCatalog
-}
-
 func newSearchRankingRollbackEndpoint(catalog rankingModelCatalog) http.Handler {
-	return searchRankingRollbackEndpoint{catalog: catalog}
-}
-
-func (endpoint searchRankingRollbackEndpoint) ServeHTTP(
-	w http.ResponseWriter,
-	r *http.Request,
-) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-
-		return
+	return searchModelRollbackEndpoint{
+		catalog: catalog,
+		messages: searchModelRollbackMessages{
+			catalogUnavailable: "ranking model catalog unavailable",
+			rollbackFailure:    "rollback ranking model",
+			historyEmpty:       "ranking model rollback history is empty",
+		},
+		writeActiveModel: func(w http.ResponseWriter) { writeRankingModelResponse(w, catalog) },
 	}
-	if endpoint.catalog == nil {
-		http.Error(w, "ranking model catalog unavailable", http.StatusServiceUnavailable)
-
-		return
-	}
-	rolledBack, err := endpoint.catalog.Rollback(r.Context())
-	if err != nil {
-		http.Error(
-			w,
-			fmt.Sprintf("rollback ranking model: %v", err),
-			http.StatusInternalServerError,
-		)
-
-		return
-	}
-	if !rolledBack {
-		http.Error(w, "ranking model rollback history is empty", http.StatusConflict)
-
-		return
-	}
-	writeRankingModelResponse(w, endpoint.catalog)
 }
 
 func writeRankingModelResponse(w http.ResponseWriter, catalog rankingModelCatalog) {

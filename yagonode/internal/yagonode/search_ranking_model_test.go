@@ -70,22 +70,48 @@ func TestSearchRankingModelEndpointRejectsMethodAndUnavailableCatalog(t *testing
 }
 
 func TestSearchRankingRollbackEndpointCoversOutcomes(t *testing.T) {
+	rolledBack := &rankingModelCatalogFixture{
+		rolledBack: true,
+		snapshot:   []byte(`{"format":"snapshot"}`),
+	}
+	activeModel := httptest.NewRecorder()
+	writeRankingModelResponse(activeModel, rolledBack)
 	tests := []struct {
 		name    string
 		method  string
 		catalog rankingModelCatalog
 		want    int
+		body    string
 	}{
-		{"method", http.MethodGet, &rankingModelCatalogFixture{}, http.StatusMethodNotAllowed},
-		{"unavailable", http.MethodPost, nil, http.StatusServiceUnavailable},
+		{
+			"method",
+			http.MethodGet,
+			&rankingModelCatalogFixture{},
+			http.StatusMethodNotAllowed,
+			"method not allowed\n",
+		},
+		{
+			"unavailable",
+			http.MethodPost,
+			nil,
+			http.StatusServiceUnavailable,
+			"ranking model catalog unavailable\n",
+		},
 		{
 			"failure",
 			http.MethodPost,
 			&rankingModelCatalogFixture{err: errors.New("disk")},
 			http.StatusInternalServerError,
+			"rollback ranking model: disk\n",
 		},
-		{"empty", http.MethodPost, &rankingModelCatalogFixture{}, http.StatusConflict},
-		{"success", http.MethodPost, &rankingModelCatalogFixture{rolledBack: true}, http.StatusOK},
+		{
+			"empty",
+			http.MethodPost,
+			&rankingModelCatalogFixture{},
+			http.StatusConflict,
+			"ranking model rollback history is empty\n",
+		},
+		{"success", http.MethodPost, rolledBack, http.StatusOK, activeModel.Body.String()},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -99,11 +125,15 @@ func TestSearchRankingRollbackEndpointCoversOutcomes(t *testing.T) {
 					nil,
 				),
 			)
-			if recorder.Code != test.want {
+			if recorder.Code != test.want || recorder.Body.String() != test.body {
 				t.Fatalf("status = %d, body = %q", recorder.Code, recorder.Body.String())
 			}
 			if test.name == "method" && recorder.Header().Get("Allow") != http.MethodPost {
 				t.Fatalf("Allow = %q", recorder.Header().Get("Allow"))
+			}
+			if test.name == "success" &&
+				recorder.Header().Get("Content-Type") != "application/json" {
+				t.Fatalf("Content-Type = %q", recorder.Header().Get("Content-Type"))
 			}
 		})
 	}

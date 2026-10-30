@@ -120,45 +120,16 @@ func (endpoint searchSafetyTrainEndpoint) ServeHTTP(w http.ResponseWriter, r *ht
 	writeSafetyModelResponse(w, endpoint.catalog)
 }
 
-type searchSafetyRollbackEndpoint struct {
-	catalog safetyModelCatalog
-}
-
 func newSearchSafetyRollbackEndpoint(catalog safetyModelCatalog) http.Handler {
-	return searchSafetyRollbackEndpoint{catalog: catalog}
-}
-
-func (endpoint searchSafetyRollbackEndpoint) ServeHTTP(
-	w http.ResponseWriter,
-	r *http.Request,
-) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-
-		return
+	return searchModelRollbackEndpoint{
+		catalog: catalog,
+		messages: searchModelRollbackMessages{
+			catalogUnavailable: "content safety model catalog unavailable",
+			rollbackFailure:    "rollback content safety model",
+			historyEmpty:       "content safety model rollback is unavailable",
+		},
+		writeActiveModel: func(w http.ResponseWriter) { writeSafetyModelResponse(w, catalog) },
 	}
-	if endpoint.catalog == nil {
-		http.Error(w, "content safety model catalog unavailable", http.StatusServiceUnavailable)
-
-		return
-	}
-	rolledBack, err := endpoint.catalog.Rollback(r.Context())
-	if err != nil {
-		http.Error(
-			w,
-			fmt.Sprintf("rollback content safety model: %v", err),
-			http.StatusInternalServerError,
-		)
-
-		return
-	}
-	if !rolledBack {
-		http.Error(w, "content safety model rollback is unavailable", http.StatusConflict)
-
-		return
-	}
-	writeSafetyModelResponse(w, endpoint.catalog)
 }
 
 func decodeSafetyTrainingRequest(
