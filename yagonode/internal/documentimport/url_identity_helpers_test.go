@@ -14,7 +14,12 @@ func TestLegacyURLIdentityHelpersClassifyAcceptedAndRejectedValues(t *testing.T)
 	fragmentAuthority, fragmentParseErr, fragmentParsed := legacyAuthorityError(rawWithFragment)
 	var fragmentEscape url.EscapeError
 	if !fragmentParsed || !errors.As(fragmentParseErr.Err, &fragmentEscape) {
-		t.Fatalf("fragment malformed-escape parser result = %q, %v, %t", fragmentAuthority, fragmentParseErr, fragmentParsed)
+		t.Fatalf(
+			"fragment malformed-escape parser result = %q, %v, %t",
+			fragmentAuthority,
+			fragmentParseErr,
+			fragmentParsed,
+		)
 	}
 	if encodedHostWhitespaceStatus(fragmentAuthority, fragmentEscape) != "" ||
 		invalidHostPercentEscapeStatus(rawWithFragment, fragmentAuthority) != "" ||
@@ -29,7 +34,9 @@ func TestLegacyURLIdentityHelpersClassifyAcceptedAndRejectedValues(t *testing.T)
 			t.Errorf("unpreservable malformed URL %q status = %q", raw, got)
 		}
 	}
-	if got := controlCharacterIdentityStatus("https://example.test/a\nb"); got != LegacyURLStatusControlCharacter {
+	if got := controlCharacterIdentityStatus(
+		"https://example.test/a\nb",
+	); got != LegacyURLStatusControlCharacter {
 		t.Fatalf("control-character status = %q", got)
 	}
 	for _, raw := range []string{
@@ -42,7 +49,9 @@ func TestLegacyURLIdentityHelpersClassifyAcceptedAndRejectedValues(t *testing.T)
 			t.Errorf("control-character URL %q received status %q", raw, got)
 		}
 	}
+}
 
+func TestLegacyURLIdentityInvalidAuthorityPreservation(t *testing.T) {
 	if got := preservableInvalidAuthorityStatus(
 		"https://bad%20host.example.test:bad/path", "bad%20host.example.test:bad",
 	); got != LegacyURLStatusInvalidAuthority {
@@ -60,8 +69,12 @@ func TestLegacyURLIdentityHelpersClassifyAcceptedAndRejectedValues(t *testing.T)
 			t.Errorf("unsafe authority %q received status %q", fixture[1], got)
 		}
 	}
+}
 
-	if got := malformedQueryPercentEscapeStatus("https://example.test/?q=%zz"); got != LegacyURLStatusInvalidEscape {
+func TestLegacyURLIdentityMalformedQueryAndPathEscapes(t *testing.T) {
+	if got := malformedQueryPercentEscapeStatus(
+		"https://example.test/?q=%zz",
+	); got != LegacyURLStatusInvalidEscape {
 		t.Fatalf("malformed query status = %q", got)
 	}
 	for _, raw := range []string{
@@ -95,7 +108,9 @@ func TestLegacyURLIdentityHelpersClassifyAcceptedAndRejectedValues(t *testing.T)
 	if got := invalidHostPercentEscapeStatus("relative%zz", "bad%zz"); got != "" {
 		t.Fatalf("relative host escape status = %q", got)
 	}
+}
 
+func TestLegacyURLIdentityInvalidHostEscape(t *testing.T) {
 	if got := invalidHostPercentEscapeStatus(
 		"https://bad%zz.example.test/path", "bad%zz.example.test",
 	); got != LegacyURLStatusInvalidHostEscape {
@@ -127,7 +142,12 @@ func TestLegacyURLIdentityEscapeAndAuthorityBoundaries(t *testing.T) {
 		{value: "%2f%", want: true},
 	} {
 		if got := hasMalformedPercentEscape(fixture.value); got != fixture.want {
-			t.Errorf("hasMalformedPercentEscape(%q) = %t, want %t", fixture.value, got, fixture.want)
+			t.Errorf(
+				"hasMalformedPercentEscape(%q) = %t, want %t",
+				fixture.value,
+				got,
+				fixture.want,
+			)
 		}
 	}
 
@@ -154,7 +174,10 @@ func TestLegacyURLIdentityEscapeAndAuthorityBoundaries(t *testing.T) {
 	}
 
 	escape := url.EscapeError("invalid URL escape %20")
-	if got := encodedHostWhitespaceStatus("bad%20host.example.test", escape); got != LegacyURLStatusEncodedHostWhitespace {
+	if got := encodedHostWhitespaceStatus(
+		"bad%20host.example.test",
+		escape,
+	); got != LegacyURLStatusEncodedHostWhitespace {
 		t.Fatalf("encoded whitespace status = %q", got)
 	}
 	for _, fixture := range []struct {

@@ -18,11 +18,15 @@ import (
 	"testing"
 
 	"github.com/D4rk4/yago/yagocrawlcontract"
-	"github.com/D4rk4/yago/yagomodel"
 )
 
 func TestFrontierOptionsEndpointAndSourceIDValidation(t *testing.T) {
-	base := frontierImportOptions{Input: "frontier", Profiles: "profiles", BatchRecords: 1, DryRun: true}
+	base := frontierImportOptions{
+		Input:        "frontier",
+		Profiles:     "profiles",
+		BatchRecords: 1,
+		DryRun:       true,
+	}
 	for _, edit := range []func(*frontierImportOptions){
 		func(o *frontierImportOptions) { o.Input = "" },
 		func(o *frontierImportOptions) { o.Profiles = "" },
@@ -60,7 +64,10 @@ func TestFrontierOptionsEndpointAndSourceIDValidation(t *testing.T) {
 			t.Errorf("endpoint %q was accepted", raw)
 		}
 	}
-	if _, err := validateFrontierEndpoint("https://example.test/admin/crawl/frontier/import", false); err != nil {
+	if _, err := validateFrontierEndpoint(
+		"https://example.test/admin/crawl/frontier/import",
+		false,
+	); err != nil {
 		t.Fatalf("valid endpoint rejected: %v", err)
 	}
 	for _, value := range []string{"A", "source-1", "source_name", "source.name"} {
@@ -75,7 +82,7 @@ func TestFrontierOptionsEndpointAndSourceIDValidation(t *testing.T) {
 	}
 }
 
-func TestFrontierHeaderAndProfileSidecarValidation(t *testing.T) {
+func TestFrontierHeaderValidation(t *testing.T) {
 	for _, input := range []string{
 		"not-json\n",
 		"{\"type\":\"wrong\",\"version\":1,\"sourceId\":\"source\"}\n",
@@ -86,16 +93,32 @@ func TestFrontierHeaderAndProfileSidecarValidation(t *testing.T) {
 			t.Errorf("invalid frontier header %q accepted", input)
 		}
 	}
-	headerLine := mustJSONRaw(t, frontierFileHeader{Type: "yacy-queue-frontier", Version: 1, SourceID: "source"})
-	if header, offset, err := readFrontierHeader(bufio.NewReader(bytes.NewReader(headerLine))); err != nil ||
-		header.SourceID != "source" || offset != int64(len(headerLine)) {
+	headerLine := mustJSONRaw(
+		t,
+		frontierFileHeader{Type: "yacy-queue-frontier", Version: 1, SourceID: "source"},
+	)
+	if header, offset, err := readFrontierHeader(
+		bufio.NewReader(bytes.NewReader(headerLine)),
+	); err != nil ||
+		header.SourceID != "source" ||
+		offset != int64(len(headerLine)) {
 		t.Fatalf("unterminated header = %+v, %d, %v", header, offset, err)
 	}
-	if _, _, err := readFrontierHeader(bufio.NewReader(strings.NewReader(strings.Repeat("x", yagocrawlcontract.MaximumCrawlURLBytes*2)))); err == nil {
+	if _, _, err := readFrontierHeader(
+		bufio.NewReader(
+			strings.NewReader(strings.Repeat("x", yagocrawlcontract.MaximumCrawlURLBytes*2)),
+		),
+	); err == nil {
 		t.Fatal("oversized header was accepted")
 	}
-	if record, done, err := readYaCyProfileRecord(bufio.NewReader(strings.NewReader(""))); err != nil ||
-		!done || record.Handle != "" {
+}
+
+func TestYaCyProfileSidecarValidation(t *testing.T) {
+	if record, done, err := readYaCyProfileRecord(
+		bufio.NewReader(strings.NewReader("")),
+	); err != nil ||
+		!done ||
+		record.Handle != "" {
 		t.Fatalf("empty profile stream = %+v, %t, %v", record, done, err)
 	}
 	for _, input := range []string{
@@ -105,11 +128,15 @@ func TestFrontierHeaderAndProfileSidecarValidation(t *testing.T) {
 		"{\"type\":\"yacy-crawl-profile\",\"version\":1,\"handle\":\"\",\"fields\":{\"depth\":\"1\"}}\n",
 		"{\"type\":\"yacy-crawl-profile\",\"version\":1,\"handle\":\"p\",\"fields\":{}}\n",
 	} {
-		if _, _, err := readYaCyProfileRecord(bufio.NewReader(strings.NewReader(input))); err == nil {
+		if _, _, err := readYaCyProfileRecord(
+			bufio.NewReader(strings.NewReader(input)),
+		); err == nil {
 			t.Errorf("invalid profile row %q accepted", input)
 		}
 	}
-	if _, _, err := readYaCyProfileRecord(bufio.NewReader(strings.NewReader(strings.Repeat("x", 20<<20)))); err == nil {
+	if _, _, err := readYaCyProfileRecord(
+		bufio.NewReader(strings.NewReader(strings.Repeat("x", 20<<20))),
+	); err == nil {
 		t.Fatal("oversized profile row was accepted")
 	}
 	if err := validateEmptyProfileSidecar(t); err == nil {
@@ -164,7 +191,12 @@ func TestYaCyProfileLimitsAndRequestMappingAcceptAndRejectInputs(t *testing.T) {
 		testProfile := profile
 		err := applyYaCyProfileLimits(fixture.fields, &testProfile)
 		if (err != nil) != fixture.wantErr {
-			t.Errorf("profile fields %v error = %v, wantErr=%t", fixture.fields, err, fixture.wantErr)
+			t.Errorf(
+				"profile fields %v error = %v, wantErr=%t",
+				fixture.fields,
+				err,
+				fixture.wantErr,
+			)
 		}
 	}
 	if _, err := mapYaCyProfile(yaCyProfileRecord{
@@ -193,7 +225,7 @@ func TestYaCyProfileLimitsAndRequestMappingAcceptAndRejectInputs(t *testing.T) {
 	}
 	request, err := mapYaCyFrontierRequest(yaCyFrontierRecord{
 		Stack: "LOCAL", URL: "https://example.test/", ProfileHandle: "p",
-		InitiatorHex:   hex.EncodeToString([]byte(yagomodel.WordHash("migration initiator"))),
+		InitiatorHex:   hex.EncodeToString([]byte("AAAAAAAAAAAA")),
 		QueuedAtMillis: 1_700_000_000_000,
 	}, profile)
 	if err != nil || request.Initiator == "" || request.AppDate.IsZero() {
@@ -230,56 +262,94 @@ func TestSendFrontierImportBatchReportsHTTPAndReceiptFailures(t *testing.T) {
 		{"transport failure", 0, "", true, true},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
-			client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-				if request.Header.Get("Authorization") != "Bearer key" {
-					t.Error("frontier API key was omitted")
-				}
-				if fixture.transportErr {
-					return nil, errors.New("transport failure")
-				}
-				return &http.Response{
-					StatusCode: fixture.status, Body: io.NopCloser(strings.NewReader(fixture.body)),
-					Header: make(http.Header), Request: request,
-				}, nil
-			})}
+			client := &http.Client{
+				Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+					if request.Header.Get("Authorization") != "Bearer key" {
+						t.Error("frontier API key was omitted")
+					}
+					if fixture.transportErr {
+						return nil, errors.New("transport failure")
+					}
+					return &http.Response{
+						StatusCode: fixture.status,
+						Body:       io.NopCloser(strings.NewReader(fixture.body)),
+						Header:     make(http.Header),
+						Request:    request,
+					}, nil
+				}),
+			}
 			_, err := sendFrontierImportBatch(
-				context.Background(), client, "https://example.test/admin/crawl/frontier/import", "key", batch,
+				context.Background(),
+				client,
+				"https://example.test/admin/crawl/frontier/import",
+				"key",
+				batch,
 			)
 			if (err != nil) != fixture.wantErr {
 				t.Fatalf("send error = %v, wantErr=%t", err, fixture.wantErr)
 			}
 		})
 	}
-	if _, err := sendFrontierImportBatch(context.Background(), http.DefaultClient, "://invalid", "key", batch); err == nil {
+	if _, err := sendFrontierImportBatch(
+		context.Background(),
+		http.DefaultClient,
+		"://invalid",
+		"key",
+		batch,
+	); err == nil {
 		t.Fatal("malformed destination was accepted")
 	}
 }
 
 func TestFrontierCheckpointAndProgressFailurePaths(t *testing.T) {
+	base, statePath := newFrontierCheckpointFixture(t)
+	assertFrontierCheckpointVariants(t, base)
+	assertFrontierCheckpointFileFailures(t, statePath)
+	assertFrontierProgressWriters(t)
+}
+
+func newFrontierCheckpointFixture(t *testing.T) (frontierCheckpointValidation, string) {
+	t.Helper()
 	input, profilePath := writeFrontierFixtures(t, nil)
 	inputFile, err := os.Open(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer inputFile.Close()
+	cleanupFrontierFile(t, inputFile)
 	profileFile, err := os.Open(profilePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer profileFile.Close()
-	inputInfo, _ := inputFile.Stat()
-	profileInfo, _ := profileFile.Stat()
+	cleanupFrontierFile(t, profileFile)
+	inputInfo, err := inputFile.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileInfo, err := profileFile.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
 	endpoint, _ := url.Parse("https://example.test/admin/crawl/frontier/import")
 	base := frontierCheckpointValidation{
 		found: true, inputInfo: inputInfo, profileInfo: profileInfo, endpoint: endpoint,
 		inputHash: "input", profilesHash: "profiles", sourceID: "fixture-source",
 		state: frontierImportCheckpoint{
-			Version: 1, SourceID: "fixture-source", InputSHA256: "input", ProfilesSHA256: "profiles",
-			InputSize: inputInfo.Size(), InputModTime: inputInfo.ModTime().UnixNano(),
-			ProfilesSize: profileInfo.Size(), ProfilesModTime: profileInfo.ModTime().UnixNano(),
+			Version:                1,
+			SourceID:               "fixture-source",
+			InputSHA256:            "input",
+			ProfilesSHA256:         "profiles",
+			InputSize:              inputInfo.Size(),
+			InputModTime:           inputInfo.ModTime().UnixNano(),
+			ProfilesSize:           profileInfo.Size(),
+			ProfilesModTime:        profileInfo.ModTime().UnixNano(),
 			DestinationFingerprint: destinationFingerprint(endpoint),
 		},
 	}
+	return base, filepath.Join(t.TempDir(), "state.json")
+}
+
+func assertFrontierCheckpointVariants(t *testing.T, base frontierCheckpointValidation) {
+	t.Helper()
 	if err := validateFrontierCheckpoint(base); err != nil {
 		t.Fatalf("valid checkpoint rejected: %v", err)
 	}
@@ -293,7 +363,7 @@ func TestFrontierCheckpointAndProgressFailurePaths(t *testing.T) {
 		func(c *frontierCheckpointValidation) { c.state.ProfilesSize++ },
 		func(c *frontierCheckpointValidation) { c.state.ProfilesModTime++ },
 		func(c *frontierCheckpointValidation) { c.state.Offset = -1 },
-		func(c *frontierCheckpointValidation) { c.state.Offset = inputInfo.Size() + 1 },
+		func(c *frontierCheckpointValidation) { c.state.Offset = base.state.InputSize + 1 },
 		func(c *frontierCheckpointValidation) { c.endpoint = nil },
 		func(c *frontierCheckpointValidation) { c.state.DestinationFingerprint = "other" },
 	} {
@@ -311,7 +381,10 @@ func TestFrontierCheckpointAndProgressFailurePaths(t *testing.T) {
 	if err := validateFrontierCheckpoint(base); err != nil {
 		t.Fatalf("new checkpoint: %v", err)
 	}
-	statePath := filepath.Join(t.TempDir(), "state.json")
+}
+
+func assertFrontierCheckpointFileFailures(t *testing.T, statePath string) {
+	t.Helper()
 	if _, found, err := loadFrontierImportCheckpoint(statePath); err != nil || found {
 		t.Fatalf("missing checkpoint = found %t, err %v", found, err)
 	}
@@ -330,13 +403,25 @@ func TestFrontierCheckpointAndProgressFailurePaths(t *testing.T) {
 	if _, _, err := loadFrontierImportCheckpoint(statePath); err == nil {
 		t.Fatal("directory was accepted as a checkpoint")
 	}
+}
+
+func assertFrontierProgressWriters(t *testing.T) {
+	t.Helper()
 	if err := writeFrontierImportProgress(errorWriter{}, frontierImportCheckpoint{}); err == nil {
 		t.Fatal("progress write error was ignored")
 	}
-	if err := writeFrontierImportSummary(errorWriter{}, frontierImportCheckpoint{}, true); err == nil {
+	if err := writeFrontierImportSummary(
+		errorWriter{},
+		frontierImportCheckpoint{},
+		true,
+	); err == nil {
 		t.Fatal("summary write error was ignored")
 	}
-	if err := writeFrontierImportSummary(io.Discard, frontierImportCheckpoint{}, false); err != nil {
+	if err := writeFrontierImportSummary(
+		io.Discard,
+		frontierImportCheckpoint{},
+		false,
+	); err != nil {
 		t.Fatalf("progress summary: %v", err)
 	}
 }
@@ -360,6 +445,12 @@ func TestHashOpenFileReportsSeekAndReadFailures(t *testing.T) {
 
 func TestFrontierImportRejectsOpenAndFingerprintFailures(t *testing.T) {
 	input, profiles := writeFrontierFixtures(t, nil)
+	assertFrontierImportRejectsInvalidPaths(t, input, profiles)
+	assertFrontierSourceInspectionRejectsClosedFiles(t, input, profiles)
+}
+
+func assertFrontierImportRejectsInvalidPaths(t *testing.T, input, profiles string) {
+	t.Helper()
 	base := frontierImportOptions{
 		Input: input, Profiles: profiles, State: filepath.Join(t.TempDir(), "state.json"),
 		BatchRecords: 1, DryRun: true,
@@ -411,14 +502,20 @@ func TestFrontierImportRejectsOpenAndFingerprintFailures(t *testing.T) {
 	if err := importFrontier(context.Background(), inputDirectory, io.Discard); err == nil {
 		t.Fatal("directory was accepted as a frontier file")
 	}
+}
+
+func assertFrontierSourceInspectionRejectsClosedFiles(t *testing.T, input, profiles string) {
+	t.Helper()
 	inputFile, err := os.Open(input)
 	if err != nil {
 		t.Fatal(err)
 	}
+	cleanupFrontierFile(t, inputFile)
 	profileFile, err := os.Open(profiles)
 	if err != nil {
 		t.Fatal(err)
 	}
+	cleanupFrontierFile(t, profileFile)
 	if err := inputFile.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +529,7 @@ func TestFrontierImportRejectsOpenAndFingerprintFailures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer inputFile.Close()
+	cleanupFrontierFile(t, inputFile)
 	if _, err := loadFrontierSourceData(inputFile, profileFile); err == nil {
 		t.Fatal("closed profile sidecar passed source inspection")
 	}
@@ -444,12 +541,12 @@ func TestPrepareFrontierSessionRejectsHeaderCheckpointAndSourceMismatch(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer inputFile.Close()
+	cleanupFrontierFile(t, inputFile)
 	profileFile, err := os.Open(profiles)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer profileFile.Close()
+	cleanupFrontierFile(t, profileFile)
 	source, err := loadFrontierSourceData(inputFile, profileFile)
 	if err != nil {
 		t.Fatal(err)
@@ -473,6 +570,38 @@ func TestPrepareFrontierSessionRejectsHeaderCheckpointAndSourceMismatch(t *testi
 	if _, err := prepareFrontierSession(inputFile, options, source); err == nil {
 		t.Fatal("unwritable checkpoint path was accepted")
 	}
+	assertFrontierSessionRejectsMalformedRecovery(
+		t,
+		inputFile,
+		profileFile,
+		options,
+	)
+}
+
+func assertFrontierSessionRejectsMalformedRecovery(
+	t *testing.T,
+	inputFile, profileFile *os.File,
+	options frontierImportOptions,
+) {
+	t.Helper()
+	sourceInput, sourceProfiles := options.Input, options.Profiles
+	assertFrontierSessionRejectsMalformedHeader(t, profileFile, options)
+	assertFrontierSessionRejectsSavedPrefix(t, profileFile, options)
+	assertFrontierSessionRejectsProfileMismatch(
+		t,
+		inputFile,
+		options,
+		sourceInput,
+		sourceProfiles,
+	)
+}
+
+func assertFrontierSessionRejectsMalformedHeader(
+	t *testing.T,
+	profileFile *os.File,
+	options frontierImportOptions,
+) {
+	t.Helper()
 	badInput := filepath.Join(t.TempDir(), "bad-frontier.jsonl")
 	if err := os.WriteFile(badInput, []byte("invalid header\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -493,6 +622,14 @@ func TestPrepareFrontierSessionRejectsHeaderCheckpointAndSourceMismatch(t *testi
 	if err := badFile.Close(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func assertFrontierSessionRejectsSavedPrefix(
+	t *testing.T,
+	profileFile *os.File,
+	options frontierImportOptions,
+) {
+	t.Helper()
 	restoreInput := filepath.Join(t.TempDir(), "restore-frontier.jsonl")
 	header, err := json.Marshal(frontierFileHeader{
 		Type: "yacy-queue-frontier", Version: 1, SourceID: "fixture-source",
@@ -508,16 +645,22 @@ func TestPrepareFrontierSessionRejectsHeaderCheckpointAndSourceMismatch(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restoreFile.Close()
+	cleanupFrontierFile(t, restoreFile)
 	restoreSource, err := loadFrontierSourceData(restoreFile, profileFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := readFrontierRecoveryCheckpoint(t, restoreFile, restoreSource, options.Endpoint, int64(len(restoreBytes)))
+	state, err := readFrontierRecoveryCheckpoint(
+		t,
+		restoreFile,
+		restoreSource,
+		options.Endpoint,
+		int64(len(restoreBytes)),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	options.Input, options.Profiles = restoreInput, profiles
+	options.Input = restoreInput
 	options.State = filepath.Join(t.TempDir(), "restore.state")
 	options.DryRun = false
 	if err := saveCheckpoint(options.State, state); err != nil {
@@ -526,25 +669,36 @@ func TestPrepareFrontierSessionRejectsHeaderCheckpointAndSourceMismatch(t *testi
 	if _, err := prepareFrontierSession(restoreFile, options, restoreSource); err == nil {
 		t.Fatal("invalid saved prefix was accepted during session recovery")
 	}
+}
+
+func assertFrontierSessionRejectsProfileMismatch(
+	t *testing.T,
+	inputFile *os.File,
+	options frontierImportOptions,
+	sourceInput, sourceProfiles string,
+) {
+	t.Helper()
 	options.DryRun = true
-	profileBytes, err := os.ReadFile(profiles)
+	profileBytes, err := os.ReadFile(options.Profiles)
 	if err != nil {
 		t.Fatal(err)
 	}
-	profileBytes = []byte(strings.Replace(string(profileBytes), "fixture-source", "other-source", 1))
-	if err := os.WriteFile(profiles, profileBytes, 0o600); err != nil {
+	profileBytes = []byte(
+		strings.Replace(string(profileBytes), "fixture-source", "other-source", 1),
+	)
+	if err := os.WriteFile(options.Profiles, profileBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	profileMismatch, err := os.Open(profiles)
+	profileMismatch, err := os.Open(options.Profiles)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer profileMismatch.Close()
+	cleanupFrontierFile(t, profileMismatch)
 	mismatchedSource, err := loadFrontierSourceData(inputFile, profileMismatch)
 	if err != nil {
 		t.Fatal(err)
 	}
-	options.Input, options.Profiles = input, profiles
+	options.Input, options.Profiles = sourceInput, sourceProfiles
 	if _, err := prepareFrontierSession(inputFile, options, mismatchedSource); err == nil {
 		t.Fatal("frontier/profile source mismatch was accepted")
 	}
@@ -571,12 +725,20 @@ func readFrontierRecoveryCheckpoint(
 	state.Offset = offset
 	state.DestinationFingerprint = destinationFingerprint(parsed)
 	if _, err := input.Seek(0, io.SeekStart); err != nil {
-		return frontierImportCheckpoint{}, err
+		return frontierImportCheckpoint{}, fmt.Errorf("rewind frontier input: %w", err)
 	}
 	return state, nil
 }
 
-func TestFrontierSeenRecoveryValidatesRecordsAndLimits(t *testing.T) {
+type frontierSeenValidationFixture struct {
+	profiles   map[string]frontierSourceProfile
+	row        yaCyFrontierRecord
+	headerLine []byte
+	validData  []byte
+}
+
+func newFrontierSeenValidationFixture(t *testing.T) frontierSeenValidationFixture {
+	t.Helper()
 	profile, err := mapYaCyProfile(yaCyProfileRecord{
 		Type: "yacy-crawl-profile", Version: 1, Handle: "source-profile",
 		Fields: map[string]string{"generalDepth": "1"},
@@ -601,78 +763,97 @@ func TestFrontierSeenRecoveryValidatesRecordsAndLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	headerLine := append(header, '\n')
-	validLine := append(rowLine, '\n')
-	validData := append(append([]byte{}, headerLine...), validLine...)
+	headerLine := append([]byte(nil), header...)
+	headerLine = append(headerLine, '\n')
+	validLine := append([]byte(nil), rowLine...)
+	validLine = append(validLine, '\n')
+	validData := append(append([]byte(nil), headerLine...), validLine...)
+	return frontierSeenValidationFixture{
+		profiles: profiles, row: row, headerLine: headerLine, validData: validData,
+	}
+}
+
+func TestFrontierSeenRecoveryRejectsInvalidPrefixes(t *testing.T) {
+	fixture := newFrontierSeenValidationFixture(t)
+	remoteRow := fixture.row
+	remoteRow.Stack = "REMOTE"
+	remoteLine := mustJSONRaw(t, remoteRow)
+	remoteLine = append(remoteLine, '\n')
+	malformedData := append(append([]byte(nil), fixture.headerLine...), []byte("bad\n")...)
+	remoteData := append(append([]byte(nil), fixture.headerLine...), remoteLine...)
 	for _, fixture := range []struct {
 		name     string
 		data     []byte
 		end      int64
 		profiles map[string]frontierSourceProfile
 	}{
-		{name: "invalid header", data: []byte("invalid\n"), end: 0, profiles: profiles},
-		{name: "before header boundary", data: validData, end: int64(len(headerLine) - 1), profiles: profiles},
-		{name: "past record boundary", data: validData, end: int64(len(headerLine) + 1), profiles: profiles},
-		{name: "past available data", data: validData, end: int64(len(validData) + 4), profiles: profiles},
-		{name: "malformed record", data: append(append([]byte{}, headerLine...), []byte("bad\n")...), end: int64(len(headerLine) + 4), profiles: profiles},
-		{name: "unknown profile", data: validData, end: int64(len(validData)), profiles: map[string]frontierSourceProfile{}},
+		{name: "invalid header", data: []byte("invalid\n"), end: 0, profiles: fixture.profiles},
+		{name: "before header boundary", data: fixture.validData, end: int64(len(fixture.headerLine) - 1), profiles: fixture.profiles},
+		{name: "past record boundary", data: fixture.validData, end: int64(len(fixture.headerLine) + 1), profiles: fixture.profiles},
+		{name: "past available data", data: fixture.validData, end: int64(len(fixture.validData) + 4), profiles: fixture.profiles},
+		{name: "malformed record", data: malformedData, end: int64(len(malformedData)), profiles: fixture.profiles},
+		{name: "unknown profile", data: fixture.validData, end: int64(len(fixture.validData)), profiles: map[string]frontierSourceProfile{}},
 		{
-			name: "nonlocal record", data: append(append([]byte{}, headerLine...),
-				append(mustJSONRaw(t, yaCyFrontierRecord{
-					Type: "crawlRequest", Version: 1, Stack: "REMOTE",
-					URL: "https://example.test/one", ProfileHandle: "source-profile",
-				}), '\n')...),
-			end: int64(len(headerLine) + len(mustJSONRaw(t, row)) + 1), profiles: profiles,
+			name: "nonlocal record", data: remoteData,
+			end: int64(len(remoteData)), profiles: fixture.profiles,
 		},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			file := writeProfileContent(t, fixture.data)
-			defer file.Close()
+			cleanupFrontierFile(t, file)
 			if _, err := rebuildFrontierSeen(file, fixture.end, fixture.profiles); err == nil {
 				t.Fatal("invalid checkpoint prefix was accepted")
 			}
 		})
 	}
-	file := writeProfileContent(t, validData)
-	defer file.Close()
-	seen, err := rebuildFrontierSeen(file, int64(len(validData)), profiles)
+}
+
+func TestFrontierSeenRecoveryRestoresRowsAndEnforcesLimits(t *testing.T) {
+	fixture := newFrontierSeenValidationFixture(t)
+	file := writeProfileContent(t, fixture.validData)
+	cleanupFrontierFile(t, file)
+	seen, err := rebuildFrontierSeen(file, int64(len(fixture.validData)), fixture.profiles)
 	if err != nil || len(seen) != 1 {
 		t.Fatalf("valid frontier prefix = %d seen rows, %v", len(seen), err)
 	}
-	secondRow := row
+	secondRow := fixture.row
 	secondRow.URL = "https://example.test/two"
 	secondLine, err := json.Marshal(secondRow)
 	if err != nil {
 		t.Fatal(err)
 	}
-	uniqueRows := append(append([]byte{}, validData...), append(secondLine, '\n')...)
+	uniqueRows := append(append([]byte(nil), fixture.validData...), secondLine...)
+	uniqueRows = append(uniqueRows, '\n')
 	limitedFile := writeProfileContent(t, uniqueRows)
+	cleanupFrontierFile(t, limitedFile)
 	if _, err := rebuildFrontierSeenWithLimit(
-		limitedFile, int64(len(uniqueRows)), profiles, 1,
+		limitedFile, int64(len(uniqueRows)), fixture.profiles, 1,
 	); err == nil {
 		t.Fatal("recovered frontier exceeded its seen-URL bound")
 	}
-	if err := limitedFile.Close(); err != nil {
-		t.Fatal(err)
-	}
-	closedFile := writeProfileContent(t, validData)
+	closedFile := writeProfileContent(t, fixture.validData)
 	if err := closedFile.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := rebuildFrontierSeen(closedFile, int64(len(validData)), profiles); err == nil {
+	if _, err := rebuildFrontierSeen(
+		closedFile,
+		int64(len(fixture.validData)),
+		fixture.profiles,
+	); err == nil {
 		t.Fatal("closed frontier input was accepted during recovery")
 	}
-	oversizedData := append(append([]byte{}, headerLine...),
+	oversizedData := append(append([]byte(nil), fixture.headerLine...),
 		bytes.Repeat([]byte("x"), yagocrawlcontract.MaximumCrawlOrderImportBatchBytes*16+1)...)
 	oversizedFile := writeProfileContent(t, oversizedData)
+	cleanupFrontierFile(t, oversizedFile)
 	if _, err := rebuildFrontierSeen(
-		oversizedFile, int64(len(oversizedData)), profiles,
+		oversizedFile, int64(len(oversizedData)), fixture.profiles,
 	); err == nil {
 		t.Fatal("oversized saved frontier record was accepted")
 	}
-	if err := oversizedFile.Close(); err != nil {
-		t.Fatal(err)
-	}
+}
+
+func TestFrontierSeenTrackingDeduplicatesAndEnforcesLimits(t *testing.T) {
 	seenRows := make(map[string]struct{})
 	if duplicate, err := addFrontierSeen(seenRows, "profile\x00url", 1); err != nil || duplicate {
 		t.Fatalf("first identity = duplicate %t, err %v", duplicate, err)
@@ -685,7 +866,10 @@ func TestFrontierSeenRecoveryValidatesRecordsAndLimits(t *testing.T) {
 	}
 	run := newFrontierTestRun(t, true, 1)
 	run.maximumSeen = 0
-	if duplicate, err := run.recordSeen(validFrontierRow("p", "https://example.test/")); err != nil || duplicate {
+	if duplicate, err := run.recordSeen(
+		validFrontierRow("p", "https://example.test/"),
+	); err != nil ||
+		duplicate {
 		t.Fatalf("default seen limit = duplicate %t, err %v", duplicate, err)
 	}
 }
@@ -695,7 +879,7 @@ func TestSeekFrontierImportInputReportsSuccessAndFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	cleanupFrontierFile(t, file)
 	if err := seekFrontierImportInput(file, 0); err != nil {
 		t.Fatalf("seek regular frontier: %v", err)
 	}
@@ -710,12 +894,12 @@ func TestPrepareFrontierSessionReportsNonseekableInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer inputFile.Close()
+	cleanupFrontierFile(t, inputFile)
 	profileFile, err := os.Open(profilesPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer profileFile.Close()
+	cleanupFrontierFile(t, profileFile)
 	source, err := loadFrontierSourceData(inputFile, profileFile)
 	if err != nil {
 		t.Fatal(err)
@@ -730,7 +914,7 @@ func TestPrepareFrontierSessionReportsNonseekableInput(t *testing.T) {
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	cleanupFrontierFile(t, reader)
 	_, err = prepareFrontierSession(reader, frontierImportOptions{
 		Input: inputPath, Profiles: profilesPath,
 		Endpoint: "https://example.test/admin/crawl/frontier/import",
@@ -760,7 +944,7 @@ func TestReadFrontierStreamsReportEmptyAndFilesystemReadErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer directory.Close()
+	cleanupFrontierFile(t, directory)
 	if _, _, err := readFrontierHeader(bufio.NewReader(directory)); err == nil {
 		t.Fatal("directory read as a frontier header")
 	}
@@ -768,7 +952,7 @@ func TestReadFrontierStreamsReportEmptyAndFilesystemReadErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer directory.Close()
+	cleanupFrontierFile(t, directory)
 	if _, _, err := loadYaCyProfiles(directory); err == nil {
 		t.Fatal("directory read as a profile sidecar")
 	}
@@ -776,7 +960,7 @@ func TestReadFrontierStreamsReportEmptyAndFilesystemReadErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer directory.Close()
+	cleanupFrontierFile(t, directory)
 	if _, _, err := readYaCyProfileRecord(bufio.NewReader(directory)); err == nil {
 		t.Fatal("directory read as a profile record")
 	}
@@ -786,7 +970,9 @@ func TestFrontierURLValidationRejectsLengthAndInvalidUTF8(t *testing.T) {
 	if got := frontierURLBlockReason(string([]byte{0xff})); got != "invalid" {
 		t.Fatalf("invalid UTF-8 URL reason = %q", got)
 	}
-	if got := frontierURLBlockReason("https://example.test/" + strings.Repeat("x", yagocrawlcontract.MaximumCrawlURLBytes)); got != "invalid" {
+	if got := frontierURLBlockReason(
+		"https://example.test/" + strings.Repeat("x", yagocrawlcontract.MaximumCrawlURLBytes),
+	); got != "invalid" {
 		t.Fatalf("oversized URL reason = %q", got)
 	}
 }
@@ -815,30 +1001,49 @@ func TestFrontierBatchRunCoversProfilesDuplicatesAndValidation(t *testing.T) {
 	if run.duplicates != 1 {
 		t.Fatalf("duplicate count = %d", run.duplicates)
 	}
-	if err := run.addRow(validFrontierRow("second", "https://user:secret@example.test/"), 40); err != nil {
+	if err := run.addRow(
+		validFrontierRow("second", "https://user:secret@example.test/"),
+		40,
+	); err != nil {
 		t.Fatal(err)
 	}
-	if err := run.addRow(validFrontierRow("second", "https://user:secret@example.test/"), 50); err != nil {
+	if err := run.addRow(
+		validFrontierRow("second", "https://user:secret@example.test/"),
+		50,
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := run.addRow(validFrontierRow("second", "file://example.test/path"), 60); err != nil {
 		t.Fatal(err)
 	}
 	if run.blockedCreds != 1 || run.blockedInvalid != 1 || run.duplicates != 2 {
-		t.Fatalf("blocked and duplicate counters = %d, %d, %d", run.blockedCreds, run.blockedInvalid, run.duplicates)
+		t.Fatalf(
+			"blocked and duplicate counters = %d, %d, %d",
+			run.blockedCreds,
+			run.blockedInvalid,
+			run.duplicates,
+		)
 	}
 	if err := run.addRequestRow(yaCyFrontierRecord{
-		URL: "https://example.test/depth", ProfileHandle: "second", Depth: yagocrawlcontract.MaxCrawlDepth + 1,
+		URL:           "https://example.test/depth",
+		ProfileHandle: "second",
+		Depth:         yagocrawlcontract.MaxCrawlDepth + 1,
 	}, 70); err == nil {
 		t.Fatal("invalid request depth was accepted")
 	}
 	limited := newFrontierTestRun(t, true, 1)
 	limited.maximumSeen = 1
 	limited.session.seen["other\x00url"] = struct{}{}
-	if err := limited.addBlockedRow(validFrontierRow("p", "https://user@example.test/"), "credential"); err == nil {
+	if err := limited.addBlockedRow(
+		validFrontierRow("p", "https://user@example.test/"),
+		"credential",
+	); err == nil {
 		t.Fatal("blocked row exceeded the deduplication limit")
 	}
-	if err := limited.addRequestRow(validFrontierRow("p", "https://example.test/"), 80); err == nil {
+	if err := limited.addRequestRow(
+		validFrontierRow("p", "https://example.test/"),
+		80,
+	); err == nil {
 		t.Fatal("request row exceeded the deduplication limit")
 	}
 }
@@ -855,7 +1060,10 @@ func TestFrontierBatchRunReturnsFlushErrorsDuringTransitions(t *testing.T) {
 	run.session.profiles[second.Handle] = frontierSourceProfile{
 		sourceHandle: second.Handle, profile: second,
 	}
-	if err := run.addRow(validFrontierRow("second", "https://example.test/second"), 20); err == nil {
+	if err := run.addRow(
+		validFrontierRow("second", "https://example.test/second"),
+		20,
+	); err == nil {
 		t.Fatal("profile transition ignored an invalid pending batch")
 	}
 	if err := run.flush(); err == nil {
@@ -885,7 +1093,9 @@ func TestFrontierBatchRunReadAndExecuteFailurePaths(t *testing.T) {
 	if _, _, done, err := run.readRow(); err != nil || !done {
 		t.Fatalf("empty frontier read = done %t, err %v", done, err)
 	}
-	run.session.reader = bufio.NewReader(bytes.NewReader(frontierRowLines(t, validFrontierRow("p", "https://example.test/"))))
+	run.session.reader = bufio.NewReader(
+		bytes.NewReader(frontierRowLines(t, validFrontierRow("p", "https://example.test/"))),
+	)
 	if err := run.execute(); err != nil {
 		t.Fatalf("dry-run execution: %v", err)
 	}
@@ -898,7 +1108,9 @@ func TestFrontierBatchRunReadAndExecuteFailurePaths(t *testing.T) {
 	}
 	deferredFlush := newFrontierTestRun(t, false, 2)
 	deferredFlush.opts.APIKey = "key"
-	deferredFlush.session.endpoint, _ = url.Parse("https://example.test/admin/crawl/frontier/import")
+	deferredFlush.session.endpoint, _ = url.Parse(
+		"https://example.test/admin/crawl/frontier/import",
+	)
 	deferredFlush.session.reader = bufio.NewReader(bytes.NewReader(frontierRowLines(
 		t, validFrontierRow("p", "https://example.test/"),
 	)))
@@ -950,15 +1162,17 @@ func TestFrontierBatchFlushRejectsMutationHTTPAndCheckpointFailures(t *testing.T
 		},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if fixture.serverStatus != http.StatusOK {
-					w.WriteHeader(fixture.serverStatus)
-					return
-				}
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = io.WriteString(w, `{"enqueuedRequests":1}`)
-			}))
-			defer server.Close()
+			server := httptest.NewServer(
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if fixture.serverStatus != http.StatusOK {
+						w.WriteHeader(fixture.serverStatus)
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, `{"enqueuedRequests":1}`)
+				}),
+			)
+			t.Cleanup(server.Close)
 			run := newFrontierTestRun(t, false, 2)
 			run.session.endpoint, _ = url.Parse(server.URL + "/admin/crawl/frontier/import")
 			run.opts.APIKey = "key"
@@ -1007,7 +1221,10 @@ func TestFrontierMappedBatchAcceptsAndRejectsBoundaryBatches(t *testing.T) {
 		t.Fatal("invalid batch source ID was accepted")
 	}
 	run.session.state.SourceID = "fixture-source"
-	run.batch = make([]yagocrawlcontract.CrawlRequest, yagocrawlcontract.MaximumCrawlOrderImportBatchRecords)
+	run.batch = make(
+		[]yagocrawlcontract.CrawlRequest,
+		yagocrawlcontract.MaximumCrawlOrderImportBatchRecords,
+	)
 	for index := range run.batch {
 		run.batch[index] = yagocrawlcontract.CrawlRequest{
 			URL:  fmt.Sprintf("https://example.test/%d", index),
@@ -1027,7 +1244,7 @@ func newFrontierTestRun(t *testing.T, dryRun bool, batchSize int) *frontierBatch
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = input.Close() })
+	cleanupFrontierFile(t, input)
 	info, err := input.Stat()
 	if err != nil {
 		t.Fatal(err)
@@ -1037,11 +1254,18 @@ func newFrontierTestRun(t *testing.T, dryRun bool, batchSize int) *frontierBatch
 	return newFrontierBatchRun(context.Background(), frontierImportOptions{
 		Input: inputPath, BatchRecords: batchSize, DryRun: dryRun,
 	}, io.Discard, &frontierImportSession{
-		input: input, inputInfo: info, reader: bufio.NewReader(strings.NewReader("")),
+		input:     input,
+		inputInfo: info,
+		reader:    bufio.NewReader(strings.NewReader("")),
 		profiles: map[string]frontierSourceProfile{
 			profile.Handle: {sourceHandle: profile.Handle, profile: profile},
-		}, seen: make(map[string]struct{}),
-		endpoint:  &url.URL{Scheme: "http", Host: "example.test", Path: "/admin/crawl/frontier/import"},
+		},
+		seen: make(map[string]struct{}),
+		endpoint: &url.URL{
+			Scheme: "http",
+			Host:   "example.test",
+			Path:   "/admin/crawl/frontier/import",
+		},
 		statePath: filepath.Join(t.TempDir(), "state.json"),
 		state:     frontierImportCheckpoint{Version: 1, SourceID: "fixture-source"},
 	})
@@ -1091,7 +1315,14 @@ func (r *frontierHashReader) Read(buffer []byte) (int, error) {
 	if r.reader == nil {
 		r.reader = strings.NewReader("fixture")
 	}
-	return r.reader.Read(buffer)
+	n, err := r.reader.Read(buffer)
+	if errors.Is(err, io.EOF) {
+		return n, io.EOF
+	}
+	if err != nil {
+		return n, fmt.Errorf("read hash fixture: %w", err)
+	}
+	return n, nil
 }
 
 func (r *frontierHashReader) Seek(offset int64, whence int) (int64, error) {
@@ -1102,21 +1333,29 @@ func (r *frontierHashReader) Seek(offset int64, whence int) (int64, error) {
 	if r.reader == nil {
 		r.reader = strings.NewReader("fixture")
 	}
-	return r.reader.Seek(offset, whence)
+	position, err := r.reader.Seek(offset, whence)
+	if err != nil {
+		return position, fmt.Errorf("seek hash fixture: %w", err)
+	}
+	return position, nil
 }
 
 func validateEmptyProfileSidecar(t *testing.T) error {
 	t.Helper()
-	header, _ := json.Marshal(frontierFileHeader{Type: "yacy-crawl-profiles", Version: 1, SourceID: "source"})
+	header, _ := json.Marshal(
+		frontierFileHeader{Type: "yacy-crawl-profiles", Version: 1, SourceID: "source"},
+	)
 	file := writeProfileContent(t, append(header, '\n'))
-	defer file.Close()
+	cleanupFrontierFile(t, file)
 	_, _, err := loadYaCyProfiles(file)
 	return err
 }
 
 func validateProfileSidecarRecords(t *testing.T, records ...yaCyProfileRecord) error {
 	t.Helper()
-	header, _ := json.Marshal(frontierFileHeader{Type: "yacy-crawl-profiles", Version: 1, SourceID: "source"})
+	header, _ := json.Marshal(
+		frontierFileHeader{Type: "yacy-crawl-profiles", Version: 1, SourceID: "source"},
+	)
 	var content bytes.Buffer
 	content.Write(header)
 	content.WriteByte('\n')
@@ -1127,7 +1366,7 @@ func validateProfileSidecarRecords(t *testing.T, records ...yaCyProfileRecord) e
 		}
 	}
 	file := writeProfileContent(t, content.Bytes())
-	defer file.Close()
+	cleanupFrontierFile(t, file)
 	_, _, err := loadYaCyProfiles(file)
 	return err
 }
@@ -1141,6 +1380,11 @@ func frontierProfileHeaderLine(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return append(line, '\n')
+}
+
+func cleanupFrontierFile(t *testing.T, file *os.File) {
+	t.Helper()
+	t.Cleanup(func() { _ = file.Close() })
 }
 
 func writeProfileContent(t *testing.T, content []byte) *os.File {

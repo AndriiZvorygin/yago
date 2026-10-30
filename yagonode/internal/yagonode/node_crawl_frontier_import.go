@@ -101,5 +101,7 @@ func (s *crawlOrderImportService) ImportCrawlOrder(
 	return result, nil
 }
 
-var _ adminui.CrawlOrderImporter = (*crawlOrderImportService)(nil)
-var _ adminui.CrawlOrderImporter = (*crawlRuntime)(nil)
+var (
+	_ adminui.CrawlOrderImporter = (*crawlOrderImportService)(nil)
+	_ adminui.CrawlOrderImporter = (*crawlRuntime)(nil)
+)

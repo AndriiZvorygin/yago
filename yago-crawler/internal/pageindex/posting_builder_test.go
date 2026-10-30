@@ -1,33 +1,12 @@
 package pageindex_test
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/D4rk4/yago/yago-crawler/internal/pageindex"
 	"github.com/D4rk4/yago/yago-crawler/internal/pageparse"
 	"github.com/D4rk4/yago/yagomodel"
 )
-
-func TestRWIBackfillTokenizerMatchesCrawlerTokenizer(t *testing.T) {
-	for _, text := range []string{
-		"Hello WORLD a 42 golang",
-		"go-lang 1,234 4.7Ohm",
-		"word-word word . word.word@word.word ....word... word,word word word",
-		"Café Montréal Québec 1.5e3",
-	} {
-		crawlerTokens := pageparse.Tokenize(text)
-		backfillTokens := yagomodel.TokenizeRWIText(text, 0)
-		if !reflect.DeepEqual(backfillTokens, crawlerTokens) {
-			t.Errorf(
-				"tokenizers disagree for %q: backfill=%v crawler=%v",
-				text,
-				backfillTokens,
-				crawlerTokens,
-			)
-		}
-	}
-}
 
 func buildPostings(t *testing.T, page pageparse.ParsedPage) []yagomodel.RWIPosting {
 	t.Helper()

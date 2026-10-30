@@ -515,6 +515,10 @@ func (b *Backfill) waitForRetry(ctx context.Context, attempt int) error {
 	}
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
+	return b.waitForRetrySignal(ctx, timer.C)
+}
+
+func (b *Backfill) waitForRetrySignal(ctx context.Context, timer <-chan time.Time) error {
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("backfill retry context: %w", ctx.Err())
@@ -523,7 +527,7 @@ func (b *Backfill) waitForRetry(ctx context.Context, attempt int) error {
 			return errBackfillPaused
 		}
 		return nil
-	case <-timer.C:
+	case <-timer:
 		return nil
 	}
 }

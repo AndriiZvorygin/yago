@@ -118,7 +118,10 @@ func (r *crawlRuntime) ImportCrawlOrder(
 ) (adminui.CrawlOrderImportResult, error) {
 	result, err := r.frontierImport.ImportCrawlOrder(ctx, batch)
 	if err != nil {
-		return adminui.CrawlOrderImportResult{}, fmt.Errorf("import crawl order through crawl runtime: %w", err)
+		return adminui.CrawlOrderImportResult{}, fmt.Errorf(
+			"import crawl order through crawl runtime: %w",
+			err,
+		)
 	}
 	return result, nil
 }

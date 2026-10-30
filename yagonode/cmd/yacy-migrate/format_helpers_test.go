@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"reflect"
 	"strings"
@@ -39,10 +40,18 @@ func TestSolrPreservationMetadataAcceptsAndRejectsBoundaries(t *testing.T) {
 		}
 	}
 	var truncation migrationLinkTruncation
-	if err := json.Unmarshal([]byte(metadata[migrationLinkTruncationMetadataKey]), &truncation); err != nil ||
+	if err := json.Unmarshal(
+		[]byte(metadata[migrationLinkTruncationMetadataKey]),
+		&truncation,
+	); err != nil ||
 		truncation.Outbound.Available != 2 || truncation.Outbound.Stored != 1 ||
-		truncation.Inbound.Available != 3 || truncation.Inbound.Stored != 1 {
-		t.Fatalf("link truncation metadata = %q, err=%v", metadata[migrationLinkTruncationMetadataKey], err)
+		truncation.Inbound.Available != 3 ||
+		truncation.Inbound.Stored != 1 {
+		t.Fatalf(
+			"link truncation metadata = %q, err=%v",
+			metadata[migrationLinkTruncationMetadataKey],
+			err,
+		)
 	}
 	if err := addSolrPreservationMetadata(
 		map[string]string{}, solrDocumentURLs{}, solrDocumentContent{}, solrDocumentLinks{},
@@ -55,14 +64,21 @@ func TestSolrPreservationMetadataAcceptsAndRejectsBoundaries(t *testing.T) {
 		t.Fatal("oversized full title was accepted")
 	}
 	if err := addSolrPreservationMetadata(
-		map[string]string{"existing": strings.Repeat("x", documentimport.MaximumRecordMetadataBytes)},
-		solrDocumentURLs{}, solrDocumentContent{}, solrDocumentLinks{},
+		map[string]string{
+			"existing": strings.Repeat("x", documentimport.MaximumRecordMetadataBytes),
+		},
+		solrDocumentURLs{},
+		solrDocumentContent{},
+		solrDocumentLinks{},
 	); err == nil {
 		t.Fatal("metadata exceeding the aggregate limit was accepted")
 	}
 	if err := addSolrPreservationMetadata(
-		map[string]string{}, solrDocumentURLs{},
-		solrDocumentContent{fullTitle: strings.Repeat("x", documentimport.MaximumRecordMetadataBytes)},
+		map[string]string{},
+		solrDocumentURLs{},
+		solrDocumentContent{
+			fullTitle: strings.Repeat("x", documentimport.MaximumRecordMetadataBytes),
+		},
 		solrDocumentLinks{},
 	); err == nil {
 		t.Fatal("oversized title failed to propagate from preservation metadata")
@@ -105,7 +121,10 @@ func TestMalformedCredentialRedactionRequiresSupportedAuthority(t *testing.T) {
 			t.Errorf("malformed URL %q was unexpectedly redacted", raw)
 		}
 	}
-	if got, changed := redactMalformedURLUserinfo("https://user:bad%zz@example.test/path%zz"); !changed || got != "https://example.test/path%zz" {
+	if got, changed := redactMalformedURLUserinfo(
+		"https://user:bad%zz@example.test/path%zz",
+	); !changed ||
+		got != "https://example.test/path%zz" {
 		t.Fatalf("malformed credential redaction = %q, %t", got, changed)
 	}
 }
@@ -297,7 +316,7 @@ func parseErrorForURL(t *testing.T, raw string) error {
 	if err == nil {
 		t.Fatalf("URL %q parsed without an error", raw)
 	}
-	return err
+	return fmt.Errorf("parse fixture URL: %w", err)
 }
 
 func mustJSONRaw(t *testing.T, value any) json.RawMessage {

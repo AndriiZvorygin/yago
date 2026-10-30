@@ -14,10 +14,12 @@ func BuildRWIPageArtifacts(
 	stats pageparse.PageStats,
 	loadedAt time.Time,
 ) yagomodel.RWIPageArtifacts {
+	tokens := yagomodel.TokenizeRWIText(page.Text, yagocrawlcontract.MaximumDocumentWords)
+	titleTokens := yagomodel.TokenizeRWIText(page.Title, 255)
 	frequency := make(map[string]int)
 	firstPosition := make(map[string]int)
 	order := make([]string, 0)
-	for position, token := range stats.Tokens {
+	for position, token := range tokens {
 		if stopwords.IsStopword(token) {
 			continue
 		}
@@ -44,8 +46,8 @@ func BuildRWIPageArtifacts(
 		URL:               page.URL,
 		Title:             page.Title,
 		Language:          NormalizeLanguage(page.Language),
-		WordCount:         len(stats.Tokens),
-		TitleWordCount:    len(stats.TitleTokens),
+		WordCount:         len(tokens),
+		TitleWordCount:    len(titleTokens),
 		TextBytes:         len(page.Text),
 		LocalLinkCount:    len(stats.LocalLinks),
 		ExternalLinkCount: len(stats.ExternalLinks),

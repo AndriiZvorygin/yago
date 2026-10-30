@@ -394,11 +394,26 @@ func TestAbsorbGroupSeparatesImportOnlyFromCrawlClustering(t *testing.T) {
 		{url: "https://import.example/one"},
 		{url: "https://import.example/two"},
 	} {
-		doc, found, err := directory.Document(t.Context(), check.url)
-		if err != nil || !found || doc.ClusterID != check.clusterID {
-			t.Fatalf("stored document %s = %+v, found=%t, err=%v; cluster=%q",
-				check.url, doc, found, err, check.clusterID)
-		}
+		assertStoredClusterAssignment(t, directory, check.url, check.clusterID)
+	}
+}
+
+func assertStoredClusterAssignment(
+	t *testing.T,
+	directory documentstore.DocumentDirectory,
+	url, clusterID string,
+) {
+	t.Helper()
+	doc, found, err := directory.Document(t.Context(), url)
+	if err != nil || !found || doc.ClusterID != clusterID {
+		t.Fatalf(
+			"stored document %s = %+v, found=%t, err=%v; cluster=%q",
+			url,
+			doc,
+			found,
+			err,
+			clusterID,
+		)
 	}
 }
 

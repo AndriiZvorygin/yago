@@ -109,29 +109,78 @@ func TestCrawlOrderImportBatchValidateChecksIdentityAndBounds(t *testing.T) {
 
 func TestCrawlOrderImportBatchValidationRejectsUnsupportedInputs(t *testing.T) {
 	base := validCrawlOrderImportBatch()
-	tests := []struct {
-		name   string
-		mutate func(*CrawlOrderImportBatch)
-		keepID bool
-	}{
+	for _, test := range crawlOrderImportRejectedBatchCases() {
+		t.Run(test.name, func(t *testing.T) {
+			batch := base
+			batch.Requests = append([]CrawlRequest(nil), base.Requests...)
+			test.mutate(&batch)
+			if !test.keepID {
+				batch.BatchID, _ = batch.ComputeBatchID()
+			}
+			if err := batch.Validate(); err == nil {
+				t.Fatal("unsupported frontier input was accepted")
+			}
+		})
+	}
+}
+
+type crawlOrderImportBatchCase struct {
+	name   string
+	mutate func(*CrawlOrderImportBatch)
+	keepID bool
+}
+
+func crawlOrderImportRejectedBatchCases() []crawlOrderImportBatchCase {
+	var cases []crawlOrderImportBatchCase
+	for _, group := range [][]crawlOrderImportBatchCase{
+		crawlOrderImportIdentityCases(),
+		crawlOrderImportProfileCases(),
+		crawlOrderImportProfileMetadataCases(),
+		crawlOrderImportURLCases(),
+		crawlOrderImportRequestCases(),
+		crawlOrderImportRequestMetadataCases(),
+	} {
+		cases = append(cases, group...)
+	}
+	return cases
+}
+
+func crawlOrderImportIdentityCases() []crawlOrderImportBatchCase {
+	return []crawlOrderImportBatchCase{
 		{name: "version", mutate: func(batch *CrawlOrderImportBatch) { batch.Version++ }},
-		{name: "empty request list", mutate: func(batch *CrawlOrderImportBatch) { batch.Requests = nil }},
+		{
+			name:   "empty request list",
+			mutate: func(batch *CrawlOrderImportBatch) { batch.Requests = nil },
+		},
 		{
 			name: "request count limit",
 			mutate: func(batch *CrawlOrderImportBatch) {
 				batch.Requests = make([]CrawlRequest, MaximumCrawlOrderImportBatchRecords+1)
 			},
 		},
-		{name: "empty source ID", mutate: func(batch *CrawlOrderImportBatch) { batch.SourceID = "" }},
-		{name: "trimmed source ID", mutate: func(batch *CrawlOrderImportBatch) { batch.SourceID = " source" }},
-		{name: "invalid source ID character", mutate: func(batch *CrawlOrderImportBatch) { batch.SourceID = "source/1" }},
+		{
+			name:   "empty source ID",
+			mutate: func(batch *CrawlOrderImportBatch) { batch.SourceID = "" },
+		},
+		{
+			name:   "trimmed source ID",
+			mutate: func(batch *CrawlOrderImportBatch) { batch.SourceID = " source" },
+		},
+		{
+			name:   "invalid source ID character",
+			mutate: func(batch *CrawlOrderImportBatch) { batch.SourceID = "source/1" },
+		},
 		{
 			name: "source ID limit",
 			mutate: func(batch *CrawlOrderImportBatch) {
 				batch.SourceID = strings.Repeat("s", MaximumCrawlOrderImportSourceID+1)
 			},
 		},
-		{name: "batch ID length", keepID: true, mutate: func(batch *CrawlOrderImportBatch) { batch.BatchID = "short" }},
+		{
+			name:   "batch ID length",
+			keepID: true,
+			mutate: func(batch *CrawlOrderImportBatch) { batch.BatchID = "short" },
+		},
 		{
 			name:   "batch ID hex",
 			keepID: true,
@@ -142,6 +191,11 @@ func TestCrawlOrderImportBatchValidationRejectsUnsupportedInputs(t *testing.T) {
 			keepID: true,
 			mutate: func(batch *CrawlOrderImportBatch) { batch.BatchID = strings.Repeat("A", 64) },
 		},
+	}
+}
+
+func crawlOrderImportProfileCases() []crawlOrderImportBatchCase {
+	return []crawlOrderImportBatchCase{
 		{
 			name: "profile handle missing",
 			mutate: func(batch *CrawlOrderImportBatch) {
@@ -168,20 +222,23 @@ func TestCrawlOrderImportBatchValidationRejectsUnsupportedInputs(t *testing.T) {
 			name:   "invalid profile rules",
 			mutate: func(batch *CrawlOrderImportBatch) { batch.Profile.MaxDepth = MaxCrawlDepth + 1 },
 		},
+	}
+}
+
+func crawlOrderImportProfileMetadataCases() []crawlOrderImportBatchCase {
+	return []crawlOrderImportBatchCase{
 		{
 			name: "too many profile metadata fields",
 			mutate: func(batch *CrawlOrderImportBatch) {
-				values := make(map[string]string, MaximumCrawlOrderImportMetadata+1)
-				for index := 0; index <= MaximumCrawlOrderImportMetadata; index++ {
-					values["key"+string(rune('a'+index))] = "value"
-				}
-				batch.Profile.SourceMetadata = NewCrawlSourceMetadata(values)
+				batch.Profile.SourceMetadata = NewCrawlSourceMetadata(metadataOverflowValues())
 			},
 		},
 		{
 			name: "invalid profile metadata key",
 			mutate: func(batch *CrawlOrderImportBatch) {
-				batch.Profile.SourceMetadata = NewCrawlSourceMetadata(map[string]string{"": "value"})
+				batch.Profile.SourceMetadata = NewCrawlSourceMetadata(
+					map[string]string{"": "value"},
+				)
 			},
 		},
 		{
@@ -195,7 +252,9 @@ func TestCrawlOrderImportBatchValidationRejectsUnsupportedInputs(t *testing.T) {
 		{
 			name: "invalid profile metadata encoding",
 			mutate: func(batch *CrawlOrderImportBatch) {
-				batch.Profile.SourceMetadata = NewCrawlSourceMetadata(map[string]string{"key": string([]byte{0xff})})
+				batch.Profile.SourceMetadata = NewCrawlSourceMetadata(
+					map[string]string{"key": string([]byte{0xff})},
+				)
 			},
 		},
 		{
@@ -206,42 +265,57 @@ func TestCrawlOrderImportBatchValidationRejectsUnsupportedInputs(t *testing.T) {
 				})
 			},
 		},
-		{name: "empty request URL", mutate: func(batch *CrawlOrderImportBatch) { batch.Requests[0].URL = "" }},
+	}
+}
+
+func crawlOrderImportURLCases() []crawlOrderImportBatchCase {
+	return []crawlOrderImportBatchCase{
+		{
+			name:   "empty request URL",
+			mutate: func(batch *CrawlOrderImportBatch) { batch.Requests[0].URL = "" },
+		},
 		{
 			name: "request URL byte limit",
 			mutate: func(batch *CrawlOrderImportBatch) {
-				batch.Requests[0].URL = "https://example.test/" +
-					strings.Repeat("x", MaximumCrawlURLBytes)
+				batch.Requests[0].URL = "https://example.test/" + strings.Repeat(
+					"x",
+					MaximumCrawlURLBytes,
+				)
 			},
 		},
 		{
 			name:   "request URL encoding",
 			mutate: func(batch *CrawlOrderImportBatch) { batch.Requests[0].URL = string([]byte{0xff}) },
 		},
-		{name: "relative request URL", mutate: func(batch *CrawlOrderImportBatch) { batch.Requests[0].URL = "/relative" }},
 		{
-			name: "request URL credentials",
-			mutate: func(batch *CrawlOrderImportBatch) {
-				batch.Requests[0].URL = "https://user:secret@example.test/"
-			},
+			name:   "relative request URL",
+			mutate: func(batch *CrawlOrderImportBatch) { batch.Requests[0].URL = "/relative" },
 		},
 		{
-			name: "request URL fragment",
-			mutate: func(batch *CrawlOrderImportBatch) {
-				batch.Requests[0].URL = "https://example.test/page#section"
-			},
+			name:   "request URL credentials",
+			mutate: func(batch *CrawlOrderImportBatch) { batch.Requests[0].URL = "https://user:secret@example.test/" },
 		},
 		{
-			name: "unsupported request scheme",
-			mutate: func(batch *CrawlOrderImportBatch) {
-				batch.Requests[0].URL = "file://example.test/page"
-			},
+			name:   "request URL fragment",
+			mutate: func(batch *CrawlOrderImportBatch) { batch.Requests[0].URL = "https://example.test/page#section" },
 		},
+		{
+			name:   "unsupported request scheme",
+			mutate: func(batch *CrawlOrderImportBatch) { batch.Requests[0].URL = "file://example.test/page" },
+		},
+	}
+}
+
+func crawlOrderImportRequestCases() []crawlOrderImportBatchCase {
+	return []crawlOrderImportBatchCase{
 		{
 			name:   "invalid request metadata profile",
 			mutate: func(batch *CrawlOrderImportBatch) { batch.Requests[0].ProfileHandle = "other" },
 		},
-		{name: "negative depth", mutate: func(batch *CrawlOrderImportBatch) { batch.Requests[0].Depth = -1 }},
+		{
+			name:   "negative depth",
+			mutate: func(batch *CrawlOrderImportBatch) { batch.Requests[0].Depth = -1 },
+		},
 		{
 			name:   "depth limit",
 			mutate: func(batch *CrawlOrderImportBatch) { batch.Requests[0].Depth = MaxCrawlDepth + 1 },
@@ -249,7 +323,10 @@ func TestCrawlOrderImportBatchValidationRejectsUnsupportedInputs(t *testing.T) {
 		{
 			name: "anchor size limit",
 			mutate: func(batch *CrawlOrderImportBatch) {
-				batch.Requests[0].AnchorName = strings.Repeat("a", MaximumCrawlOrderImportAnchorBytes+1)
+				batch.Requests[0].AnchorName = strings.Repeat(
+					"a",
+					MaximumCrawlOrderImportAnchorBytes+1,
+				)
 			},
 		},
 		{
@@ -265,11 +342,14 @@ func TestCrawlOrderImportBatchValidationRejectsUnsupportedInputs(t *testing.T) {
 			mutate: func(batch *CrawlOrderImportBatch) { batch.Requests[0].ReferrerURL = "file:///tmp/referrer" },
 		},
 		{
-			name: "invalid initiator",
-			mutate: func(batch *CrawlOrderImportBatch) {
-				batch.Requests[0].Initiator = yagomodel.Hash("bad")
-			},
+			name:   "invalid initiator",
+			mutate: func(batch *CrawlOrderImportBatch) { batch.Requests[0].Initiator = yagomodel.Hash("bad") },
 		},
+	}
+}
+
+func crawlOrderImportRequestMetadataCases() []crawlOrderImportBatchCase {
+	return []crawlOrderImportBatchCase{
 		{
 			name: "duplicate request identity",
 			mutate: func(batch *CrawlOrderImportBatch) {
@@ -279,27 +359,18 @@ func TestCrawlOrderImportBatchValidationRejectsUnsupportedInputs(t *testing.T) {
 		{
 			name: "too many request metadata fields",
 			mutate: func(batch *CrawlOrderImportBatch) {
-				values := make(map[string]string, MaximumCrawlOrderImportMetadata+1)
-				for index := 0; index <= MaximumCrawlOrderImportMetadata; index++ {
-					values["key"+string(rune('a'+index))] = "value"
-				}
-				batch.Requests[0].SourceMetadata = NewCrawlSourceMetadata(values)
+				batch.Requests[0].SourceMetadata = NewCrawlSourceMetadata(metadataOverflowValues())
 			},
 		},
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			batch := base
-			batch.Requests = append([]CrawlRequest(nil), base.Requests...)
-			test.mutate(&batch)
-			if !test.keepID {
-				batch.BatchID, _ = batch.ComputeBatchID()
-			}
-			if err := batch.Validate(); err == nil {
-				t.Fatal("unsupported frontier input was accepted")
-			}
-		})
+}
+
+func metadataOverflowValues() map[string]string {
+	values := make(map[string]string, MaximumCrawlOrderImportMetadata+1)
+	for index := 0; index <= MaximumCrawlOrderImportMetadata; index++ {
+		values["key"+string(rune('a'+index))] = "value"
 	}
+	return values
 }
 
 func TestCrawlOrderImportBatchAcceptsBoundarySchemesAndMetadata(t *testing.T) {
@@ -314,7 +385,9 @@ func TestCrawlOrderImportBatchAcceptsBoundarySchemesAndMetadata(t *testing.T) {
 		batch.Requests[0].Mode = CrawlRequestModeSitemap
 		batch.Requests[0].ReferrerURL = "https://referrer.example.test/page"
 		batch.Requests[0].Initiator = yagomodel.Hash("AAAAAAAAAAAA")
-		batch.Profile.SourceMetadata = NewCrawlSourceMetadata(map[string]string{"source": "fixture"})
+		batch.Profile.SourceMetadata = NewCrawlSourceMetadata(
+			map[string]string{"source": "fixture"},
+		)
 		batch.Requests[0].SourceMetadata = NewCrawlSourceMetadata(map[string]string{"depth": "1"})
 		batch.BatchID, _ = batch.ComputeBatchID()
 		if err := batch.Validate(); err != nil {

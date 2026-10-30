@@ -232,13 +232,18 @@ func TestCrawlRuntimeDelegatesCrawlOrderImport(t *testing.T) {
 	if err != nil || result.EnqueuedRequests != 1 || queue.calls != 1 {
 		t.Fatalf("runtime import result = %+v, queue calls=%d, err=%v", result, queue.calls, err)
 	}
-	if _, err := runtime.ImportCrawlOrder(t.Context(), invalidFrontierImportBatch(batch)); err == nil ||
+	if _, err := runtime.ImportCrawlOrder(
+		t.Context(),
+		invalidFrontierImportBatch(batch),
+	); err == nil ||
 		!strings.Contains(err.Error(), "import crawl order through crawl runtime") {
 		t.Fatalf("runtime import error = %v", err)
 	}
 }
 
-func invalidFrontierImportBatch(batch yagocrawlcontract.CrawlOrderImportBatch) yagocrawlcontract.CrawlOrderImportBatch {
+func invalidFrontierImportBatch(
+	batch yagocrawlcontract.CrawlOrderImportBatch,
+) yagocrawlcontract.CrawlOrderImportBatch {
 	batch.Version++
 	return batch
 }

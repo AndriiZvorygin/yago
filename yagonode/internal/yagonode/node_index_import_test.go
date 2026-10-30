@@ -53,7 +53,11 @@ func TestDocumentImportWorkerCountCapsConcurrentWorkers(t *testing.T) {
 	}
 	for _, maximum := range []int{-1, 0} {
 		if got := documentImportWorkerCount(importConcurrencyFixture(maximum), 4); got != 1 {
-			t.Errorf("worker count with maximum %d = %d, want the one-worker fallback", maximum, got)
+			t.Errorf(
+				"worker count with maximum %d = %d, want the one-worker fallback",
+				maximum,
+				got,
+			)
 		}
 	}
 }

@@ -113,7 +113,12 @@ func TestBuildRWIPageArtifactsTreatsNonpositivePostingLimitAsEmpty(t *testing.T)
 		Words: []yagomodel.RWIWord{{Word: "sample", Frequency: 1}},
 	}
 	for _, maximum := range []int{0, -1} {
-		if artifacts := yagomodel.BuildRWIPageArtifacts(page, maximum); len(artifacts.Postings) != 0 {
+		if artifacts := yagomodel.BuildRWIPageArtifacts(
+			page,
+			maximum,
+		); len(
+			artifacts.Postings,
+		) != 0 {
 			t.Errorf("maximum %d produced %d postings", maximum, len(artifacts.Postings))
 		}
 	}
@@ -157,8 +162,20 @@ func TestTokenizeRWITextStopsAtTheRequestedWordBoundary(t *testing.T) {
 		{text: "12a", maximum: 1, want: []string{"12"}},
 		{text: "1,2a", maximum: 0, want: []string{"1,2"}},
 	} {
-		if got := yagomodel.TokenizeRWIText(test.text, test.maximum); !reflect.DeepEqual(got, test.want) {
-			t.Errorf("TokenizeRWIText(%q, %d) = %q, want %q", test.text, test.maximum, got, test.want)
+		if got := yagomodel.TokenizeRWIText(
+			test.text,
+			test.maximum,
+		); !reflect.DeepEqual(
+			got,
+			test.want,
+		) {
+			t.Errorf(
+				"TokenizeRWIText(%q, %d) = %q, want %q",
+				test.text,
+				test.maximum,
+				got,
+				test.want,
+			)
 		}
 	}
 }

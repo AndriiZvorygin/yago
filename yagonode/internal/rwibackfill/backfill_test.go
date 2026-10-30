@@ -106,15 +106,16 @@ func (r *urlRows) Receive(
 }
 
 type postingRows struct {
-	urls       *urlRows
-	rows       map[string]yagomodel.RWIPosting
-	failCount  int
-	receiveErr error
-	unknownURL bool
-	busyCount  int
-	busySignal chan struct{}
-	calls      int
-	maxBatch   int
+	urls        *urlRows
+	rows        map[string]yagomodel.RWIPosting
+	failCount   int
+	receiveErr  error
+	unknownURL  bool
+	busyCount   int
+	busySignal  chan struct{}
+	busyRelease <-chan struct{}
+	calls       int
+	maxBatch    int
 }
 
 func (r *postingRows) Receive(
@@ -130,6 +131,9 @@ func (r *postingRows) Receive(
 		r.busyCount--
 		if r.busySignal != nil {
 			r.busySignal <- struct{}{}
+		}
+		if r.busyRelease != nil {
+			<-r.busyRelease
 		}
 		return rwi.Receipt{Busy: true}, nil
 	}
@@ -658,13 +662,10 @@ func TestBackfillWaitForRetryHandlesPauseWakeAndCancellation(t *testing.T) {
 		t.Fatal("metadata retry ignored canceled context")
 	}
 	backfill.pause.Store(false)
-	backfill.wake = make(chan struct{})
-	go func() {
-		time.Sleep(time.Millisecond)
-		backfill.pause.Store(true)
-		backfill.wake <- struct{}{}
-	}()
-	if err := backfill.waitForRetry(t.Context(), 0); !errors.Is(err, errBackfillPaused) {
+	backfill.wake = make(chan struct{}, 1)
+	backfill.pause.Store(true)
+	backfill.wake <- struct{}{}
+	if err := backfill.waitForRetrySignal(t.Context(), nil); !errors.Is(err, errBackfillPaused) {
 		t.Fatalf("pause during retry error = %v", err)
 	}
 }
@@ -721,6 +722,8 @@ func TestBackfillPostingRetryStopsWhenPauseIsRequested(t *testing.T) {
 	})
 	postings.busyCount = 1
 	postings.busySignal = make(chan struct{}, 1)
+	busyRelease := make(chan struct{})
+	postings.busyRelease = busyRelease
 	if _, err := backfill.Start(t.Context(), 0, false); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -740,8 +743,10 @@ func TestBackfillPostingRetryStopsWhenPauseIsRequested(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("posting receiver did not report backpressure")
 	}
-	backfill.pause.Store(true)
-	backfill.signal()
+	if _, err := backfill.Pause(t.Context()); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	close(busyRelease)
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):

@@ -233,7 +233,10 @@ func prepareFrontierSession(
 
 func seekFrontierImportInput(input io.Seeker, offset int64) error {
 	_, err := input.Seek(offset, io.SeekStart)
-	return err
+	if err != nil {
+		return fmt.Errorf("seek frontier input: %w", err)
+	}
+	return nil
 }
 
 func loadValidatedFrontierCheckpoint(

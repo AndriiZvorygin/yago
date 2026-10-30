@@ -32,13 +32,27 @@ func TestFollowImportCheckpointAndOptionBoundaries(t *testing.T) {
 	}
 	endpoint, _ := url.Parse("https://yago.example.test/admin/index/import")
 	base := importCheckpoint{
-		FollowExportCheckpoint: "export.state", DestinationFingerprint: destinationFingerprint(endpoint),
-		Offset: 3, FollowExportOffset: 3,
+		FollowExportCheckpoint: "export.state",
+		DestinationFingerprint: destinationFingerprint(endpoint),
+		Offset:                 3,
+		FollowExportOffset:     3,
 	}
-	if err := validateFollowImportCheckpoint(base, true, info, endpoint, "export.state"); err != nil {
+	if err := validateFollowImportCheckpoint(
+		base,
+		true,
+		info,
+		endpoint,
+		"export.state",
+	); err != nil {
 		t.Fatalf("valid follow checkpoint rejected: %v", err)
 	}
-	if err := validateFollowImportCheckpoint(importCheckpoint{}, false, info, endpoint, "export.state"); err != nil {
+	if err := validateFollowImportCheckpoint(
+		importCheckpoint{},
+		false,
+		info,
+		endpoint,
+		"export.state",
+	); err != nil {
 		t.Fatalf("new follow checkpoint rejected: %v", err)
 	}
 	for _, state := range []importCheckpoint{
@@ -48,7 +62,13 @@ func TestFollowImportCheckpointAndOptionBoundaries(t *testing.T) {
 		{FollowExportCheckpoint: "export.state", DestinationFingerprint: destinationFingerprint(endpoint), Offset: info.Size() + 1},
 		{FollowExportCheckpoint: "export.state", DestinationFingerprint: destinationFingerprint(endpoint), Offset: 2, FollowExportOffset: 1},
 	} {
-		if err := validateFollowImportCheckpoint(state, true, info, endpoint, "export.state"); err == nil {
+		if err := validateFollowImportCheckpoint(
+			state,
+			true,
+			info,
+			endpoint,
+			"export.state",
+		); err == nil {
 			t.Errorf("invalid follow checkpoint %+v accepted", state)
 		}
 	}
@@ -141,13 +161,21 @@ func TestOpenImportSessionRejectsMissingInputAndFinishedFollowFileErrors(t *test
 		options: importOptions{FollowExportCheckpoint: "export.state"},
 		file:    file, statePath: statePath, followExportComplete: true,
 	}
-	if done, err := session.finishOrWaitForExport(context.Background(), errorWriter{}); !done || err == nil {
+	if done, err := session.finishOrWaitForExport(
+		context.Background(),
+		errorWriter{},
+	); !done ||
+		err == nil {
 		t.Fatalf("finished follow progress write = %t, %v", done, err)
 	}
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if done, err := session.finishOrWaitForExport(context.Background(), io.Discard); !done || err == nil {
+	if done, err := session.finishOrWaitForExport(
+		context.Background(),
+		io.Discard,
+	); !done ||
+		err == nil {
 		t.Fatalf("finished follow with closed input = %t, %v", done, err)
 	}
 }
@@ -159,7 +187,7 @@ func TestFollowImportCompletionBoundaryAndRecordRecrawlGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	t.Cleanup(func() { _ = file.Close() })
 	info, _ := file.Stat()
 	statePath := filepath.Join(t.TempDir(), "import.state")
 	followPath := filepath.Join(t.TempDir(), "export.state")
@@ -168,16 +196,28 @@ func TestFollowImportCompletionBoundaryAndRecordRecrawlGuard(t *testing.T) {
 		file:    file, info: info, statePath: statePath, followExportComplete: true,
 		state: importCheckpoint{Offset: 1}, followExportOffset: 2,
 	}
-	if done, err := session.finishOrWaitForExport(context.Background(), io.Discard); !done || err == nil {
+	if done, err := session.finishOrWaitForExport(
+		context.Background(),
+		io.Discard,
+	); !done ||
+		err == nil {
 		t.Fatalf("boundary mismatch completion = %t, %v", done, err)
 	}
 	session.state.Offset = session.followExportOffset
 	session.statePath = filepath.Join(t.TempDir(), "missing", "state.json")
-	if done, err := session.finishOrWaitForExport(context.Background(), io.Discard); !done || err == nil {
+	if done, err := session.finishOrWaitForExport(
+		context.Background(),
+		io.Discard,
+	); !done ||
+		err == nil {
 		t.Fatalf("checkpoint write failure = %t, %v", done, err)
 	}
 	session.statePath = filepath.Join(t.TempDir(), "state.json")
-	if done, err := session.finishOrWaitForExport(context.Background(), errorWriter{}); !done || err == nil {
+	if done, err := session.finishOrWaitForExport(
+		context.Background(),
+		errorWriter{},
+	); !done ||
+		err == nil {
 		t.Fatalf("summary writer failure = %t, %v", done, err)
 	}
 	record := validImportRecord()
@@ -231,7 +271,7 @@ func TestFollowExportBoundaryChecksSourceOffsetsAndFileState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	t.Cleanup(func() { _ = file.Close() })
 	info, _ := file.Stat()
 	checkpointPath := filepath.Join(t.TempDir(), "export.state")
 	session := &importSession{
@@ -263,7 +303,11 @@ func TestFollowExportBoundaryChecksSourceOffsetsAndFileState(t *testing.T) {
 		}
 	}
 	valid := exportCheckpoint{
-		Version: 1, SourceID: "source", SourceFingerprint: "fingerprint", Cursor: "*", Offset: info.Size(),
+		Version:           1,
+		SourceID:          "source",
+		SourceFingerprint: "fingerprint",
+		Cursor:            "*",
+		Offset:            info.Size(),
 	}
 	if err := saveCheckpoint(checkpointPath, valid); err != nil {
 		t.Fatal(err)
@@ -272,7 +316,8 @@ func TestFollowExportBoundaryChecksSourceOffsetsAndFileState(t *testing.T) {
 	if err := session.refreshFollowExportBoundary(); err != nil {
 		t.Fatalf("valid export checkpoint rejected: %v", err)
 	}
-	if session.followExportOffset != info.Size() || session.state.FollowSourceFingerprint != "fingerprint" {
+	if session.followExportOffset != info.Size() ||
+		session.state.FollowSourceFingerprint != "fingerprint" {
 		t.Fatalf("follow state was not advanced: %+v", session)
 	}
 	closed, err := os.Open(input)
