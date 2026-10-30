@@ -68,10 +68,9 @@ func TestMailNewsRotationRecoveryConvergesAfterRepeatedShardFailures(t *testing.
 	fixture := mailNewsRegisterRecordFixture(t, storage)
 	intent := mailNewsFindRotationIntent(t, engine)
 	mailNewsSeedRotation(t, storage, fixture, intent)
-	failureShard := max(
-		engine.route(mailNewsQueueBucket, vault.Key(intent.Source)),
-		engine.route(mailNewsQueueBucket, vault.Key(intent.Target)),
-	)
+	sourceShard := engine.route(mailNewsQueueBucket, vault.Key(intent.Source))
+	targetShard := engine.route(mailNewsQueueBucket, vault.Key(intent.Target))
+	failureShard := max(sourceShard, targetShard)
 	realCommit := commitTx
 	t.Cleanup(func() { commitTx = realCommit })
 	failure := errors.New("injected rotation commit failure")
@@ -85,6 +84,7 @@ func TestMailNewsRotationRecoveryConvergesAfterRepeatedShardFailures(t *testing.
 	if err := mailNewsApplyRotation(storage, fixture, intent); !errors.Is(err, failure) {
 		t.Fatalf("apply rotation error = %v, want %v", err, failure)
 	}
+	failureShard = min(sourceShard, targetShard)
 	if err := mailNewsRecoverRotation(storage, fixture); !errors.Is(err, failure) {
 		t.Fatalf("repeat rotation recovery error = %v, want %v", err, failure)
 	}

@@ -594,8 +594,6 @@ func (t *shardTxn) releaseLocks() {
 	t.held = nil
 }
 
-// commit commits every touched shard; on the first failure the remaining
-// open transactions roll back so no shard stays write-locked.
 func (t *shardTxn) commit() error {
 	for shard, tx := range t.open {
 		if tx == nil {
@@ -612,7 +610,7 @@ func (t *shardTxn) commit() error {
 		if tx == nil {
 			continue
 		}
-		if failed != nil {
+		if failed != nil || !holdsPendingWrites(tx) {
 			_ = tx.Rollback()
 
 			continue

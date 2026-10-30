@@ -811,6 +811,11 @@ it is not an assumed deployment dependency.
 * A sharded-vault write whose stored bytes already equal the new stored form
   SHALL NOT rewrite the record. Any difference, including a stored value that
   fails its integrity check, SHALL be written.
+* An ordinary sharded-vault update SHALL NOT commit a physical shard that it
+  read without changing. Mixed updates SHALL commit their changed shards only.
+  Read-modify-write operations SHALL retain their existing writer exclusion,
+  structural validation, rollback, and retry behavior. Explicit clean-shutdown
+  checkpoints SHALL still commit every shard.
 * The main-vault quota SHALL remain a soft admission and eviction target for
   logical live rows. It SHALL NOT be described as a filesystem or aggregate data
   limit and SHALL exclude Bleve, node and crawler checkpoint databases, allocated

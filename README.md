@@ -705,7 +705,10 @@ and tested together; use matching releases when upgrading a node and crawler.
   normal stale-URL eviction cannot reach the soft quota target, a bounded
   posting scan can reclaim posting-only lineages that have no URL-metadata row
   without selecting metadata-backed URLs through that fallback. The hot write
-  path does not persist bbolt freelists; a clean shutdown checkpoints each one
+  path does not persist bbolt freelists. Updates that only read records leave
+  the serving vault's shard files untouched; a mixed update commits only its
+  changed shards. Read-modify-write operations retain their writer lock, and
+  clean shutdown still checkpoints every shard
   durably so planned restarts load them directly, while an unclean stop retains
   bbolt's full recovery scan. Stable INFO records show each sequential shard
   open as structured JSON on standard output, captured by the systemd or
