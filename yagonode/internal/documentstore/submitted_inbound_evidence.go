@@ -25,19 +25,45 @@ func retainDocumentRevisionInlinks(
 	materialized []AnchorText,
 ) Document {
 	document.Inlinks = canonicalAnchorTexts(document.Inlinks)
-	materialized = canonicalAnchorTexts(materialized)
+	document.submittedInlinks = inlinksOutsideMaterializedAnchors(
+		document.Inlinks,
+		canonicalAnchorTexts(materialized),
+	)
+	document.submittedInlinksKnown = true
+
+	return document
+}
+
+func inlinksAfterAnchorReplacement(
+	inlinks []AnchorText,
+	previousAnchors []AnchorText,
+	replacedSources map[string]struct{},
+	anchors []AnchorText,
+) []AnchorText {
+	replaced := append([]AnchorText(nil), anchors...)
+	for _, anchor := range inlinksOutsideMaterializedAnchors(inlinks, previousAnchors) {
+		if _, superseded := replacedSources[anchor.URL]; !superseded {
+			replaced = append(replaced, anchor)
+		}
+	}
+
+	return canonicalAnchorTexts(replaced)
+}
+
+func inlinksOutsideMaterializedAnchors(
+	inlinks []AnchorText,
+	materialized []AnchorText,
+) []AnchorText {
 	materializedEvidence := make(map[AnchorText]struct{}, len(materialized))
 	for _, anchor := range materialized {
 		materializedEvidence[anchor] = struct{}{}
 	}
-	document.submittedInlinks = make([]AnchorText, 0, len(document.Inlinks))
-	for _, anchor := range document.Inlinks {
-		if _, found := materializedEvidence[anchor]; found {
-			continue
+	outside := make([]AnchorText, 0, len(inlinks))
+	for _, anchor := range inlinks {
+		if _, found := materializedEvidence[anchor]; !found {
+			outside = append(outside, anchor)
 		}
-		document.submittedInlinks = append(document.submittedInlinks, anchor)
 	}
-	document.submittedInlinksKnown = true
 
-	return document
+	return outside
 }

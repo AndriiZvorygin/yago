@@ -208,12 +208,18 @@ func (d documentVault) replaceTargetAnchors(
 	if !documentFound {
 		return nil
 	}
-	if slices.Equal(doc.Inlinks, anchors) {
+	inlinks := inlinksAfterAnchorReplacement(
+		doc.Inlinks,
+		previousAnchors,
+		map[string]struct{}{sourceURL: {}},
+		anchors,
+	)
+	if slices.Equal(doc.Inlinks, inlinks) {
 		affected[targetURL] = struct{}{}
 
 		return nil
 	}
-	doc.Inlinks = append([]AnchorText(nil), anchors...)
+	doc.Inlinks = inlinks
 	if err := d.putStoredDocument(tx, location, doc); err != nil {
 		return fmt.Errorf("store anchor target document: %w", err)
 	}

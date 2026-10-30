@@ -97,8 +97,14 @@ func (d documentVault) prepareOutboundAnchorTargetMutation(
 	case anchorsChanged:
 		mutation.storeAnchors = true
 	}
-	if documentFound && !slices.Equal(document.Inlinks, anchors) {
-		mutation.document.Inlinks = append([]AnchorText(nil), anchors...)
+	inlinks := inlinksAfterAnchorReplacement(
+		document.Inlinks,
+		previousAnchors,
+		replacement.sources,
+		anchors,
+	)
+	if documentFound && !slices.Equal(document.Inlinks, inlinks) {
+		mutation.document.Inlinks = inlinks
 		mutation.storeDocument = true
 	}
 	mutation.visitDocument = documentFound &&
