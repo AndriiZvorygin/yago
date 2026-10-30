@@ -186,7 +186,7 @@ func (d documentVault) replaceTargetAnchors(
 		anchors = doc.Inlinks
 	}
 	previousAnchors := append([]AnchorText(nil), anchors...)
-	kept := anchors[:0]
+	kept := make([]AnchorText, 0, len(anchors))
 	for _, anchor := range anchors {
 		if anchor.URL != sourceURL {
 			kept = append(kept, anchor)
