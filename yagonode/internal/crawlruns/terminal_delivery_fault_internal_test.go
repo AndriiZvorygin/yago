@@ -463,12 +463,16 @@ func TestTerminalDeliveryRecordReconcilesDurableState(t *testing.T) {
 		registry, _ := openTerminalFaultRegistry(t, engine, 2)
 		record := durableTerminalRecord("run", 1, time.Unix(1, 0), false)
 		persistTerminalRecord(t, registry, record.Run.RunID, record)
+		durable := bytes.Clone(engine.buckets[terminalDeliveryBucket][record.Run.RunID])
 		if err := registry.RecordTerminal(
 			t.Context(),
 			record.Identity,
 			record.Progress,
 		); err != nil {
 			t.Fatalf("reconcile matching durable state: %v", err)
+		}
+		if !bytes.Equal(engine.buckets[terminalDeliveryBucket][record.Run.RunID], durable) {
+			t.Fatal("matching durable terminal delivery was rewritten")
 		}
 	})
 

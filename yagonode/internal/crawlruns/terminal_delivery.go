@@ -1,7 +1,6 @@
 package crawlruns
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -242,76 +241,40 @@ func (r *Registry) recordTerminalDeliveryLocked(
 	ctx context.Context,
 	record terminalDeliveryRecord,
 ) ([]terminalDeliveryRecord, error) {
-	if r.terminal.storage == nil {
-		return nil, nil
-	}
-	evicted := make([]terminalDeliveryRecord, 0, 1)
-	err := r.terminal.storage.Update(ctx, func(transaction *vault.Txn) error {
-		evicted = evicted[:0]
-		stored, found, err := r.terminal.deliveries.Get(transaction, vault.Key(record.Run.RunID))
-		if err != nil {
-			return fmt.Errorf("read terminal crawl progress delivery: %w", err)
-		}
-		if found {
-			if !bytes.Equal(stored.Identity, record.Identity) ||
-				stored.Progress != record.Progress {
-				return errTerminalDeliveryConflict
+	return r.reviseTerminalDeliveryLocked(
+		ctx,
+		record.Run.RunID,
+		"persist terminal crawl progress delivery",
+		func(durable terminalDeliveryRecord, found bool) (*terminalDeliveryRecord, error) {
+			if !found {
+				return &record, nil
+			}
+			if !record.sameDelivery(durable) {
+				return nil, errTerminalDeliveryConflict
 			}
 
-			return nil
-		}
-		if err := r.terminal.deliveries.Put(
-			transaction,
-			vault.Key(record.Run.RunID),
-			record,
-		); err != nil {
-			return fmt.Errorf("store terminal crawl progress delivery: %w", err)
-		}
-		return r.pruneConfirmedTerminalDeliveries(transaction, &evicted)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("persist terminal crawl progress delivery: %w", err)
-	}
-
-	return evicted, nil
+			return nil, nil
+		},
+	)
 }
 
 func (r *Registry) confirmTerminalDeliveryLocked(
 	ctx context.Context,
 	record terminalDeliveryRecord,
 ) ([]terminalDeliveryRecord, error) {
-	if r.terminal.storage == nil {
-		return nil, nil
-	}
-	evicted := make([]terminalDeliveryRecord, 0, 1)
-	err := r.terminal.storage.Update(ctx, func(transaction *vault.Txn) error {
-		evicted = evicted[:0]
-		stored, found, err := r.terminal.deliveries.Get(transaction, vault.Key(record.Run.RunID))
-		if err != nil {
-			return fmt.Errorf("read terminal crawl progress delivery: %w", err)
-		}
-		if !found {
-			return errTerminalDeliveryConflict
-		}
-		if !bytes.Equal(stored.Identity, record.Identity) || stored.Progress != record.Progress {
-			return errTerminalDeliveryConflict
-		}
-		stored.Confirmed = true
-		if err := r.terminal.deliveries.Put(
-			transaction,
-			vault.Key(record.Run.RunID),
-			stored,
-		); err != nil {
-			return fmt.Errorf("store confirmed terminal crawl progress delivery: %w", err)
-		}
+	return r.reviseTerminalDeliveryLocked(
+		ctx,
+		record.Run.RunID,
+		"confirm terminal crawl progress delivery",
+		func(durable terminalDeliveryRecord, found bool) (*terminalDeliveryRecord, error) {
+			if !found || !record.sameDelivery(durable) {
+				return nil, errTerminalDeliveryConflict
+			}
+			durable.Confirmed = true
 
-		return r.pruneConfirmedTerminalDeliveries(transaction, &evicted)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("confirm terminal crawl progress delivery: %w", err)
-	}
-
-	return evicted, nil
+			return &durable, nil
+		},
+	)
 }
 
 func (r *Registry) pruneConfirmedTerminalDeliveries(

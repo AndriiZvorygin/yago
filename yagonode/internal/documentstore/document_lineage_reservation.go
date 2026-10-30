@@ -7,8 +7,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-
-	"github.com/D4rk4/yago/yagonode/internal/vault"
 )
 
 type DocumentLineageReservation interface {
@@ -115,37 +113,12 @@ func (d documentVault) CanonicalReservedDocuments(
 	reservation DocumentLineageReservation,
 	docs []Document,
 ) ([]Document, error) {
-	prepared := make([]Document, len(docs))
-	urls := make([]string, 0, len(docs))
-	for index, document := range docs {
-		prepared[index] = retainSubmittedInlinks(normalizedDocument(document))
-		urls = append(urls, prepared[index].NormalizedURL)
-	}
-	if err := d.activeDocumentLineageLease(reservation, urls); err != nil {
+	submissions, normalizedURLs := normalizedSubmissions(docs)
+	if err := d.activeDocumentLineageLease(reservation, normalizedURLs); err != nil {
 		return nil, err
 	}
-	canonical := make([]Document, 0, len(docs))
-	err := d.vault.View(ctx, func(tx *vault.Txn) error {
-		for _, document := range prepared {
-			if err := ctx.Err(); err != nil {
-				return fmt.Errorf("context: %w", err)
-			}
-			revision, err := d.canonicalDocument(tx, document, nil)
-			if err != nil {
-				return err
-			}
-			if revision.kind != documentRevisionRejected {
-				canonical = append(canonical, revision.document)
-			}
-		}
 
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("canonical reserved documents: %w", err)
-	}
-
-	return canonical, nil
+	return d.acceptedCanonicalDocuments(ctx, submissions, "canonical reserved documents")
 }
 
 func canonicalDocumentLineageURLs(urls []string) ([]string, error) {

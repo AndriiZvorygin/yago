@@ -35,12 +35,7 @@ func (d documentVault) Receive(ctx context.Context, docs []Document) (Receipt, e
 	if len(docs) == 0 {
 		return Receipt{}, nil
 	}
-	prepared := make([]Document, len(docs))
-	urls := make([]string, 0, len(docs))
-	for index, document := range docs {
-		prepared[index] = retainSubmittedInlinks(normalizedDocument(document))
-		urls = append(urls, prepared[index].NormalizedURL)
-	}
+	prepared, urls := normalizedSubmissions(docs)
 	atCapacity, err := d.vault.AtCapacity(ctx)
 	if err != nil {
 		return Receipt{}, fmt.Errorf("check capacity: %w", err)
@@ -227,43 +222,14 @@ func (d documentVault) CanonicalDocuments(
 	ctx context.Context,
 	docs []Document,
 ) ([]Document, error) {
-	prepared := make([]Document, len(docs))
-	urls := make([]string, 0, len(docs))
-	for index, document := range docs {
-		prepared[index] = retainSubmittedInlinks(normalizedDocument(document))
-		urls = append(urls, prepared[index].NormalizedURL)
-	}
-	releaseURLs, err := d.urlBoundaries.lockReads(ctx, urls)
+	submissions, normalizedURLs := normalizedSubmissions(docs)
+	releaseURLs, err := d.urlBoundaries.lockReads(ctx, normalizedURLs)
 	if err != nil {
 		return nil, err
 	}
 	defer releaseURLs()
-	canonical := make([]Document, 0, len(docs))
-	err = d.vault.View(ctx, func(tx *vault.Txn) error {
-		for _, document := range prepared {
-			if err := ctx.Err(); err != nil {
-				return fmt.Errorf("context: %w", err)
-			}
-			revision, err := d.canonicalDocument(
-				tx,
-				document,
-				nil,
-			)
-			if err != nil {
-				return err
-			}
-			if revision.kind != documentRevisionRejected {
-				canonical = append(canonical, revision.document)
-			}
-		}
 
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("canonical documents: %w", err)
-	}
-
-	return canonical, nil
+	return d.acceptedCanonicalDocuments(ctx, submissions, "canonical documents")
 }
 
 func (d documentVault) canonicalDocument(
