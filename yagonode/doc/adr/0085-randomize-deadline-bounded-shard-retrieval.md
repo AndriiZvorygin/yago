@@ -18,10 +18,14 @@ and agent requests wait longer without guaranteeing complete retrieval.
 
 ## Decision
 
-Keep the existing full-text alias search as the primary path. For eligible
-plain, first-page searches that reach the primary deadline, use its reserved
-final 500 milliseconds for progressive local retrieval. Query shards one at a
-time in a uniformly shuffled order generated from Go's operating-system-backed
+Keep the existing full-text alias path for requests that are not eligible for
+progressive retrieval. For eligible plain, first-page requests, use bounded
+progressive local retrieval and return useful shard progress as it becomes
+available. If a non-progressing primary search returns incomplete while its
+caller context is still live, use the same retrieval with the time remaining
+in that context. Do not reserve a separate 500-millisecond window or extend
+the existing 1.8-second end-to-end request budget. Query shards one at a time
+in a uniformly shuffled order generated from Go's operating-system-backed
 `crypto/rand` source. Attempt each shard no more than once per request.
 
 Keep each shard's candidate work bounded. Return completed results when time
@@ -42,9 +46,11 @@ partial.
 Expose cumulative progress over the YaCy-compatible NDJSON route
 `/yacysearch.ndjson`, and let the HTML search page consume that stream when
 browser streaming is available. Keep the Tavily-compatible `/search` payload
-and availability behavior unchanged; do not add a `/search/stream` route or
-Yago-specific completeness and coverage fields to Tavily responses. YaCy
-progress events may report sampled-shard counts and coverage.
+and availability behavior unchanged; an incomplete empty result remains a
+generic retryable unavailable response, while a complete empty result remains
+an ordinary empty response. Do not add a `/search/stream` route or Yago-specific
+completeness and coverage fields to Tavily responses. YaCy progress events may
+report sampled-shard counts and coverage.
 
 ## Consequences
 

@@ -89,18 +89,17 @@ the same suggestion source.
 
 For public search, `resource=local` searches the local full-text index over
 stored documents. An unconstrained first-page request containing up to four
-plain words first uses the ordinary full-text alias. If that stage reaches its
-bounded search deadline, the node reserves the final 500 milliseconds of the
-same interactive budget for progressive retrieval. It queries each shard at
+plain words uses bounded progressive shard retrieval. It queries each shard at
 most once in a per-request order shuffled with the operating system's
 cryptographic random source, preventing repeated requests from always starting
 with the same shards. Candidate work is bounded per shard. Completed work is
 returned even when the request budget ends early; `complete` and `coverage`
-distinguish complete shard coverage from lower-bound totals. The result stream
-can be consumed through `/yacysearch.ndjson`; the HTML page uses that stream
-when the browser supports it. This fallback does not apply to constrained,
-faceted, explained, or later-page searches. The end-to-end interactive deadline
-is unchanged.
+distinguish complete shard coverage from lower-bound totals. No fixed
+500-millisecond portion is reserved for sampling, and the end-to-end
+interactive deadline remains 1.8 seconds. The result stream can be consumed
+through `/yacysearch.ndjson`; the HTML page uses that stream when the browser
+supports it. Constrained, faceted, explained, and later-page searches retain
+their existing path.
 `resource=global` searches the local node and performs bounded YaCy
 `/yacy/search.html` fanout to reachable peers selected by the query term hashes'
 YaCy DHT positions, configured redundancy, and configured vertical partition
