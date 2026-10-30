@@ -19,12 +19,8 @@ type leaseControlTarget struct {
 	RunID    string `json:"run"`
 }
 
-type leaseControlTargetCodec struct{}
-
-func (leaseControlTargetCodec) Encode(target leaseControlTarget) ([]byte, error) {
-	raw, _ := json.Marshal(target)
-
-	return raw, nil
+type leaseControlTargetCodec struct {
+	vault.JSONCodec[leaseControlTarget]
 }
 
 func (leaseControlTargetCodec) Decode(raw []byte) (leaseControlTarget, error) {

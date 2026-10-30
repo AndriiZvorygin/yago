@@ -2,7 +2,6 @@ package adminauth
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -36,22 +35,7 @@ type adminRecord struct {
 	PasswordHash string `json:"passwordHash"`
 }
 
-type adminRecordCodec struct{}
-
-func (adminRecordCodec) Encode(record adminRecord) ([]byte, error) {
-	data, _ := json.Marshal(record)
-
-	return data, nil
-}
-
-func (adminRecordCodec) Decode(raw []byte) (adminRecord, error) {
-	var record adminRecord
-	if err := json.Unmarshal(raw, &record); err != nil {
-		return adminRecord{}, fmt.Errorf("decode admin record: %w", err)
-	}
-
-	return record, nil
-}
+type adminRecordCodec = vault.JSONCodec[adminRecord]
 
 type credentialStore struct {
 	vault   *vault.Vault

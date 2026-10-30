@@ -6,7 +6,6 @@ package crawlformats
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -19,22 +18,7 @@ const formatsBucket = "crawl_formats"
 // togglesKey addresses the single toggles record inside the bucket.
 var togglesKey = vault.Key("toggles")
 
-type togglesCodec struct{}
-
-func (togglesCodec) Encode(toggles yagocrawlcontract.FormatToggles) ([]byte, error) {
-	encoded, _ := json.Marshal(toggles)
-
-	return encoded, nil
-}
-
-func (togglesCodec) Decode(raw []byte) (yagocrawlcontract.FormatToggles, error) {
-	var toggles yagocrawlcontract.FormatToggles
-	if err := json.Unmarshal(raw, &toggles); err != nil {
-		return yagocrawlcontract.FormatToggles{}, fmt.Errorf("decode crawl formats: %w", err)
-	}
-
-	return toggles, nil
-}
+type togglesCodec = vault.JSONCodec[yagocrawlcontract.FormatToggles]
 
 // Store reads and writes the shared format toggles in the vault.
 type Store struct {

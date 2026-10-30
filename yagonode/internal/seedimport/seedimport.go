@@ -6,7 +6,6 @@ package seedimport
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -23,22 +22,7 @@ type Status struct {
 	Error      string    `json:"error,omitempty"`
 }
 
-type statusCodec struct{}
-
-func (statusCodec) Encode(status Status) ([]byte, error) {
-	data, _ := json.Marshal(status)
-
-	return data, nil
-}
-
-func (statusCodec) Decode(raw []byte) (Status, error) {
-	var status Status
-	if err := json.Unmarshal(raw, &status); err != nil {
-		return Status{}, fmt.Errorf("decode seed import status: %w", err)
-	}
-
-	return status, nil
-}
+type statusCodec = vault.JSONCodec[Status]
 
 // Store persists the last-import status per seed-list URL.
 type Store struct {

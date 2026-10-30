@@ -2,7 +2,6 @@ package crawlbroker
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/D4rk4/yago/yagocrawlcontract"
@@ -127,22 +126,7 @@ type controlDirectiveRecord struct {
 	Directive yagocrawlcontract.CrawlControlDirective `json:"directive"`
 }
 
-type controlDirectiveRecordCodec struct{}
-
-func (controlDirectiveRecordCodec) Encode(record controlDirectiveRecord) ([]byte, error) {
-	raw, _ := json.Marshal(record)
-
-	return raw, nil
-}
-
-func (controlDirectiveRecordCodec) Decode(raw []byte) (controlDirectiveRecord, error) {
-	var record controlDirectiveRecord
-	if err := json.Unmarshal(raw, &record); err != nil {
-		return controlDirectiveRecord{}, fmt.Errorf("decode crawl control directive: %w", err)
-	}
-
-	return record, nil
-}
+type controlDirectiveRecordCodec = vault.JSONCodec[controlDirectiveRecord]
 
 type persistentControlDirectiveLedger struct {
 	storage    *vault.Vault

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -27,25 +26,7 @@ type urlObservationRecord struct {
 	ObservationID string
 }
 
-type urlObservationCodec struct{}
-
-func (urlObservationCodec) Encode(record urlObservationRecord) ([]byte, error) {
-	data, err := json.Marshal(record)
-	if err != nil {
-		return nil, fmt.Errorf("marshal URL observation: %w", err)
-	}
-
-	return data, nil
-}
-
-func (urlObservationCodec) Decode(raw []byte) (urlObservationRecord, error) {
-	var record urlObservationRecord
-	if err := json.Unmarshal(raw, &record); err != nil {
-		return urlObservationRecord{}, fmt.Errorf("unmarshal URL observation: %w", err)
-	}
-
-	return record, nil
-}
+type urlObservationCodec = vault.JSONCodec[urlObservationRecord]
 
 type observationHistory interface {
 	Begin(context.Context, []yagocrawlcontract.IngestBatch) ([]observationDisposition, error)

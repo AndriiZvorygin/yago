@@ -8,7 +8,6 @@ package judgments
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -31,22 +30,7 @@ type Judgment struct {
 	SliceNames     []string            `json:"slice_names,omitempty"`
 }
 
-type judgmentCodec struct{}
-
-func (judgmentCodec) Encode(j Judgment) ([]byte, error) {
-	data, _ := json.Marshal(j)
-
-	return data, nil
-}
-
-func (judgmentCodec) Decode(raw []byte) (Judgment, error) {
-	var j Judgment
-	if err := json.Unmarshal(raw, &j); err != nil {
-		return Judgment{}, fmt.Errorf("decode judgment: %w", err)
-	}
-
-	return j, nil
-}
+type judgmentCodec = vault.JSONCodec[Judgment]
 
 // Store persists curated judgments in the vault.
 type Store struct {

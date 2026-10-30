@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -41,22 +40,7 @@ type leaseRecord struct {
 	DiscoverySequence uint64                               `json:"discovery_sequence,omitempty"`
 }
 
-type leaseRecordCodec struct{}
-
-func (leaseRecordCodec) Encode(v leaseRecord) ([]byte, error) {
-	raw, _ := json.Marshal(v)
-
-	return raw, nil
-}
-
-func (leaseRecordCodec) Decode(raw []byte) (leaseRecord, error) {
-	var rec leaseRecord
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		return leaseRecord{}, fmt.Errorf("decode lease record: %w", err)
-	}
-
-	return rec, nil
-}
+type leaseRecordCodec = vault.JSONCodec[leaseRecord]
 
 func randomLeaseID() string {
 	buf := make([]byte, 16)

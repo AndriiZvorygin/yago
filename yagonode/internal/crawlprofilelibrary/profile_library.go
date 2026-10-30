@@ -31,16 +31,7 @@ type SavedProfile struct {
 	UpdatedAt time.Time                      `json:"updatedAt"`
 }
 
-type savedProfileCodec struct{}
-
-func (savedProfileCodec) Encode(profile SavedProfile) ([]byte, error) {
-	raw, err := json.Marshal(profile)
-	if err != nil {
-		return nil, fmt.Errorf("encode saved crawl profile: %w", err)
-	}
-
-	return raw, nil
-}
+type savedProfileCodec struct{ vault.JSONCodec[SavedProfile] }
 
 func (savedProfileCodec) Decode(raw []byte) (SavedProfile, error) {
 	var profile SavedProfile

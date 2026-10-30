@@ -273,12 +273,6 @@ func TestRemoteCrawlValueBoundaries(t *testing.T) {
 }
 
 func TestRemoteCrawlCodecsRejectMalformedValues(t *testing.T) {
-	if _, err := (jsonCodec[chan int]{}).Encode(make(chan int)); err == nil {
-		t.Fatal("unsupported JSON value encoded")
-	}
-	if _, err := (jsonCodec[queueRecord]{}).Decode([]byte("{")); err == nil {
-		t.Fatal("malformed JSON decoded")
-	}
 	if _, err := (uint64Codec{}).Decode([]byte{1}); err == nil {
 		t.Fatal("short sequence decoded")
 	}

@@ -31,25 +31,7 @@ type scheduleRecord struct {
 	SourceModifiedAt time.Time
 }
 
-type recordCodec struct{}
-
-func (recordCodec) Encode(record scheduleRecord) ([]byte, error) {
-	raw, err := json.Marshal(record)
-	if err != nil {
-		return nil, fmt.Errorf("encode recrawl record: %w", err)
-	}
-
-	return raw, nil
-}
-
-func (recordCodec) Decode(raw []byte) (scheduleRecord, error) {
-	var record scheduleRecord
-	if err := json.Unmarshal(raw, &record); err != nil {
-		return scheduleRecord{}, fmt.Errorf("decode recrawl record: %w", err)
-	}
-
-	return record, nil
-}
+type recordCodec = vault.JSONCodec[scheduleRecord]
 
 // profileRecord is a stored crawl profile together with the crawl-order priority
 // it was dispatched under, so the sweeper can rebuild a faithful order. The

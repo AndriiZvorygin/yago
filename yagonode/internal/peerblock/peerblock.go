@@ -6,7 +6,6 @@ package peerblock
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -20,22 +19,7 @@ type record struct {
 	BlockedAt time.Time `json:"blockedAt"`
 }
 
-type recordCodec struct{}
-
-func (recordCodec) Encode(rec record) ([]byte, error) {
-	data, _ := json.Marshal(rec)
-
-	return data, nil
-}
-
-func (recordCodec) Decode(raw []byte) (record, error) {
-	var rec record
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		return record{}, fmt.Errorf("decode peer block record: %w", err)
-	}
-
-	return rec, nil
-}
+type recordCodec = vault.JSONCodec[record]
 
 // Blocked is one blocked peer with the time it was blocked.
 type Blocked struct {

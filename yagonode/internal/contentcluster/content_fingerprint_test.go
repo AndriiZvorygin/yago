@@ -193,22 +193,3 @@ func TestLimitsDefaultsAndValidation(t *testing.T) {
 		t.Fatalf("long URL error = %v", err)
 	}
 }
-
-func TestJSONCodecRoundTripAndErrors(t *testing.T) {
-	codec := jsonCodec[fingerprintRecord]{}
-	want := fingerprintRecord{URL: "https://a.example", Shingles: []uint64{1, 2}, Quality: 0.5}
-	raw, err := codec.Encode(want)
-	if err != nil {
-		t.Fatalf("encode: %v", err)
-	}
-	got, err := codec.Decode(raw)
-	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf("decode = %+v, %v", got, err)
-	}
-	if _, err := codec.Decode([]byte("{")); err == nil {
-		t.Fatal("invalid JSON decoded")
-	}
-	if _, err := (jsonCodec[float64]{}).Encode(math.NaN()); err == nil {
-		t.Fatal("non-JSON number encoded")
-	}
-}

@@ -6,7 +6,6 @@ package urldenylist
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -39,22 +38,7 @@ type record struct {
 	AddedAt time.Time `json:"addedAt"`
 }
 
-type recordCodec struct{}
-
-func (recordCodec) Encode(rec record) ([]byte, error) {
-	data, _ := json.Marshal(rec)
-
-	return data, nil
-}
-
-func (recordCodec) Decode(raw []byte) (record, error) {
-	var rec record
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		return record{}, fmt.Errorf("decode denylist record: %w", err)
-	}
-
-	return rec, nil
-}
+type recordCodec = vault.JSONCodec[record]
 
 // Entry is one denylist entry with the time it was added.
 type Entry struct {

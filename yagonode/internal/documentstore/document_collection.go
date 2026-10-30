@@ -2,7 +2,6 @@ package documentstore
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 
 	"github.com/D4rk4/yago/yagomodel"
@@ -19,25 +18,7 @@ const (
 
 var documentAdmissionHighWaterKey = vault.Key("high_water")
 
-type documentCodec struct{}
-
-func (documentCodec) Encode(doc Document) ([]byte, error) {
-	data, err := json.Marshal(doc)
-	if err != nil {
-		return nil, fmt.Errorf("marshal document: %w", err)
-	}
-
-	return data, nil
-}
-
-func (documentCodec) Decode(raw []byte) (Document, error) {
-	var doc Document
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		return Document{}, fmt.Errorf("unmarshal document: %w", err)
-	}
-
-	return doc, nil
-}
+type documentCodec = vault.JSONCodec[Document]
 
 type documentLocationCodec struct{}
 

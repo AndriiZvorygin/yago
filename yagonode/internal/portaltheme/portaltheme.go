@@ -8,7 +8,6 @@ package portaltheme
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -59,42 +58,9 @@ type EventSink interface {
 	Record(severity events.Severity, category events.Category, name, message string)
 }
 
-type documentCodec struct{}
+type documentCodec = vault.JSONCodec[Document]
 
-func (documentCodec) Encode(value Document) ([]byte, error) {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("encode theme document: %w", err)
-	}
-
-	return data, nil
-}
-
-func (documentCodec) Decode(data []byte) (Document, error) {
-	var value Document
-	if err := json.Unmarshal(data, &value); err != nil {
-		return Document{}, fmt.Errorf("decode theme document: %w", err)
-	}
-
-	return value, nil
-}
-
-type configCodec struct{}
-
-func (configCodec) Encode(value themeConfig) ([]byte, error) {
-	data, _ := json.Marshal(value)
-
-	return data, nil
-}
-
-func (configCodec) Decode(data []byte) (themeConfig, error) {
-	var value themeConfig
-	if err := json.Unmarshal(data, &value); err != nil {
-		return themeConfig{}, fmt.Errorf("decode theme config: %w", err)
-	}
-
-	return value, nil
-}
+type configCodec = vault.JSONCodec[themeConfig]
 
 // Theme is the vault-backed store and renderer of the operator portal theme.
 // All writes go through this instance, so the compiled-template cache stays

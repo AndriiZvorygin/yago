@@ -131,25 +131,7 @@ func (rawJSONCodec) Decode(raw []byte) (json.RawMessage, error) {
 	return append(json.RawMessage(nil), raw...), nil
 }
 
-type jsonCodec[Value any] struct{}
-
-func (jsonCodec[Value]) Encode(value Value) ([]byte, error) {
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("encode JSON: %w", err)
-	}
-
-	return raw, nil
-}
-
-func (jsonCodec[Value]) Decode(raw []byte) (Value, error) {
-	var value Value
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return value, fmt.Errorf("decode JSON: %w", err)
-	}
-
-	return value, nil
-}
+type jsonCodec[Value any] = vault.JSONCodec[Value]
 
 func recordFrom(prepared preparedEvidence, clusterID string) fingerprintRecord {
 	return fingerprintRecord{

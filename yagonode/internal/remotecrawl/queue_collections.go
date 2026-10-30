@@ -2,7 +2,6 @@ package remotecrawl
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 
 	"github.com/D4rk4/yago/yagonode/internal/vault"
@@ -59,25 +58,7 @@ type pendingRecord struct {
 	Sequence uint64 `json:"sequence"`
 }
 
-type jsonCodec[Value any] struct{}
-
-func (jsonCodec[Value]) Encode(value Value) ([]byte, error) {
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("encode remote crawl record: %w", err)
-	}
-
-	return raw, nil
-}
-
-func (jsonCodec[Value]) Decode(raw []byte) (Value, error) {
-	var value Value
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return value, fmt.Errorf("decode remote crawl record: %w", err)
-	}
-
-	return value, nil
-}
+type jsonCodec[Value any] = vault.JSONCodec[Value]
 
 type uint64Codec struct{}
 

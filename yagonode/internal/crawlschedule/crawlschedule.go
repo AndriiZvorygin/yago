@@ -7,7 +7,6 @@ package crawlschedule
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -39,22 +38,7 @@ func (s Schedule) Due(now time.Time) bool {
 	return s.Enabled && now.Sub(s.LastRun) >= s.Interval
 }
 
-type scheduleCodec struct{}
-
-func (scheduleCodec) Encode(s Schedule) ([]byte, error) {
-	data, _ := json.Marshal(s)
-
-	return data, nil
-}
-
-func (scheduleCodec) Decode(raw []byte) (Schedule, error) {
-	var s Schedule
-	if err := json.Unmarshal(raw, &s); err != nil {
-		return Schedule{}, fmt.Errorf("decode crawl schedule: %w", err)
-	}
-
-	return s, nil
-}
+type scheduleCodec = vault.JSONCodec[Schedule]
 
 // Store persists schedules in the vault.
 type Store struct {

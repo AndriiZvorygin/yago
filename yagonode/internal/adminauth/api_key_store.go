@@ -23,13 +23,7 @@ type apiKeyRecord struct {
 	LastUsedAt time.Time `json:"lastUsedAt"`
 }
 
-type apiKeyRecordCodec struct{}
-
-func (apiKeyRecordCodec) Encode(record apiKeyRecord) ([]byte, error) {
-	data, _ := json.Marshal(record)
-
-	return data, nil
-}
+type apiKeyRecordCodec struct{ vault.JSONCodec[apiKeyRecord] }
 
 func (apiKeyRecordCodec) Decode(raw []byte) (apiKeyRecord, error) {
 	var record apiKeyRecord

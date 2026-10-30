@@ -7,7 +7,6 @@ package eventstore
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -22,25 +21,7 @@ const (
 	sequenceWidth   = 8
 )
 
-type eventCodec struct{}
-
-func (eventCodec) Encode(event events.Event) ([]byte, error) {
-	raw, err := json.Marshal(event)
-	if err != nil {
-		return nil, fmt.Errorf("encode event: %w", err)
-	}
-
-	return raw, nil
-}
-
-func (eventCodec) Decode(raw []byte) (events.Event, error) {
-	var event events.Event
-	if err := json.Unmarshal(raw, &event); err != nil {
-		return events.Event{}, fmt.Errorf("decode event: %w", err)
-	}
-
-	return event, nil
-}
+type eventCodec = vault.JSONCodec[events.Event]
 
 // Store is a durable bounded event log backed by the node vault.
 type Store struct {

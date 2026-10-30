@@ -2,7 +2,6 @@ package adminauth
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -18,22 +17,7 @@ type sessionRecord struct {
 	RenewAt   time.Time `json:"renewAt,omitempty"`
 }
 
-type sessionRecordCodec struct{}
-
-func (sessionRecordCodec) Encode(record sessionRecord) ([]byte, error) {
-	data, _ := json.Marshal(record)
-
-	return data, nil
-}
-
-func (sessionRecordCodec) Decode(raw []byte) (sessionRecord, error) {
-	var record sessionRecord
-	if err := json.Unmarshal(raw, &record); err != nil {
-		return sessionRecord{}, fmt.Errorf("decode session record: %w", err)
-	}
-
-	return record, nil
-}
+type sessionRecordCodec = vault.JSONCodec[sessionRecord]
 
 type sessionStore struct {
 	vault   *vault.Vault
