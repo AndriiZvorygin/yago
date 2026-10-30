@@ -715,7 +715,10 @@ it is not an assumed deployment dependency.
   documents. Merge planning SHALL use a 2 MiB floor segment size, and every
   existing shard SHALL open with the current merge policy instead of its stored
   one. A one-document flush beside a larger eligible segment SHALL NOT rewrite
-  that segment; small flush segments beyond the tier budget SHALL still merge. Before the disk index becomes available, a shard above one root
+  that segment; small flush segments beyond the tier budget SHALL still merge.
+  Peer results cached after one swarm search SHALL be stored in one document
+  write and indexed in one index batch; a result already stored, repeated, or
+  without a URL SHALL NOT be written. Before the disk index becomes available, a shard above one root
   file segment per 100,000 live documents SHALL pass the existing
   filesystem-reserve admission and force-merge one shard at a time. Every merge
   SHALL preserve the live document total. A bounded planner stall MAY retain at

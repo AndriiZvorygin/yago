@@ -2,7 +2,6 @@ package yagonode
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/D4rk4/yago/yagonode/internal/documentstore"
@@ -49,29 +48,18 @@ func newRemoteIndexCache(
 }
 
 func (c remoteIndexCache) store(ctx context.Context, results []searchcore.Result) {
-	for _, result := range results {
-		url := strings.TrimSpace(result.URL)
-		if url == "" {
-			continue
-		}
-		if _, found, err := c.directory.Document(ctx, url); err != nil || found {
-			// Best-effort: on a lookup error skip rather than risk a blind write,
-			// and when the URL is already stored keep the existing document so a
-			// crawled full page is never replaced by a remote metadata stub.
-			continue
-		}
-		if c.admission != nil && c.admission.CheckGrowth() != nil {
-			return
-		}
-		doc := remoteResultDocument(result, c.now())
-		receipt, err := c.receiver.Receive(ctx, []documentstore.Document{doc})
-		if err != nil || receipt.Busy {
-			continue
-		}
-		// Index into the full-text backend so the cached document is searchable; it
-		// already lives in the store, so a failed index is only a soft miss.
-		_ = c.index.Index(ctx, doc)
+	docs := c.uncachedRemoteDocuments(ctx, results)
+	if len(docs) == 0 {
+		return
 	}
+	if c.admission != nil && c.admission.CheckGrowth() != nil {
+		return
+	}
+	receipt, err := c.receiver.Receive(ctx, docs)
+	if err != nil || receipt.Busy {
+		return
+	}
+	c.indexCachedDocuments(ctx, docs)
 }
 
 // remoteResultDocument builds a metadata-only document from a remote search
