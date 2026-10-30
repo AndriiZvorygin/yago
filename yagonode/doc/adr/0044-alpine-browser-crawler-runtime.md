@@ -32,6 +32,11 @@ pins no longer present in the Alpine package index. The complete pinned package
 set resolves on both release architectures. The runtime base and service layout
 remain as decided above.
 
+Maintenance update, 2026-10-30: `ca-certificates=20261020-r0` and
+`libexpat=2.9.0-r0` replace pins no longer present in the Alpine package index.
+libexpat 2.9.0 addresses CVE-2026-102633 and CVE-2026-77214. The complete pinned
+package set resolves on both release architectures.
+
 Alpine Linux is distributed under multiple open-source licenses. Firefox ESR is
 MPL-2.0 with GPL and LGPL components, CA certificates are MPL-2.0 and MIT, and
 Liberation fonts are OFL-1.1. The statically linked Go crawler remains unchanged.

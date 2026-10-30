@@ -5,15 +5,22 @@ streams described in [the upstream gRPC advisory](https://github.com/grpc/grpc-g
 It also includes the missing-authority-header correction associated with an xDS
 routing panic in [GO-2026-6443](https://pkg.go.dev/vuln/GO-2026-6443).
 
-The node and isolated end-to-end test graphs pin x/crypto v0.55.0, which includes the authentication restriction correction
+The node and isolated end-to-end test graphs pin x/crypto v0.58.0, which includes the authentication restriction correction
 described in [GO-2026-6303](https://pkg.go.dev/vuln/GO-2026-6303).
+
+The node, crawler, crawl contract, and isolated end-to-end test graphs pin x/net v0.62.0. This includes the HTML
+text-node coalescing correction described in [GO-2026-6860](https://pkg.go.dev/vuln/GO-2026-6860) and the raw-text
+namespace rendering correction described in [GO-2026-6866](https://pkg.go.dev/vuln/GO-2026-6866).
+
+The node, crawler, and isolated end-to-end test graphs pin klauspost/compress v1.18.7, which includes the dictionary
+integer-overflow correction described in [GO-2026-5841](https://pkg.go.dev/vuln/GO-2026-5841).
 
 The crawler container pins its existing `libblkid` and `libmount` dependencies
 to Alpine `2.42.3-r1`, addressing the util-linux advisories reported against their
 earlier package revision. It also pins the existing libexpat library to
-`2.8.5-r0`, including the malformed UTF-16 correction in
-[CVE-2026-93990](https://github.com/libexpat/libexpat/releases/tag/R_2_8_5),
-and refreshes the CA certificates package to `20260909-r0`.
+`2.9.0-r0`, including the integer-overflow and buffer-length corrections in
+[CVE-2026-102633 and CVE-2026-77214](https://github.com/libexpat/libexpat/releases/tag/R_2_9_0),
+and refreshes the CA certificates package to `20261020-r0`.
 The crawler image pins PCRE2 to `10.49-r0`, addressing CVE-2026-103111 in
 its earlier runtime package. [PCRE2 10.49](https://github.com/PCRE2Project/pcre2/releases/tag/pcre2-10.49)
 corrects an out-of-bounds write under specific JIT stack conditions; no exploit
