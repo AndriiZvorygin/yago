@@ -212,10 +212,10 @@ func TestBackfillCompletesSuccessfulRowsAndSkipsUnusableRows(t *testing.T) {
 		t.Fatalf("Status: %v", err)
 	}
 	if status.State != stateComplete || status.ScannedDocuments != 3 ||
-		status.IndexedDocuments != 1 || status.SkippedDocuments != 2 {
+		status.IndexedDocuments != 2 || status.SkippedDocuments != 1 {
 		t.Fatalf("status = %+v", status)
 	}
-	if len(urls.rows) != 1 || len(postings.rows) == 0 {
+	if len(urls.rows) != 2 || len(postings.rows) == 0 {
 		t.Fatalf("stored URL rows=%d posting rows=%d", len(urls.rows), len(postings.rows))
 	}
 	if status.EstimatedBytes == 0 || status.PostingRows != int64(len(postings.rows)) {
@@ -842,29 +842,6 @@ func TestBackfillPauseAndCanceledExecutionDoNotLoseCheckpoint(t *testing.T) {
 	backfill.handleExecutionError(t.Context(), state, errors.New("persistence failure"))
 }
 
-func TestSupportedIndexedURLAcceptsHTTPFTPAndSMB(t *testing.T) {
-	for _, raw := range []string{
-		"https://example.test/",
-		"http://example.test/",
-		"ftp://example.test/archive",
-		"smb://example.test/share",
-	} {
-		if !supportedIndexedURL(raw) {
-			t.Errorf("supportedIndexedURL(%q) = false", raw)
-		}
-	}
-}
-
-func TestSupportedIndexedURLRejectsUnsupportedOrUnsafeURLs(t *testing.T) {
-	for _, raw := range []string{
-		"", "http://", "https://user@example.test/", "file:///page", "://bad", "gopher://example.test/",
-	} {
-		if supportedIndexedURL(raw) {
-			t.Errorf("supportedIndexedURL(%q) = true", raw)
-		}
-	}
-}
-
 func TestIndexableFetchStatus(t *testing.T) {
 	for _, status := range []string{"", "fetched", "200", "299", "500", "bad"} {
 		got := indexableFetchStatus(status)
@@ -1117,7 +1094,17 @@ func TestBackfillArtifactMappingUsesStoredContentAndDates(t *testing.T) {
 	if _, ok := buildArtifacts(importedDocument("https://example.test/bad", "404")); ok {
 		t.Fatal("failed HTTP document was accepted")
 	}
-	if _, ok := buildArtifacts(importedDocument("file:///bad", "200")); ok {
-		t.Fatal("unsupported imported URL was accepted")
+	for _, rawURL := range []string{"relative/path", "file:///bad"} {
+		artifacts, ok := buildArtifacts(importedDocument(rawURL, "200"))
+		if !ok {
+			t.Fatalf("legacy URL %q was dropped from RWI backfill", rawURL)
+		}
+		wantHash, err := yagomodel.HashURL(rawURL)
+		if err != nil {
+			t.Fatalf("hash legacy URL %q: %v", rawURL, err)
+		}
+		if got := artifacts.Metadata.Properties[yagomodel.URLMetaHash]; got != wantHash.String() {
+			t.Fatalf("legacy URL %q hash = %q, want %q", rawURL, got, wantHash)
+		}
 	}
 }

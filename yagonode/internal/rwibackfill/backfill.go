@@ -564,8 +564,7 @@ func statusFrom(value checkpoint) Status {
 }
 
 func buildArtifacts(document documentstore.Document) (yagomodel.RWIPageArtifacts, bool) {
-	if !supportedIndexedURL(document.NormalizedURL) ||
-		!indexableFetchStatus(document.FetchStatus) {
+	if !indexableFetchStatus(document.FetchStatus) {
 		return yagomodel.RWIPageArtifacts{}, false
 	}
 	tokens := yagomodel.TokenizeRWIText(
@@ -618,19 +617,6 @@ func buildArtifacts(document documentstore.Document) (yagomodel.RWIPageArtifacts
 		FreshUntil:        importedFreshness(document.Metadata["yacy.fresh_until"]),
 	}, yagocrawlcontract.MaximumIngestPostings)
 	return artifacts, true
-}
-
-func supportedIndexedURL(raw string) bool {
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Host == "" || parsed.User != nil {
-		return false
-	}
-	switch strings.ToLower(parsed.Scheme) {
-	case "http", "https", "ftp", "smb":
-		return true
-	default:
-		return false
-	}
 }
 
 func indexableFetchStatus(status string) bool {
