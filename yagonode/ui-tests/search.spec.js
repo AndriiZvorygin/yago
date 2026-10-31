@@ -81,9 +81,14 @@ test('portal autocomplete shows clean titles and accepts a keyboard suggestion',
   await page.goto('/');
   const input = page.getByRole('combobox', { name: 'Search query' });
   await input.fill(autocompleteQuery);
+  const suggestionResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === '/suggest.json' && url.searchParams.get('timeout') === '1000';
+  });
 
   const list = page.getByRole('listbox', { name: 'Search suggestions' });
   const options = list.getByRole('option');
+  expect((await suggestionResponse).status()).toBe(200);
   await expect(options.first()).toBeVisible({ timeout: 15_000 });
   const suggestions = await options.allTextContents();
   expect(suggestions.length).toBeGreaterThan(0);

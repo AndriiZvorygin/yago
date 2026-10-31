@@ -215,7 +215,7 @@ var htmlSearchTemplate = template.Must(template.New("yacysearch").Parse(`<!docty
     var q = input.value.trim();
     if (q.length < 2) { close(); return; }
     timer = setTimeout(function () {
-      fetch("/suggest.json?q=" + encodeURIComponent(q))
+      fetch("/suggest.json?q=" + encodeURIComponent(q) + "&timeout=1000")
         .then(function (r) { return r.json(); })
         .then(function (data) { render((data && data[1]) || []); })
         .catch(close);
