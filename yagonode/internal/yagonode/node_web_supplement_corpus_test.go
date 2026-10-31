@@ -53,6 +53,7 @@ func TestSupplementationOnBoundedDocumentCorpus(t *testing.T) {
 		t.Context(), func(searchcore.SearchProgress) {},
 	)
 	durations := make([]time.Duration, 0, 25)
+	incompleteEmptyAnswers := 0
 	for range 5 {
 		for _, size := range []int{0, 1, 99, 100, 101} {
 			before := webCalls.Load()
@@ -79,6 +80,7 @@ func TestSupplementationOnBoundedDocumentCorpus(t *testing.T) {
 				if response.LostSourceFailures() == 0 {
 					t.Fatalf("primary size=%d produced an unmarked empty answer", size)
 				}
+				incompleteEmptyAnswers++
 				continue
 			}
 			if !supplementWebCallExpected(
@@ -94,8 +96,9 @@ func TestSupplementationOnBoundedDocumentCorpus(t *testing.T) {
 	}
 	slices.Sort(durations)
 	t.Logf(
-		"301 documents; 25 requests; web calls=%d; empty answers=0; p50=%s p95=%s p99=%s",
+		"301 documents; 25 requests; web calls=%d; marked incomplete empty answers=%d; p50=%s p95=%s p99=%s",
 		webCalls.Load(),
+		incompleteEmptyAnswers,
 		durations[12],
 		durations[23],
 		durations[24],
