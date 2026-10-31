@@ -107,6 +107,27 @@ func TestBuildRWIPageArtifactsPreservesLegacyURLAndZeroDateBehavior(t *testing.T
 	}
 }
 
+func TestBuildRWIPageArtifactsRetainsMalformedLegacyURL(t *testing.T) {
+	const rawURL = "http://[::1"
+	wantHash, err := yagomodel.HashURL(rawURL)
+	if err != nil {
+		t.Fatalf("HashURL(%q): %v", rawURL, err)
+	}
+	artifacts := yagomodel.BuildRWIPageArtifacts(yagomodel.RWIPage{
+		URL:   rawURL,
+		Words: []yagomodel.RWIWord{{Word: "legacy", Frequency: 1}},
+	}, 1)
+	if len(artifacts.Postings) != 1 {
+		t.Fatalf("postings = %d, want one legacy posting", len(artifacts.Postings))
+	}
+	if got := artifacts.Postings[0].Properties[yagomodel.ColURLHash]; got != wantHash.String() {
+		t.Errorf("posting URL hash = %q, want %q", got, wantHash)
+	}
+	if got := artifacts.Metadata.Properties[yagomodel.URLMetaHash]; got != wantHash.String() {
+		t.Errorf("metadata URL hash = %q, want %q", got, wantHash)
+	}
+}
+
 func TestBuildRWIPageArtifactsTreatsNonpositivePostingLimitAsEmpty(t *testing.T) {
 	page := yagomodel.RWIPage{
 		URL:   "https://example.test/",
