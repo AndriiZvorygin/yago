@@ -106,7 +106,25 @@ func searchAvailabilityCallerCases() []searchAvailabilityEndpointCase {
 			}}},
 			err:            context.DeadlineExceeded,
 			expiredRequest: true,
-			status:         http.StatusInternalServerError,
+			status:         http.StatusConflict,
+		},
+		{
+			name: "expired caller with usable partial response",
+			response: searchcore.Response{
+				Results: []searchcore.Result{{
+					Title: "Partial result", URL: "https://example.org/partial",
+				}},
+				PartialFailures: []searchcore.PartialFailure{{
+					Source: searchcore.PartialFailureSourceLocalSearch,
+					Reason: "deadline",
+				}},
+				Coverage: &searchcore.SearchCoverage{
+					CompletedShards: 2, TotalShards: 8, Complete: false,
+				},
+			},
+			err:            context.DeadlineExceeded,
+			expiredRequest: true,
+			status:         http.StatusOK,
 		},
 		{
 			name: "canceled caller incomplete miss",
@@ -221,7 +239,7 @@ func assertSearchAvailabilityResponse(
 	if test.name == "honest miss" && len(response.Results) != 0 {
 		t.Fatalf("honest empty response = %+v", response)
 	}
-	if test.name == "usable partial response" && len(response.Results) != 1 {
+	if len(test.response.Results) > 0 && len(response.Results) == 0 {
 		t.Fatalf("row-bearing partial response = %+v", response)
 	}
 	if test.name == "sampled results without a source failure" && len(response.Results) != 1 {

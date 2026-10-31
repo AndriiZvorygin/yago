@@ -1,6 +1,8 @@
 package tavilyapi
 
 import (
+	"context"
+	"errors"
 	"fmt"
 
 	"github.com/D4rk4/yago/yagonode/internal/searchcore"
@@ -20,6 +22,12 @@ func searchCompletionFrom(
 
 func (completion searchCompletion) errorForCaller(callerCause error) error {
 	if callerCause != nil && !searchResponseComplete(completion.response) {
+		if len(completion.response.Results) > 0 {
+			return nil
+		}
+		if errors.Is(callerCause, context.DeadlineExceeded) {
+			return searchAvailabilityError(0, 1, nil)
+		}
 		return fmt.Errorf("search failed: %w", callerCause)
 	}
 	if completion.err == nil {
