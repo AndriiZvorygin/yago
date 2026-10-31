@@ -192,12 +192,12 @@ func (relay *terminalSettlementRelay) advanceExclusive(
 			relay.session.leaseGrants.Settle(settlement.LeaseID)
 		}
 	}
-	settlement, err = relay.acknowledgeTerminalSettlement(ctx, settlement, deliver)
-	if err != nil {
-		return err
+	acknowledged, err := relay.acknowledgeTerminalSettlement(ctx, settlement, deliver)
+	if err == nil {
+		err = relay.confirmTerminalSettlement(ctx, acknowledged, deliver)
 	}
 
-	return relay.confirmTerminalSettlement(ctx, settlement, deliver)
+	return relay.discardRefusedSettlement(ctx, settlement, err)
 }
 
 func (relay *terminalSettlementRelay) currentTerminalSettlement(

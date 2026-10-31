@@ -469,6 +469,10 @@ func (blockedTerminalOutbox) Complete(context.Context, string, []byte) error {
 	return nil
 }
 
+func (blockedTerminalOutbox) Discard(context.Context, string, []byte) error {
+	return nil
+}
+
 func (blockedTerminalOutbox) RebindWorkerSession(
 	context.Context,
 	crawlsettlement.Settlement,

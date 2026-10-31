@@ -189,8 +189,8 @@ func assertTerminalOrderMutationsRejected(
 			changed,
 		); status.Code(
 			err,
-		) != codes.FailedPrecondition {
-			t.Fatalf("mutation %d status = %v, want failed precondition", index, status.Code(err))
+		) != codes.NotFound {
+			t.Fatalf("mutation %d status = %v, want not found", index, status.Code(err))
 		}
 	}
 }
@@ -214,7 +214,7 @@ func confirmTerminalOrderTwice(
 	if _, err := fixture.server.AckOrder(
 		t.Context(),
 		invalidConfirmation,
-	); status.Code(err) != codes.FailedPrecondition {
+	); status.Code(err) != codes.NotFound {
 		t.Fatalf("mutated terminal confirmation status = %v", status.Code(err))
 	}
 	if err := fixture.queue.vault.View(t.Context(), func(tx *vault.Txn) error {

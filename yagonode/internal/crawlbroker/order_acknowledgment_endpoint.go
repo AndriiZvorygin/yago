@@ -30,11 +30,7 @@ func (s *exchangeServer) AckOrder(
 	if rich {
 		confirmationToken, err := s.settleTerminalOrder(ctx, leaseID, terminal)
 		if err != nil {
-			if errors.Is(err, errLeaseDispositionConflict) || errors.Is(err, errLeaseLost) {
-				return nil, status.Error(codes.FailedPrecondition, err.Error())
-			}
-
-			return nil, status.Error(codes.Internal, err.Error())
+			return nil, terminalSettlementRefusalStatus(err)
 		}
 		s.sessions.confirmDisposition(workerID, workerSessionID, leaseID)
 

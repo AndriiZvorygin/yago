@@ -119,7 +119,10 @@ Terminal progress follows a separate durable outbox. It is committed with the
 exact order identity, lease, session, tally, rate, and disposition before network
 delivery; at most 64 rows await delivery and four workers reconcile them. The node
 records the terminal snapshot idempotently and returns a confirmation token before
-the crawler deletes either the outbox row or frontier checkpoint. A replacement
+the crawler deletes either the outbox row or frontier checkpoint. When the node
+answers that it no longer holds that exact settlement, the crawler logs one
+warning and drops the outbox row instead of retrying it forever; lease loss and
+transient failures keep the row for retry. A replacement
 lease arriving after an in-memory drain recovers that rich settlement instead of
 acknowledging without its final tally.
 Each snapshot includes the run's effective pages-per-minute limit: its explicit

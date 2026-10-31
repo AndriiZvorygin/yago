@@ -970,6 +970,12 @@ it is not an assumed deployment dependency.
   most 256, while a later valid token confirmation SHALL remain idempotently
   successful. An acknowledgement for a lease already requeued by legacy NAK or
   expiry SHALL be rejected.
+* A rich terminal acknowledgement or confirmation whose exact settlement the node
+  no longer holds, or whose definition differs from the recorded one, SHALL be
+  answered with `NotFound`. Lease loss to another session SHALL remain
+  `FailedPrecondition`. The crawler SHALL discard its outbox row once on
+  `NotFound` and SHALL keep retrying after `FailedPrecondition` or a transient
+  failure.
 * The node SHALL preserve every session-aware crawl-order lease, its stable-worker
   ownership, and its lease identity across deadline expiry and node restart.
   Startup SHALL requeue only expired deferred or legacy sessionless leases, and a

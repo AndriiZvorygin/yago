@@ -27,6 +27,7 @@ type terminalSettlementOutboxScenario struct {
 	prepareError   error
 	completeError  error
 	completeCalled bool
+	discardError   error
 }
 
 func (scenario *terminalSettlementOutboxScenario) Stage(
@@ -103,6 +104,14 @@ func (scenario *terminalSettlementOutboxScenario) Complete(
 	scenario.mutex.Unlock()
 
 	return scenario.completeError
+}
+
+func (scenario *terminalSettlementOutboxScenario) Discard(
+	context.Context,
+	string,
+	[]byte,
+) error {
+	return scenario.discardError
 }
 
 func (scenario *terminalSettlementOutboxScenario) RebindWorkerSession(

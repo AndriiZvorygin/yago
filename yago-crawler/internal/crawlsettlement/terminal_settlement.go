@@ -46,6 +46,7 @@ type Settlement struct {
 
 type Outbox interface {
 	WorkerSessionRebinder
+	RefusedSettlementDiscarder
 	Stage(context.Context, Settlement) error
 	Awaiting(context.Context) ([]Settlement, error)
 	Current(context.Context, string, []byte) (Settlement, bool, error)
