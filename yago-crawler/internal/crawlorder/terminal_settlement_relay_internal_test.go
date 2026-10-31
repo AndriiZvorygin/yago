@@ -323,13 +323,15 @@ func stagedTerminalRelaySettlement(
 
 type slowFirstTerminalClient struct {
 	terminalAcknowledgmentClient
-	slowLeaseID   string
-	releaseSlow   <-chan struct{}
-	laterDone     chan struct{}
-	laterDoneOnce sync.Once
-	stateMutex    sync.Mutex
-	active        int
-	maximumActive int
+	slowLeaseID     string
+	releaseSlow     <-chan struct{}
+	slowStarted     chan struct{}
+	slowStartedOnce sync.Once
+	laterDone       chan struct{}
+	laterDoneOnce   sync.Once
+	stateMutex      sync.Mutex
+	active          int
+	maximumActive   int
 }
 
 func (client *slowFirstTerminalClient) AckOrder(
@@ -347,12 +349,18 @@ func (client *slowFirstTerminalClient) AckOrder(
 		client.stateMutex.Unlock()
 	}()
 	if request.GetLeaseId() == client.slowLeaseID {
+		client.slowStartedOnce.Do(func() { close(client.slowStarted) })
 		select {
 		case <-client.releaseSlow:
 			return nil, status.Error(codes.FailedPrecondition, "rejected")
 		case <-ctx.Done():
 			return nil, status.FromContextError(ctx.Err()).Err()
 		}
+	}
+	select {
+	case <-client.slowStarted:
+	case <-ctx.Done():
+		return nil, status.FromContextError(ctx.Err()).Err()
 	}
 	if len(request.GetConfirmationToken()) == 0 {
 		return &crawlrpc.OrderAckResult{
@@ -386,6 +394,7 @@ func TestTerminalSettlementReconciliationDoesNotLetSlowFirstRowStarveLaterRows(
 	client := &slowFirstTerminalClient{
 		slowLeaseID: slow.LeaseID,
 		releaseSlow: releaseSlow,
+		slowStarted: make(chan struct{}),
 		laterDone:   laterDone,
 	}
 	relay := newTerminalSettlementRelay(client, checkpoint)
