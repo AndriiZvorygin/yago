@@ -1,6 +1,7 @@
 package yagonode
 
 import (
+	"context"
 	"fmt"
 	"html"
 	"io"
@@ -56,41 +57,16 @@ func TestSupplementationOnBoundedDocumentCorpus(t *testing.T) {
 	incompleteEmptyAnswers := 0
 	for range 5 {
 		for _, size := range []int{0, 1, 99, 100, 101} {
-			before := webCalls.Load()
-			start := time.Now()
-			response, err := search.Search(
+			elapsed, incomplete := verifyBoundedCorpusSearch(
+				t,
+				search,
 				streamContext,
-				searchcore.Request{
-					Query:  fmt.Sprintf("needle corpus%d", size),
-					Source: searchcore.SourceGlobal,
-					Limit:  5,
-				},
+				size,
+				&webCalls,
 			)
-			durations = append(durations, time.Since(start))
-			if err != nil {
-				t.Fatalf(
-					"primary size=%d results=%d web calls=%d error=%v",
-					size,
-					len(response.Results),
-					webCalls.Load()-before,
-					err,
-				)
-			}
-			if len(response.Results) == 0 {
-				if response.LostSourceFailures() == 0 {
-					t.Fatalf("primary size=%d produced an unmarked empty answer", size)
-				}
+			durations = append(durations, elapsed)
+			if incomplete {
 				incompleteEmptyAnswers++
-				continue
-			}
-			if !supplementWebCallExpected(
-				response, size, webCalls.Load() > before, durations[len(durations)-1]) {
-				t.Fatalf(
-					"primary size=%d results=%d web calls=%d",
-					size,
-					len(response.Results),
-					webCalls.Load()-before,
-				)
 			}
 		}
 	}
@@ -103,6 +79,63 @@ func TestSupplementationOnBoundedDocumentCorpus(t *testing.T) {
 		durations[23],
 		durations[24],
 	)
+}
+
+func verifyBoundedCorpusSearch(
+	t *testing.T,
+	search searchcore.Searcher,
+	ctx context.Context,
+	size int,
+	webCalls *atomic.Int32,
+) (time.Duration, bool) {
+	t.Helper()
+	before := webCalls.Load()
+	start := time.Now()
+	response, err := search.Search(
+		ctx,
+		searchcore.Request{
+			Query:  fmt.Sprintf("needle corpus%d", size),
+			Source: searchcore.SourceGlobal,
+			Limit:  5,
+		},
+	)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf(
+			"primary size=%d results=%d web calls=%d error=%v",
+			size,
+			len(response.Results),
+			webCalls.Load()-before,
+			err,
+		)
+	}
+	if !primaryResultsAvailableOrMarkedIncomplete(t, response, size) {
+		return elapsed, true
+	}
+	if !supplementWebCallExpected(response, size, webCalls.Load() > before, elapsed) {
+		t.Fatalf(
+			"primary size=%d results=%d web calls=%d",
+			size,
+			len(response.Results),
+			webCalls.Load()-before,
+		)
+	}
+	return elapsed, false
+}
+
+func primaryResultsAvailableOrMarkedIncomplete(
+	t *testing.T,
+	response searchcore.Response,
+	size int,
+) bool {
+	t.Helper()
+	if len(response.Results) > 0 {
+		return true
+	}
+	if response.LostSourceFailures() == 0 {
+		t.Fatalf("primary size=%d produced an unmarked empty answer", size)
+	}
+	return false
 }
 
 func supplementWebCallExpected(
