@@ -27,6 +27,7 @@ The Debian package and the systemd units share one layout:
 | `/opt/yago/bin` | the `yago-node` and `yago-crawler` binaries |
 | `/opt/yago/etc` | the environment files below |
 | `/opt/yago/data` | durable node state and crawler frontier checkpoints |
+| `/opt/yago/data/peerroster.db` | known-peer roster and peer lifecycle state |
 | `/opt/yago/data/crawlbroker.db` | atomic node-side crawl queue, lease, settlement, control, and terminal-run state |
 | `/opt/yago/data/crawler/frontier-v1.db` | crawler-side frontier, visited set, observations, stable worker identity, and terminal outbox |
 

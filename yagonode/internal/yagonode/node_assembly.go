@@ -88,6 +88,7 @@ type node struct {
 	postings        rwi.PostingIndex
 	urlDirectory    urlmeta.URLDirectory
 	roster          peerroster.Roster
+	rosterVault     peerRosterStorage
 	news            *peernews.Pool
 	sweeper         eviction.Sweeper
 	announcer       peerannouncement.Announcer
@@ -192,6 +193,7 @@ func assembleNode(
 	defer func() {
 		if !assembledLifecycle {
 			peerWire.lifecycle.Close()
+			closeVault(peerWire.rosterVault.dedicated)
 		}
 	}()
 	peerClient := nodePeerClient(config, client)
@@ -240,6 +242,7 @@ func assembleNode(
 		mux: peerWire.mux, exchange: exchange, surfaces: surfaces, report: peerWire.report,
 		roster: peerWire.roster, news: peerWire.news, blocks: peerWire.blocks,
 		vault: vault, client: client, tally: peerWire.tally, peerLifecycle: peerWire.lifecycle,
+		rosterVault: peerWire.rosterVault,
 	})
 	assembledLifecycle = true
 
@@ -462,6 +465,7 @@ type nodeParts struct {
 	suggest       searchcore.Searcher
 	explanation   searchcore.Searcher
 	roster        peerroster.Roster
+	rosterVault   peerRosterStorage
 	news          *peernews.Pool
 	vault         *vault.Vault
 	client        *http.Client
@@ -539,6 +543,7 @@ func newAssembledNode(parts nodeParts, toggles *runtimeToggles) node {
 		postings:      parts.storage.postings,
 		urlDirectory:  parts.storage.urlDirectory,
 		roster:        parts.roster,
+		rosterVault:   parts.rosterVault,
 		news:          parts.news,
 		sweeper:       newStorageSweeper(parts.vault, parts.storage),
 		announcer:     parts.announcer,

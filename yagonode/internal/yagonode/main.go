@@ -118,6 +118,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load crawl config: %w", err)
 	}
+	config.PeerRosterPath = peerRosterStoragePath(config.DataDir)
 	config.Admin = loadAdminConfig(getenv)
 	config.CrossOrigin, err = loadCrossOriginConfig(getenv)
 	if err != nil {
@@ -316,6 +317,7 @@ func serve(
 	evictionMetrics *metrics.EvictionMetrics,
 	servers ...namedServer,
 ) error {
+	defer closeVault(assembled.rosterVault.dedicated)
 	ctx, cancel := context.WithCancel(ctx)
 	boundServers, err := bindHTTPServers(servers)
 	if err != nil {

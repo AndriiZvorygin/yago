@@ -99,10 +99,11 @@ func newNodeStatusReport(
 func openPeerStores(
 	ctx context.Context,
 	vault *vault.Vault,
+	rosterVault *vault.Vault,
 	self yagomodel.Hash,
 	peer *metrics.PeerMetrics,
 ) (peerroster.Roster, *peernews.Pool, *transfertally.Tally, *peerblock.Store, error) {
-	roster, err := openObservedPeerRoster(ctx, vault, self, peer)
+	roster, err := openObservedPeerRoster(ctx, rosterVault, self, peer)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

@@ -211,6 +211,12 @@ it is not an assumed deployment dependency.
   direct hello SHALL refresh the responder's advertised metadata while retaining
   the endpoint that was actually contacted; indirect gossip SHALL NOT overwrite
   that direct observation.
+* The persistent peer roster SHALL live in its own bbolt file,
+  `${YAGO_DATA_DIR}/peerroster.db`, separate from the main sharded vault, so
+  roster writes never wait behind document ingest. On the first start with
+  that file, the node SHALL copy, verify, and mark complete the roster rows
+  held in the main vault before serving; later starts SHALL NOT copy again.
+  A failed copy SHALL stop startup and leave the main-vault rows untouched.
 * The persistent peer roster SHALL serialize membership mutations through a
   cancellation-aware permit. A transport failure SHALL move a retained peer out
   of reachable membership for a ten-minute retry interval without deleting it;

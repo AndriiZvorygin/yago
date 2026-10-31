@@ -116,6 +116,7 @@ type nodeConfig struct {
 	PublicAddr                   string
 	StoragePath                  string
 	SearchIndexPath              string
+	PeerRosterPath               string
 	StorageQuotaByte             int64
 	StorageReservedFreeBytes     int64
 	StoragePressureRecoveryBytes int64

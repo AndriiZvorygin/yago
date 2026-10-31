@@ -185,7 +185,7 @@ func TestOpenPeerStoresPeerBlockOpenError(t *testing.T) {
 	v := ctrlVault(t, engine)
 
 	_, _, _, _, err := openPeerStores(
-		t.Context(), v, yagomodel.Hash("LLLLLLLLLLLL"), nil,
+		t.Context(), v, v, yagomodel.Hash("LLLLLLLLLLLL"), nil,
 	)
 	if err == nil || !strings.Contains(err.Error(), "open peer blocklist") {
 		t.Fatalf("openPeerStores error = %v, want peer blocklist open error", err)

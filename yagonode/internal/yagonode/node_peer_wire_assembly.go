@@ -28,6 +28,7 @@ type nodePeerWireInput struct {
 }
 
 type nodePeerWire struct {
+	rosterVault  peerRosterStorage
 	roster       peerroster.Roster
 	news         *peernews.Pool
 	tally        *transfertally.Tally
@@ -41,13 +42,20 @@ type nodePeerWire struct {
 }
 
 func assembleNodePeerWire(in nodePeerWireInput) (nodePeerWire, error) {
+	rosterVault, err := openPeerRosterStorage(in.ctx, in.config.PeerRosterPath, in.vault)
+	if err != nil {
+		return nodePeerWire{}, err
+	}
 	roster, news, tally, blocks, err := openPeerStores(
 		in.ctx,
 		in.vault,
+		rosterVault.vault,
 		in.identity.Hash,
 		in.telemetry.peer,
 	)
 	if err != nil {
+		closeVault(rosterVault.dedicated)
+
 		return nodePeerWire{}, err
 	}
 	potentialPeers, _ := roster.(documentsearch.PotentialPeerObserver)
@@ -70,7 +78,7 @@ func assembleNodePeerWire(in nodePeerWireInput) (nodePeerWire, error) {
 	})
 
 	return nodePeerWire{
-		roster: roster, news: news, tally: tally, blocks: blocks,
+		rosterVault: rosterVault, roster: roster, news: news, tally: tally, blocks: blocks,
 		lifecycle: lifecycle, queues: queues, report: report, mux: mux, router: router,
 		reachability: reachability,
 	}, nil

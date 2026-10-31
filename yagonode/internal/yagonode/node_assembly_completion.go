@@ -22,6 +22,7 @@ type nodeAssemblyCompletion struct {
 	surfaces      nodeSurfaces
 	report        nodestatus.Report
 	roster        peerroster.Roster
+	rosterVault   peerRosterStorage
 	news          *peernews.Pool
 	blocks        *peerblock.Store
 	vault         *vault.Vault
@@ -44,6 +45,7 @@ func completeNodeAssembly(in nodeAssemblyCompletion) node {
 		suggest:       in.surfaces.suggest,
 		explanation:   in.surfaces.explanation,
 		roster:        in.roster,
+		rosterVault:   in.rosterVault,
 		news:          in.news,
 		vault:         in.vault,
 		client:        in.client,

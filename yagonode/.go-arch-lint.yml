@@ -408,6 +408,7 @@ deps:
       - peerroster
       - vault
       - memvault
+      - boltvault
     canUse:
       - yagomodel
   peerannouncement:
