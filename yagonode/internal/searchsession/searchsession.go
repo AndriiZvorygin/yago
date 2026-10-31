@@ -33,7 +33,6 @@ const (
 // clock feeds session expiry; tests substitute a scripted time.
 var clock = time.Now
 
-// Full-index completion is local-only and shared across every search session.
 var fullSearchCompletionSlots = make(chan struct{}, maximumConcurrentFullSearchCompletions)
 
 type session struct {
@@ -453,9 +452,6 @@ func (s *stableSearcher) startFullSearch(plan fullSearchRequest) *fullSearchComp
 			s.mu.Unlock()
 			close(completion.done)
 		}()
-		// The caller no longer waits for this completion, so it must not create
-		// peer or web traffic. SourceLocal suppresses federation, and the explicit
-		// fallback flag is cleared as a second guard in the shared pipeline.
 		request.Source = searchcore.SourceLocal
 		request.AllowWebFallback = false
 		response, err := s.inner.Search(background, request)

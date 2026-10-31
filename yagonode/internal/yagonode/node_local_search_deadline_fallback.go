@@ -99,8 +99,6 @@ func (s localSearchDeadlineFallback) runFallback(
 	req searchcore.Request,
 	primaryResponse searchcore.Response,
 ) searchcore.Response {
-	// Preserve partial hits after a fallback timeout. Response is a value, so its fields are safe
-	// to inspect.
 	fallbackResponse, err := s.fallback.Search(ctx, req) // nosemgrep
 	if err != nil {
 		if len(fallbackResponse.Results) == 0 && fallbackResponse.Coverage == nil {
