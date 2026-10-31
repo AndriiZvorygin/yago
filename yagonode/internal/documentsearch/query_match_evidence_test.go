@@ -257,6 +257,7 @@ func TestQueryMatchEvidenceSourceBoundsCandidatesAnalysisAndPositions(t *testing
 	source := queryMatchEvidenceSource{
 		analyzer:  testQueryMatchEvidenceAnalyzer{},
 		documents: fakeDocumentDirectory{documents: documents},
+		budget:    queryMatchEvidenceBudget{duration: time.Second},
 	}
 	evidence := source.resources(t.Context(), yagoproto.SearchRequest{
 		Query:           []yagomodel.Hash{yagomodel.WordHash("term")},
