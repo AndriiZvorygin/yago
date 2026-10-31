@@ -42,9 +42,9 @@ func (unfinishedRelaxationIndex) SearchEvidence(
 }
 
 func TestPublicSearchKeepsStrictCandidatesAfterRelaxationDeadline(t *testing.T) {
-	previous := webFallbackExactStageBudget
-	webFallbackExactStageBudget = 100 * time.Millisecond
-	t.Cleanup(func() { webFallbackExactStageBudget = previous })
+	previous := webFallbackPrimaryStageBudget
+	webFallbackPrimaryStageBudget = 100 * time.Millisecond
+	t.Cleanup(func() { webFallbackPrimaryStageBudget = previous })
 	var webCalls atomic.Int32
 	client := &http.Client{
 		Transport: fallbackRoundTrip(func(*http.Request) (*http.Response, error) {

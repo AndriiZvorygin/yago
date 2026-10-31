@@ -66,7 +66,25 @@ func (s *ParallelSearcher) Search(
 	branchContext, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	primaryOutcome, providerOutcome := s.startParallelSearches(branchContext, req)
+	primaryOutcome, snapshot := s.fallback.startPrimarySearch(branchContext, req)
+	providerOutcome := s.fallback.startProviderSearch(branchContext, req, snapshot)
+
+	return s.fallback.completeParallelSearch(
+		ctx,
+		branchContext,
+		req,
+		primaryOutcome,
+		providerOutcome,
+	)
+}
+
+func (s *FallbackSearcher) completeParallelSearch(
+	ctx context.Context,
+	branchContext context.Context,
+	req searchcore.Request,
+	primaryOutcome <-chan parallelPrimaryOutcome,
+	providerOutcome <-chan parallelProviderOutcome,
+) (searchcore.Response, error) {
 	outcomes := s.collectSearch(
 		branchContext,
 		req,
@@ -76,11 +94,9 @@ func (s *ParallelSearcher) Search(
 	primary := outcomes.primary
 	provider := outcomes.provider
 	if primary.failure != nil {
-		cancel()
 		panic(primary.failure)
 	}
 	if provider.failure != nil {
-		cancel()
 		panic(provider.failure)
 	}
 	if !outcomes.primaryReady {
@@ -93,20 +109,19 @@ func (s *ParallelSearcher) Search(
 	if primary.err != nil {
 		primary.response = failedParallelPrimaryResponse(primary.response, primary.err)
 	}
-	response, err := s.fallback.completeWebSearch(ctx, req, primary.response, provider)
+	response, err := s.completeWebSearch(ctx, req, primary.response, provider)
 	if err == nil && len(response.Results) == 0 && primary.err != nil {
 		return response, errParallelSearchUnavailable
 	}
 	return response, err
 }
 
-func (s *ParallelSearcher) startParallelSearches(
+func (s *FallbackSearcher) startPrimarySearch(
 	ctx context.Context,
 	req searchcore.Request,
-) (<-chan parallelPrimaryOutcome, <-chan parallelProviderOutcome) {
+) (<-chan parallelPrimaryOutcome, *primaryResultSnapshot) {
 	snapshot := &primaryResultSnapshot{ready: make(chan struct{})}
 	primaryOutcome := make(chan parallelPrimaryOutcome, 1)
-	providerOutcome := make(chan parallelProviderOutcome, 1)
 	go func() {
 		outcome := parallelPrimaryOutcome{}
 		defer func() {
@@ -115,8 +130,18 @@ func (s *ParallelSearcher) startParallelSearches(
 			close(snapshot.ready)
 			primaryOutcome <- outcome
 		}()
-		outcome.response, outcome.err = s.fallback.primary.Search(ctx, req)
+		outcome.response, outcome.err = s.primary.Search(ctx, req)
 	}()
+
+	return primaryOutcome, snapshot
+}
+
+func (s *FallbackSearcher) startProviderSearch(
+	ctx context.Context,
+	req searchcore.Request,
+	snapshot *primaryResultSnapshot,
+) <-chan parallelProviderOutcome {
+	providerOutcome := make(chan parallelProviderOutcome, 1)
 	go func() {
 		outcome := parallelProviderOutcome{}
 		defer func() {
@@ -125,7 +150,7 @@ func (s *ParallelSearcher) startParallelSearches(
 		}()
 		prepared := newProviderQueryForRequest(req)
 		prepared.primary = snapshot
-		outcome.results, outcome.err = s.fallback.searchPreparedProvider(
+		outcome.results, outcome.err = s.searchPreparedProvider(
 			ctx,
 			prepared,
 			maxCachedResults,
@@ -137,7 +162,7 @@ func (s *ParallelSearcher) startParallelSearches(
 		)
 	}()
 
-	return primaryOutcome, providerOutcome
+	return providerOutcome
 }
 
 func collectParallelOutcomes(

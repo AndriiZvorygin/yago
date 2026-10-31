@@ -6,13 +6,13 @@ import (
 	"github.com/D4rk4/yago/yagonode/internal/searchcore"
 )
 
-func (s *ParallelSearcher) collectSearch(
+func (s *FallbackSearcher) collectSearch(
 	ctx context.Context,
 	request searchcore.Request,
 	primary <-chan parallelPrimaryOutcome,
 	provider <-chan parallelProviderOutcome,
 ) parallelOutcomes {
-	if s.fallback.recovery == nil {
+	if s.recovery == nil {
 		return collectParallelOutcomes(ctx, primary, provider)
 	}
 	select {
@@ -26,7 +26,7 @@ func (s *ParallelSearcher) collectSearch(
 				false,
 			)
 		}
-		recovered := s.fallback.startRecovery(ctx, request, initial.response)
+		recovered := s.startRecovery(ctx, request, initial.response)
 		outcomes := collectSupplementOutcomes(ctx, recovered, provider)
 		if !outcomes.primaryReady {
 			outcomes.primary, outcomes.primaryReady = initial, true

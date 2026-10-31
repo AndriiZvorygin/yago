@@ -41,15 +41,12 @@ func (s coldPrimarySearch) Search(
 }
 
 func TestAlwaysWebFallbackPublishesColdPrimaryBesideWeb(t *testing.T) {
-	previousExact := webFallbackExactStageBudget
-	previousParallel := webFallbackParallelExactStageBudget
+	previousPrimary := webFallbackPrimaryStageBudget
 	previousRecovery := localExactRecoveryBudget
-	webFallbackExactStageBudget = 20 * time.Millisecond
-	webFallbackParallelExactStageBudget = 120 * time.Millisecond
+	webFallbackPrimaryStageBudget = 120 * time.Millisecond
 	localExactRecoveryBudget = 15 * time.Millisecond
 	t.Cleanup(func() {
-		webFallbackExactStageBudget = previousExact
-		webFallbackParallelExactStageBudget = previousParallel
+		webFallbackPrimaryStageBudget = previousPrimary
 		localExactRecoveryBudget = previousRecovery
 	})
 

@@ -28,6 +28,8 @@ type FallbackSearcher struct {
 	providerBudget  time.Duration
 	providerReserve time.Duration
 	spawnSeedWork   func(string, context.Context, func(context.Context)) bool
+
+	supplementDecisionDelay SupplementDecisionDelay
 }
 
 func NewFallbackSearcher(
@@ -56,6 +58,9 @@ func (s *FallbackSearcher) Search(
 	if eligible {
 		window = supplementalWindow(req)
 	}
+	if eligible && s.supplementDecisionDelay != nil {
+		return s.searchWithSupplementDecision(ctx, req, window)
+	}
 	response, err := s.primary.Search(ctx, window)
 	if err != nil {
 		return response, fmt.Errorf("primary search: %w", err)
@@ -63,6 +68,16 @@ func (s *FallbackSearcher) Search(
 	if !eligible {
 		return s.recoverResults(ctx, req, response)
 	}
+	return s.supplementPrimary(ctx, req, window, response)
+}
+
+func (s *FallbackSearcher) supplementPrimary(
+	ctx context.Context,
+	req searchcore.Request,
+	window searchcore.Request,
+	response searchcore.Response,
+) (searchcore.Response, error) {
+	var err error
 	response, known := primaryCandidates(window, response)
 	if len(response.Results) < SupplementalCandidateTarget {
 		response, err = s.supplement(ctx, window, response, known)

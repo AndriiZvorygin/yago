@@ -479,6 +479,8 @@ func withWebFallback(
 		return websearch.NewParallelSearcher(search, provider, permit, opts...)
 	}
 
+	opts = append(opts, websearch.WithSupplementDecisionDelay(webFallbackSupplementDecisionDelay))
+
 	return websearch.NewFallbackSearcher(search, provider, permit, opts...)
 }
 

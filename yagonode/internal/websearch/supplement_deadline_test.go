@@ -96,7 +96,7 @@ func TestParallelRecoveryDrainsCompletedWebAtCancellation(t *testing.T) {
 	))
 	provider := make(chan parallelProviderOutcome, 1)
 	provider <- parallelProviderOutcome{results: []Result{{URL: "https://web.example/page"}}}
-	outcomes := search.collectSearch(
+	outcomes := search.fallback.collectSearch(
 		ctx,
 		searchcore.Request{},
 		make(chan parallelPrimaryOutcome),

@@ -13,7 +13,6 @@ import (
 )
 
 var (
-	webFallbackExactStageBudget           = 600 * time.Millisecond
 	webFallbackProviderBudget             = 1800 * time.Millisecond
 	processWebFallbackExactStageAdmission = newInteractiveSearchAdmission(
 		interactiveSearchConcurrentWork,
@@ -34,7 +33,6 @@ type webFallbackExactStageBudgetSearcher struct {
 	inner     searchcore.Searcher
 	permit    func(searchcore.Request) bool
 	budget    time.Duration
-	reserve   time.Duration
 	grace     time.Duration
 	admission *interactiveSearchAdmission
 	panicLog  func(context.Context, string, ...any)
@@ -58,8 +56,7 @@ func withWebFallbackExactStageBudget(
 	return webFallbackExactStageBudgetSearcher{
 		inner:     inner,
 		permit:    webFallbackPermit(config.Privacy),
-		budget:    webFallbackPrimaryStageBudget(config),
-		reserve:   webFallbackSequentialReserve(config),
+		budget:    webFallbackPrimaryStageBudget,
 		grace:     webFallbackExactStageCancellationGrace,
 		admission: processWebFallbackExactStageAdmission,
 		panicLog:  slog.ErrorContext,
@@ -84,7 +81,7 @@ func (s webFallbackExactStageBudgetSearcher) Search(
 		return response, nil
 	}
 
-	budget := remainingExactStageBudget(ctx, s.budget, s.reserve)
+	budget := s.budget
 	hardContext, hardCancel := context.WithTimeout(ctx, budget)
 	defer hardCancel()
 	stageBudget := budget - s.grace

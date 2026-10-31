@@ -77,8 +77,8 @@ func TestSupplementationOnBoundedDocumentCorpus(t *testing.T) {
 				},
 			)
 			durations = append(durations, time.Since(start))
-			if err != nil || len(response.Results) == 0 ||
-				(response.LostSourceFailures() == 0 && (webCalls.Load() > before) != (size < 100)) {
+			if err != nil || len(response.Results) == 0 || !supplementWebCallExpected(
+				response, size, webCalls.Load() > before, durations[len(durations)-1]) {
 				t.Fatalf(
 					"primary size=%d results=%d web calls=%d error=%v",
 					size,
@@ -97,4 +97,18 @@ func TestSupplementationOnBoundedDocumentCorpus(t *testing.T) {
 		durations[23],
 		durations[24],
 	)
+}
+
+func supplementWebCallExpected(
+	response searchcore.Response,
+	primarySize int,
+	webCalled bool,
+	elapsed time.Duration,
+) bool {
+	if primarySize < 100 {
+		return webCalled
+	}
+	primaryMissedDecision := elapsed >= webFallbackSupplementDecisionCeiling
+
+	return !webCalled || response.LostSourceFailures() > 0 || primaryMissedDecision
 }
