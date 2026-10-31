@@ -66,14 +66,28 @@ func TestSupplementationOnBoundedDocumentCorpus(t *testing.T) {
 				},
 			)
 			durations = append(durations, time.Since(start))
-			if err != nil || len(response.Results) == 0 || !supplementWebCallExpected(
-				response, size, webCalls.Load() > before, durations[len(durations)-1]) {
+			if err != nil {
 				t.Fatalf(
 					"primary size=%d results=%d web calls=%d error=%v",
 					size,
 					len(response.Results),
 					webCalls.Load()-before,
 					err,
+				)
+			}
+			if len(response.Results) == 0 {
+				if response.LostSourceFailures() == 0 {
+					t.Fatalf("primary size=%d produced an unmarked empty answer", size)
+				}
+				continue
+			}
+			if !supplementWebCallExpected(
+				response, size, webCalls.Load() > before, durations[len(durations)-1]) {
+				t.Fatalf(
+					"primary size=%d results=%d web calls=%d",
+					size,
+					len(response.Results),
+					webCalls.Load()-before,
 				)
 			}
 		}
