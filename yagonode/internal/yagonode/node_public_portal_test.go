@@ -69,6 +69,24 @@ func TestPortalSourceMapsAndMarksResults(t *testing.T) {
 	assertPortalSearchCachedLinks(t, results)
 }
 
+func TestPortalSourceDisplaysImportedTitleArray(t *testing.T) {
+	t.Parallel()
+
+	searcher := &stubPortalSearcher{response: searchcore.Response{
+		Results: []searchcore.Result{{
+			Title: `["A displayed title", "An alternate title"]`,
+			URL:   "https://example.org/page",
+		}},
+	}}
+	results, err := newPortalSource(searcher).Search(t.Context(), "displayed", "", 0, 10)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results.Results) != 1 || results.Results[0].Title != "A displayed title" {
+		t.Fatalf("portal titles = %#v", results.Results)
+	}
+}
+
 func assertPortalSearchWindow(
 	t *testing.T,
 	searcher *stubPortalSearcher,

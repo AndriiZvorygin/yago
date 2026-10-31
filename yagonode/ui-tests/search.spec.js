@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 
 const query = process.env.YAGO_UI_QUERY || 'Canada parliament';
+const autocompleteQuery = process.env.YAGO_AUTOCOMPLETE_QUERY || 'mo';
 const searchPage = '/yacysearch.html?resource=local&contentdom=text';
 
 async function observeSearchResultPage(page) {
@@ -72,4 +73,36 @@ test('does not claim an incomplete empty search is complete', async ({ page }, t
     await expect(page.locator('#nothing-found')).toBeVisible();
   }
   await page.screenshot({ path: testInfo.outputPath('empty-search.png'), fullPage: true });
+});
+
+
+test('portal autocomplete shows clean titles and accepts a keyboard suggestion', async ({ page }, testInfo) => {
+  test.setTimeout(60_000);
+  await page.goto('/');
+  const input = page.getByRole('combobox', { name: 'Search query' });
+  await input.fill(autocompleteQuery);
+
+  const list = page.getByRole('listbox', { name: 'Search suggestions' });
+  const options = list.getByRole('option');
+  await expect(options.first()).toBeVisible({ timeout: 15_000 });
+  const suggestions = await options.allTextContents();
+  expect(suggestions.length).toBeGreaterThan(0);
+  for (const suggestion of suggestions) {
+    expect(suggestion.trim()).not.toMatch(/^\[\s*["']/);
+  }
+  await expect(input).toHaveAttribute('aria-expanded', 'true');
+  await page.screenshot({ path: testInfo.outputPath('autocomplete.png'), fullPage: true });
+
+  const selected = (await options.first().innerText()).trim();
+  await input.press('ArrowDown');
+  await expect(input).toHaveAttribute('aria-activedescendant', 'ac-opt-0');
+  await input.press('Enter');
+  await expect(page).toHaveURL(/\?q=/);
+  expect(new URL(page.url()).searchParams.get('q')).toBe(selected);
+  await expect(page.locator('.results .title').first()).toBeVisible({ timeout: 20_000 });
+  const resultTitles = await page.locator('.results .title').allTextContents();
+  for (const title of resultTitles) {
+    expect(title.trim()).not.toMatch(/^\[\s*["']/);
+  }
+  await page.screenshot({ path: testInfo.outputPath('autocomplete-selected.png'), fullPage: true });
 });

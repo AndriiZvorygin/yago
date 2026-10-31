@@ -129,7 +129,7 @@ func (s portalSource) Search(
 			clusterIdentity = result.URL
 		}
 		out.Results = append(out.Results, publicportal.SearchResult{
-			Title:           result.Title,
+			Title:           searchcore.DisplayTitle(result.Title),
 			URL:             result.URL,
 			DisplayURL:      result.DisplayURL,
 			Snippet:         result.Snippet,
