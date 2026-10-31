@@ -99,10 +99,23 @@ test('portal autocomplete shows clean titles and accepts a keyboard suggestion',
   await input.press('Enter');
   await expect(page).toHaveURL(/\?q=/);
   expect(new URL(page.url()).searchParams.get('q')).toBe(selected);
-  await expect(page.locator('.results .title').first()).toBeVisible({ timeout: 20_000 });
-  const resultTitles = await page.locator('.results .title').allTextContents();
+  await page.screenshot({ path: testInfo.outputPath('autocomplete-selected.png'), fullPage: true });
+
+  await page.goto('/');
+  await input.fill(autocompleteQuery);
+  await expect(options.first()).toBeVisible({ timeout: 15_000 });
+  const pointerSelected = (await options.first().innerText()).trim();
+  await options.first().click();
+  await expect(page).toHaveURL(/\?q=/);
+  expect(new URL(page.url()).searchParams.get('q')).toBe(pointerSelected);
+  await page.screenshot({ path: testInfo.outputPath('autocomplete-pointer-selected.png'), fullPage: true });
+
+  await page.goto(`/?q=${encodeURIComponent(query)}`);
+  const results = page.locator('.results .title');
+  await expect(results.first()).toBeVisible({ timeout: 20_000 });
+  const resultTitles = await results.allTextContents();
   for (const title of resultTitles) {
     expect(title.trim()).not.toMatch(/^\[\s*["']/);
   }
-  await page.screenshot({ path: testInfo.outputPath('autocomplete-selected.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('portal-results.png'), fullPage: true });
 });
